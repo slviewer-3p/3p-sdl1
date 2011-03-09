@@ -30,12 +30,14 @@
                 <key>command</key>
                 <string>sh</string>
               </map>
-              <key>default</key>
-              <string>True</string>
               <key>name</key>
               <string>Release</string>
             </map>
           </map>
+          <key>manifest</key>
+          <array>
+            <string>include/SDL/*.h</string>
+          </array>
           <key>name</key>
           <string>common</string>
         </map>
@@ -48,10 +50,16 @@
               <key>build</key>
               <map>
               </map>
+              <key>default</key>
+              <string>True</string>
               <key>name</key>
               <string>Release</string>
             </map>
           </map>
+          <key>manifest</key>
+          <array>
+            <string>lib/release/*.so*</string>
+          </array>
           <key>name</key>
           <string>linux</string>
         </map>
