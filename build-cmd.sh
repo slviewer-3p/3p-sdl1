@@ -30,7 +30,7 @@ stage="$(pwd)"
 case "$AUTOBUILD_PLATFORM" in
     "linux")
         pushd "$TOP/$DIRECTFB_SOURCE_DIR"
-            LDFLAGS="-m32" CFLAGS="-m32" CXXFLAGS="-m32" ./configure --prefix="$stage"
+            LDFLAGS="-m32  -L"$stage/packages/lib"" CFLAGS="-m32" CXXFLAGS="-m32" ./configure --prefix="$stage"
             make
             make install
         popd
