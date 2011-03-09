@@ -8,7 +8,7 @@ set -e
 TOP="$(dirname "$0")"
 
 SDL_VERSION="1.2.14"
-SDL_SOURCE_DIR="sdl-$SDL_VERSION"
+SDL_SOURCE_DIR="SDL-$SDL_VERSION"
 
 if [ -z "$AUTOBUILD" ] ; then 
     fail
@@ -26,6 +26,11 @@ set -x
 stage="$(pwd)"
 case "$AUTOBUILD_PLATFORM" in
     "linux")
+        pushd "$TOP/$SDL_SOURCE_DIR"
+            LDFLAGS="-m32  -L"$stage/lib"" CFLAGS="-m32" CXXFLAGS="-m32" ./configure --prefix="$stage" --target=i686-linux-gnu
+            make
+            make install
+        popd
     ;;
     *)
         exit -1
