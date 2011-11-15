@@ -30,18 +30,33 @@ stage="$(pwd)"
 case "$AUTOBUILD_PLATFORM" in
     "linux")
         pushd "$TOP/$DIRECTFB_SOURCE_DIR"
-            LDFLAGS="-m32  -L"$stage/packages/lib"" CFLAGS="-m32" CXXFLAGS="-m32" ./configure --prefix="$stage"
+			# do release build of directfb	
+            LDFLAGS="-m32 -L"$stage/packages/lib/release"" CFLAGS="-I"$stage/packages/include" -m32 -O3" CXXFLAGS="-I"$stage/packages/include" -m32 -O3" LIBPNG_CFLAGS="$CFLAGS" LIBPNG_LIBS="-lpng -lz -lm" ./configure --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include" --enable-static --enable-zlib --disable-freetype
+            make
+            make install
+
+			# clean the build tree
+			make distclean
+
+			# do release debug of directfb	
+            LDFLAGS="-m32 -L"$stage/packages/lib/debug"" CFLAGS="-I"$stage/packages/include" -m32 -gstabs+" CXXFLAGS="-I"$stage/packages/include" -m32 -gstabs+" LIBPNG_CFLAGS="$CFLAGS" LIBPNG_LIBS="-lpng -lz -lm" ./configure --prefix="$stage" --libdir="$stage/lib/debug" --includedir="$stage/include" --enable-static --enable-zlib --disable-freetype
             make
             make install
         popd
         pushd "$TOP/$SDL_SOURCE_DIR"
-            LDFLAGS="-m32  -L"$stage/lib"" CFLAGS="-m32" CXXFLAGS="-m32" ./configure --prefix="$stage" --target=i686-linux-gnu
+			# do release build of sdl
+            LDFLAGS="-m32  -L"$stage/packages/lib/release"" CFLAGS="-I"$stage/packages/include" -m32 -O3" CXXFLAGS="-I"$stage/packages/include" -m32 -O2" ./configure --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include" --target=i686-linux-gnu
+            make
+            make install
+
+			# clean the build tree
+			make distclean
+
+			# do debug build of sdl
+            LDFLAGS="-m32  -L"$stage/packages/lib/debug"" CFLAGS="-I"$stage/packages/include" -m32 -O0 -gstabs+" CXXFLAGS="-I"$stage/packages/include" -m32 -O0 -gstabs+" ./configure --prefix="$stage" --libdir="$stage/lib/debug" --includedir="$stage/include" --target=i686-linux-gnu
             make
             make install
         popd
-        mv lib release
-        mkdir -p lib
-        mv release lib
     ;;
     *)
         exit -1

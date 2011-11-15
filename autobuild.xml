@@ -3,6 +3,30 @@
 <map>
     <key>installables</key>
     <map>
+      <key>libpng</key>
+      <map>
+        <key>license</key>
+        <string>libpng</string>
+        <key>license_file</key>
+        <string>LICENSES/libpng.txt</string>
+        <key>name</key>
+        <string>libpng</string>
+        <key>platforms</key>
+        <map>
+          <key>linux</key>
+          <map>
+            <key>archive</key>
+            <map>
+              <key>hash</key>
+              <string>6282b0f5bcd4ae78e199c48404e4c0a9</string>
+              <key>url</key>
+              <string>http://automated-builds-secondlife-com.s3.amazonaws.com/hg/repo/huseby_3p-libpng/rev/245128/arch/Linux/installer/libpng-1.5.1-linux-20111114.tar.bz2</string>
+            </map>
+            <key>name</key>
+            <string>linux</string>
+          </map>
+        </map>
+      </map>
       <key>zlib</key>
       <map>
         <key>license</key>
@@ -18,9 +42,9 @@
             <key>archive</key>
             <map>
               <key>hash</key>
-              <string>0f233b6e02fcf66cb9b17eaf700f214d</string>
+              <string>a9609308ce145f5bbdd4da12af80e4fa</string>
               <key>url</key>
-              <string>http://automated-builds-secondlife-com.s3.amazonaws.com/hg/repo/3p-zlib/rev/220983/arch/Linux/installer/zlib-1.2.5-linux-20110211.tar.bz2</string>
+              <string>http://automated-builds-secondlife-com.s3.amazonaws.com/hg/repo/huseby_3p-zlib/rev/245123/arch/Linux/installer/zlib-1.2.5-linux-20111114.tar.bz2</string>
             </map>
             <key>name</key>
             <string>linux</string>
@@ -63,7 +87,9 @@
           </map>
           <key>manifest</key>
           <array>
-            <string>include/SDL/*.h</string>
+            <string>include/SDL/*</string>
+            <string>include/directfb/*</string>
+            <string>include/directfb-internal/*</string>
           </array>
           <key>name</key>
           <string>common</string>
@@ -85,7 +111,8 @@
           </map>
           <key>manifest</key>
           <array>
-            <string>lib/release/*.so*</string>
+            <string>lib/release/*.a</string>
+            <string>lib/debug/*.a</string>
           </array>
           <key>name</key>
           <string>linux</string>
