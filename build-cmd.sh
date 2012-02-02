@@ -29,6 +29,13 @@ set -x
 stage="$(pwd)"
 case "$AUTOBUILD_PLATFORM" in
     "linux")
+    	
+    	# Prefer gcc-4.1 if available.
+    	if [[ -f /usr/bin/gcc-4.1 && -f /usr/bin/g++-4.1 ]] ; then
+	    	export CC=/usr/bin/gcc-4.1
+    		export CXX=/usr/bin/g++-4.1
+    	fi
+    	
         pushd "$TOP/$DIRECTFB_SOURCE_DIR"
 			# do release build of directfb	
             LDFLAGS="-m32 -L"$stage/packages/lib/release"" CFLAGS="-I"$stage/packages/include" -m32 -O3" CXXFLAGS="-I"$stage/packages/include" -m32 -O3" LIBPNG_CFLAGS="$CFLAGS" LIBPNG_LIBS="-lpng -lz -lm" ./configure --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include" --enable-static --enable-zlib --disable-freetype
@@ -45,7 +52,7 @@ case "$AUTOBUILD_PLATFORM" in
         popd
         pushd "$TOP/$SDL_SOURCE_DIR"
 			# do release build of sdl
-            LDFLAGS="-m32  -L"$stage/packages/lib/release"" CFLAGS="-I"$stage/packages/include" -m32 -O3" CXXFLAGS="-I"$stage/packages/include" -m32 -O2" ./configure --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include" --target=i686-linux-gnu
+            LDFLAGS="-m32  -L"$stage/packages/lib/release" -L"$stage/lib/release"" CFLAGS="-I"$stage/packages/include" -m32 -O3" CXXFLAGS="-I"$stage/packages/include" -m32 -O2" ./configure --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include" --target=i686-linux-gnu
             make
             make install
 
@@ -53,7 +60,7 @@ case "$AUTOBUILD_PLATFORM" in
 			make distclean
 
 			# do debug build of sdl
-            LDFLAGS="-m32  -L"$stage/packages/lib/debug"" CFLAGS="-I"$stage/packages/include" -m32 -O0 -gstabs+" CXXFLAGS="-I"$stage/packages/include" -m32 -O0 -gstabs+" ./configure --prefix="$stage" --libdir="$stage/lib/debug" --includedir="$stage/include" --target=i686-linux-gnu
+            LDFLAGS="-m32  -L"$stage/packages/lib/debug" -L"$stage/lib/debug"" CFLAGS="-I"$stage/packages/include" -m32 -O0 -gstabs+" CXXFLAGS="-I"$stage/packages/include" -m32 -O0 -gstabs+" ./configure --prefix="$stage" --libdir="$stage/lib/debug" --includedir="$stage/include" --target=i686-linux-gnu
             make
             make install
         popd
