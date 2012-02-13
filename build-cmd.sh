@@ -31,7 +31,7 @@ case "$AUTOBUILD_PLATFORM" in
     "linux")
         pushd "$TOP/$DIRECTFB_SOURCE_DIR"
 			# do release build of directfb	
-            LDFLAGS="-m32 -L"$stage/packages/lib/release"" CFLAGS="-I"$stage/packages/include" -m32 -O3" CXXFLAGS="-I"$stage/packages/include" -m32 -O3" LIBPNG_CFLAGS="$CFLAGS" LIBPNG_LIBS="-lpng -lz -lm" ./configure --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include" --enable-static --enable-zlib --disable-freetype
+            LDFLAGS="-m32 -L"$stage/packages/lib/release"" CFLAGS="-I"$stage/packages/include" -m32 -O3" CXXFLAGS="-I"$stage/packages/include" -m32 -O3" LIBPNG_CFLAGS="$CFLAGS" LIBPNG_LIBS="-lpng -lz -lm" ./configure --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include" --enable-static --enable-shared --enable-zlib --disable-freetype
             make
             make install
 
@@ -39,7 +39,7 @@ case "$AUTOBUILD_PLATFORM" in
 			make distclean
 
 			# do release debug of directfb	
-            LDFLAGS="-m32 -L"$stage/packages/lib/debug"" CFLAGS="-I"$stage/packages/include" -m32 -gstabs+" CXXFLAGS="-I"$stage/packages/include" -m32 -gstabs+" LIBPNG_CFLAGS="$CFLAGS" LIBPNG_LIBS="-lpng -lz -lm" ./configure --prefix="$stage" --libdir="$stage/lib/debug" --includedir="$stage/include" --enable-static --enable-zlib --disable-freetype
+            LDFLAGS="-m32 -L"$stage/packages/lib/debug"" CFLAGS="-I"$stage/packages/include" -m32 -gstabs+" CXXFLAGS="-I"$stage/packages/include" -m32 -gstabs+" LIBPNG_CFLAGS="$CFLAGS" LIBPNG_LIBS="-lpng -lz -lm" ./configure --prefix="$stage" --libdir="$stage/lib/debug" --includedir="$stage/include" --enable-static --enable-shared --enable-zlib --disable-freetype
             make
             make install
         popd
