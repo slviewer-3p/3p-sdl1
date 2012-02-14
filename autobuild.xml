@@ -42,9 +42,9 @@
             <key>archive</key>
             <map>
               <key>hash</key>
-              <string>a9609308ce145f5bbdd4da12af80e4fa</string>
+              <string>39797a9e13ece9c05c713b55ee0175f0</string>
               <key>url</key>
-              <string>http://automated-builds-secondlife-com.s3.amazonaws.com/hg/repo/huseby_3p-zlib/rev/245123/arch/Linux/installer/zlib-1.2.5-linux-20111114.tar.bz2</string>
+              <string>http://automated-builds-secondlife-com.s3.amazonaws.com/hg/repo/3p-zlib/rev/249037/arch/Linux/installer/zlib-1.2.6-linux-20120207.tar.bz2</string>
             </map>
             <key>name</key>
             <string>linux</string>
@@ -113,6 +113,8 @@
           <array>
             <string>lib/release/*.a</string>
             <string>lib/debug/*.a</string>
+            <string>lib/release/*so*</string>
+            <string>lib/debug/*so*</string>
           </array>
           <key>name</key>
           <string>linux</string>
