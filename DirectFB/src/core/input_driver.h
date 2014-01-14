@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __INPUT_DRIVER_H__
 #define __INPUT_DRIVER_H__
@@ -99,6 +103,9 @@ driver_resume( void )
 static DFBResult
 is_created( int event_num, void *data)
 {
+     D_UNUSED_P( event_num );
+     D_UNUSED_P( data );
+
      return DFB_UNSUPPORTED;
 }
 
@@ -112,6 +119,9 @@ static DFBResult
 launch_hotplug(CoreDFB         *core,
                void            *input_driver)
 {
+     D_UNUSED_P( core );
+     D_UNUSED_P( input_driver );
+
      return DFB_UNSUPPORTED;
 }
 
@@ -120,6 +130,13 @@ stop_hotplug( void )
 {
      return DFB_UNSUPPORTED;
 }
+#endif
+
+#ifdef DFB_INPUTDRIVER_HAS_SET_CONFIGURATION
+static DFBResult
+driver_set_configuration( CoreInputDevice              *device,
+                          void                         *driver_data,
+                          const DFBInputDeviceConfig   *config );
 #endif
 
 static const InputDriverFuncs driver_funcs = {
@@ -136,7 +153,11 @@ static const InputDriverFuncs driver_funcs = {
      .StopHotplug        = stop_hotplug,
 
 #ifdef DFB_INPUTDRIVER_HAS_AXIS_INFO
-     .GetAxisInfo        = driver_get_axis_info
+     .GetAxisInfo        = driver_get_axis_info,
+#endif
+
+#ifdef DFB_INPUTDRIVER_HAS_SET_CONFIGURATION
+     .SetConfiguration   = driver_set_configuration,
 #endif
 };
 

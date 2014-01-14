@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -111,8 +115,6 @@ x11ImageAttach( x11Image  *image,
      D_MAGIC_ASSERT( image, x11Image );
      D_ASSERT( ret_addr != NULL );
 
-     /* FIXME: We also need to DETACH! */
-
      addr = shmat( image->seginfo.shmid, NULL, 0 );
      if (!addr) {
           int erno = errno;
@@ -123,6 +125,18 @@ x11ImageAttach( x11Image  *image,
      }
 
      *ret_addr = addr;
+
+     return DFB_OK;
+}
+
+DFBResult
+x11ImageDetach( x11Image *image,
+                void     *addr )
+{
+     D_MAGIC_ASSERT( image, x11Image );
+     D_ASSERT( addr != NULL );
+
+     shmdt( addr );
 
      return DFB_OK;
 }
@@ -156,6 +170,7 @@ dfb_x11_image_init_handler( DFBX11 *x11, x11Image *image )
           XUnlockDisplay( x11->display );
           return DFB_FAILURE;
      }
+     x11->Sync( x11 );
 
      /* we firstly create our shared memory segment with the size we need, and
       correct permissions for the owner, the group and the world --> 0777 */
@@ -178,14 +193,17 @@ dfb_x11_image_init_handler( DFBX11 *x11, x11Image *image )
 
      if (!XShmAttach( x11->display, &image->seginfo ))
           goto error_xshmattach;
+     x11->Sync( x11 );
 
      image->ximage = ximage;
      image->pitch  = ximage->bytes_per_line;
 
      image->pixmap = XShmCreatePixmap( x11->display, DefaultRootWindow(x11->display), ximage->data,
                                        &image->seginfo, image->width, image->height, image->depth );
+     x11->Sync( x11 );
 
      image->gc = XCreateGC( x11->display, image->pixmap, 0, NULL );
+     x11->Sync( x11 );
 
      XUnlockDisplay( x11->display );
 
@@ -200,6 +218,7 @@ error_shmat:
 
 error:
      XDestroyImage( ximage );
+     x11->Sync( x11 );
 
      XUnlockDisplay( x11->display );
 
@@ -214,11 +233,15 @@ dfb_x11_image_destroy_handler( DFBX11 *x11, x11Image *image )
      XLockDisplay( x11->display );
 
      XFreeGC( x11->display, image->gc );
+     x11->Sync( x11 );
      XFreePixmap( x11->display, image->pixmap );
+     x11->Sync( x11 );
 
      XShmDetach( x11->display, &image->seginfo );
+     x11->Sync( x11 );
 
      XDestroyImage( image->ximage );
+     x11->Sync( x11 );
 
      XUnlockDisplay( x11->display );
 

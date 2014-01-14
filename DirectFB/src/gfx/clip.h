@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __GFX__CLIP_H__
 #define __GFX__CLIP_H__
@@ -66,7 +70,7 @@ dfb_clip_needed( const DFBRegion *clip, DFBRectangle *rect )
      return ((clip->x1 > rect->x) ||
              (clip->y1 > rect->y) ||
              (clip->x2 < rect->x + rect->w - 1) ||
-             (clip->y2 < rect->y + rect->h - 1));
+             (clip->y2 < rect->y + rect->h - 1)) ? DFB_TRUE : DFB_FALSE;
 }
 
 /*
@@ -75,7 +79,7 @@ dfb_clip_needed( const DFBRegion *clip, DFBRectangle *rect )
  */
 DFBBoolean   dfb_clip_triangle_precheck( const DFBRegion   *clip,
                                          const DFBTriangle *tri );
-                                         
+
 /*
  * Clips the triangle to the clipping region.
  * Returns true if the triangle if visible within the region.
@@ -85,7 +89,12 @@ DFBBoolean   dfb_clip_triangle_precheck( const DFBRegion   *clip,
 DFBBoolean   dfb_clip_triangle( const DFBRegion   *clip,
                                 const DFBTriangle *tri,
                                 DFBPoint           buf[6],
-                                int               *num );                                
+                                int               *num );
+
+void         dfb_build_clipped_rectangle_outlines( DFBRectangle    *rect,
+                                                   const DFBRegion *clip,
+                                                   DFBRectangle    *ret_outlines,
+                                                   int             *ret_num );
 
 /*
  * Simple check if requested blitting lies outside of the clipping region.
@@ -120,6 +129,22 @@ void dfb_clip_blit( const DFBRegion *clip,
 void dfb_clip_stretchblit( const DFBRegion *clip,
                            DFBRectangle    *srect,
                            DFBRectangle    *drect );
+
+/*
+ * Clips the blitting request to the clipping region.
+ * This includes adjustment of source AND destination coordinates.
+ *
+ * In contrast to dfb_clip_blit() this also honors DSBLIT_ROTATE_ and DSBLIT_FLIP_ blittingflags.
+ *
+ * FIXME: rotation and flipping is not supported simultaniously since the software driver
+ * would crash in its current state.
+ */
+
+void
+dfb_clip_blit_flipped_rotated( const DFBRegion *clip,
+                               DFBRectangle *srect, DFBRectangle *drect, DFBSurfaceBlittingFlags flags );
+
+
 
 #endif
 

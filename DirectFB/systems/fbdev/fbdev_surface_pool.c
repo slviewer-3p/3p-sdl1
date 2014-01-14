@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 //#define DIRECT_ENABLE_DEBUG
 
@@ -310,7 +314,6 @@ fbdevDeallocateBuffer( CoreSurfacePool       *pool,
 
      D_MAGIC_ASSERT( pool, CoreSurfacePool );
      D_MAGIC_ASSERT( data, FBDevPoolData );
-     D_MAGIC_ASSERT( buffer, CoreSurfaceBuffer );
      D_MAGIC_ASSERT( alloc, FBDevAllocationData );
 
      if (alloc->chunk)
@@ -327,7 +330,6 @@ fbdevMuckOut( CoreSurfacePool   *pool,
               void              *pool_local,
               CoreSurfaceBuffer *buffer )
 {
-     CoreSurface        *surface;
      FBDevPoolData      *data  = pool_data;
      FBDevPoolLocalData *local = pool_local;
 
@@ -337,9 +339,6 @@ fbdevMuckOut( CoreSurfacePool   *pool,
      D_MAGIC_ASSERT( data, FBDevPoolData );
      D_MAGIC_ASSERT( local, FBDevPoolLocalData );
      D_MAGIC_ASSERT( buffer, CoreSurfaceBuffer );
-
-     surface = buffer->surface;
-     D_MAGIC_ASSERT( surface, CoreSurface );
 
      return dfb_surfacemanager_displace( local->core, data->manager, buffer );
 }
@@ -352,7 +351,6 @@ fbdevLock( CoreSurfacePool       *pool,
            void                  *alloc_data,
            CoreSurfaceBufferLock *lock )
 {
-     CoreSurface         *surface;
      FBDevAllocationData *alloc  = alloc_data;
      FBDevShared         *shared = dfb_fbdev->shared;
 
@@ -363,16 +361,13 @@ fbdevLock( CoreSurfacePool       *pool,
 
      D_DEBUG_AT( FBDev_SurfLock, "%s( %p )\n", __FUNCTION__, lock->buffer );
 
-     surface = allocation->surface;
-     D_MAGIC_ASSERT( surface, CoreSurface );
-
-     if (surface->type & CSTF_LAYER && surface->resource_id == DLID_PRIMARY) {
-          int index  = dfb_surface_buffer_index( allocation->buffer );
+     if (allocation->type & CSTF_LAYER && allocation->resource_id == DLID_PRIMARY) {
+          int index = allocation->index;
 
           D_DEBUG_AT( FBDev_Surfaces, "  -> primary layer buffer (index %d)\n", index );
 
           lock->pitch  = shared->fix.line_length;
-          lock->offset = index * surface->config.size.h * lock->pitch;
+          lock->offset = index * allocation->config.size.h * lock->pitch;
 #if D_DEBUG_ENABLED
           allocation->offset = lock->offset;
 #endif

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <fcntl.h>
@@ -36,6 +40,8 @@
 #include <sys/types.h>
 
 #include <directfb.h>
+
+#include <core/CoreDFB.h>
 
 #include <core/fonts.h>
 #include <core/gfxcard.h>
@@ -178,7 +184,7 @@ Construct( IDirectFBFont               *thiz,
      DGIFFFaceHeader *face;
      DGIFFGlyphInfo  *glyphs;
      DGIFFGlyphRow   *row;
-     DGIFFImplData   *data;
+     DGIFFImplData   *data = NULL;
      const char      *filename;
      CoreSurfaceConfig config;
 
@@ -237,7 +243,7 @@ Construct( IDirectFBFont               *thiz,
      row    = (void*)(glyphs + face->num_glyphs);
 
      /* Create the core object. */
-     ret = dfb_font_create( core, &font );
+     ret = dfb_font_create( core, desc, filename, &font );
      if (ret)
           goto error;
 
@@ -251,6 +257,7 @@ Construct( IDirectFBFont               *thiz,
      font->maxadvance   = face->max_advance;
      font->pixel_format = face->pixelformat;
      font->surface_caps = DSCAPS_NONE;
+     font->flags        = CFF_SUBPIXEL_ADVANCE;
 
 
      data = D_CALLOC( 1, sizeof(DGIFFImplData) );
@@ -274,11 +281,17 @@ Construct( IDirectFBFont               *thiz,
      }
 
      /* Build glyph cache rows. */
+     bool prealloc = false;
 
-     config.flags  = CSCONF_SIZE | CSCONF_FORMAT | CSCONF_PREALLOCATED;
+     config.flags  = CSCONF_SIZE | CSCONF_FORMAT;
      config.format = face->pixelformat;
-     config.preallocated[1].addr = NULL;
-     config.preallocated[1].pitch = 0;
+
+     if (prealloc) {
+          config.flags |= CSCONF_PREALLOCATED;
+
+          config.preallocated[1].addr = NULL;
+          config.preallocated[1].pitch = 0;
+     }
 
      for (i=0; i<face->num_rows; i++) {
           data->rows[i] = D_CALLOC( 1, sizeof(CoreFontCacheRow) );
@@ -289,17 +302,23 @@ Construct( IDirectFBFont               *thiz,
 
           config.size.w = row->width;
           config.size.h = row->height;
-          config.preallocated[0].addr = (void*)(row+1);
-          config.preallocated[0].pitch = row->pitch;
 
-          ret = dfb_surface_create( core, &config, CSTF_PREALLOCATED, 0, NULL,
-                                    &data->rows[i]->surface );
+          if (prealloc) {
+               config.preallocated[0].addr = (void*)(row+1);
+               config.preallocated[0].pitch = row->pitch;
+          }
+
+          ret = CoreDFB_CreateSurface( core, &config, prealloc ? CSTF_PREALLOCATED : CSTF_NONE, 0, NULL,
+                                       &data->rows[i]->surface );
 
           if (ret) {
                D_DERROR( ret, "DGIFF/Font: Could not create preallocated %s %dx%d glyph row surface!\n",
                          dfb_pixelformat_name(face->pixelformat), row->width, row->height );
                goto error;
           }
+
+          if (!prealloc)
+               dfb_surface_write_buffer( data->rows[i]->surface, CSBR_BACK, (void*)(row+1), row->pitch, NULL );
 
           D_MAGIC_SET( data->rows[i], CoreFontCacheRow );
 
@@ -325,7 +344,7 @@ Construct( IDirectFBFont               *thiz,
           glyph_data->height   = glyph->height;
           glyph_data->left     = glyph->left;
           glyph_data->top      = glyph->top;
-          glyph_data->xadvance = glyph->advance;
+          glyph_data->xadvance = glyph->advance << 8;
           glyph_data->yadvance = 0;
 
           D_MAGIC_SET( glyph_data, CoreGlyphData );

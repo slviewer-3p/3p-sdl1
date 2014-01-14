@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 #include <stdlib.h>
@@ -47,7 +51,7 @@
 #include <direct/trace.h>
 #include <direct/util.h>
 
-#include <fusion/types.h>
+#include <fusion/conf.h>
 #include <fusion/lock.h>
 #include <fusion/shmalloc.h>
 #include <fusion/reactor.h>
@@ -394,7 +398,8 @@ fusion_reactor_dispatch_channel( FusionReactor      *reactor,
                                  bool                self,
                                  const ReactionFunc *globals )
 {
-     FusionReactorDispatch dispatch;
+     FusionWorld           *world;
+     FusionReactorDispatch  dispatch;
 
      D_MAGIC_ASSERT( reactor, FusionReactor );
 
@@ -404,8 +409,17 @@ fusion_reactor_dispatch_channel( FusionReactor      *reactor,
                  "fusion_reactor_dispatch( %p [%d], msg_data %p, self %s, globals %p)\n",
                  reactor, reactor->id, msg_data, self ? "true" : "false", globals );
 
+     world = _fusion_world(reactor->shared);
+
+     fusion_world_flush_calls( world, 1 );
+
      /* Handle global reactions first. */
-     if (reactor->globals) {
+     if (channel == 0 && reactor->globals) {
+          if (fusion_config->secure_fusion && !fusion_master(world)) {
+               D_BUG( "global reactions on channel 0, cannot dispatch from secure slave" );
+               return DR_BUG;
+          }
+
           if (globals)
                process_globals( reactor, msg_data, globals );
           else
@@ -415,7 +429,7 @@ fusion_reactor_dispatch_channel( FusionReactor      *reactor,
      
      /* Handle local reactions. */
      if (self && reactor->direct) {
-          _fusion_reactor_process_message( _fusion_world(reactor->shared), reactor->id, channel, msg_data );
+          _fusion_reactor_process_message( world, reactor->id, channel, msg_data );
           self = false;
      }
 
@@ -517,6 +531,36 @@ fusion_reactor_set_name( FusionReactor *reactor,
      return DR_OK;
 }
 
+DirectResult
+fusion_reactor_add_permissions( FusionReactor            *reactor,
+                                FusionID                  fusion_id,
+                                FusionReactorPermissions  reactor_permissions )
+{
+     FusionEntryPermissions permissions;
+
+     permissions.type        = FT_REACTOR;
+     permissions.id          = reactor->id;
+     permissions.fusion_id   = fusion_id;
+     permissions.permissions = 0;
+
+     if (reactor_permissions & FUSION_REACTOR_PERMIT_ATTACH_DETACH) {
+          FUSION_ENTRY_PERMISSIONS_ADD( permissions.permissions, FUSION_REACTOR_ATTACH );
+          FUSION_ENTRY_PERMISSIONS_ADD( permissions.permissions, FUSION_REACTOR_DETACH );
+     }
+
+     if (reactor_permissions & FUSION_REACTOR_PERMIT_DISPATCH)
+          FUSION_ENTRY_PERMISSIONS_ADD( permissions.permissions, FUSION_REACTOR_DISPATCH );
+
+     while (ioctl( _fusion_fd( reactor->shared ), FUSION_ENTRY_ADD_PERMISSIONS, &permissions ) < 0) {
+          if (errno != EINTR) {
+               D_PERROR( "Fusion/Reactor: FUSION_ENTRY_ADD_PERMISSIONS( id %d ) failed!\n", reactor->id );
+               return DR_FAILURE;
+          }
+     }
+
+     return DR_OK;
+}
+
 void
 _fusion_reactor_process_message( FusionWorld *world,
                                  int          reactor_id,
@@ -558,6 +602,11 @@ _fusion_reactor_process_message( FusionWorld *world,
           reaction = link->reaction;
           if (!reaction)
                continue;
+
+#if D_DEBUG_ENABLED
+          if (direct_log_domain_check( &Fusion_Reactor )) // avoid call to direct_trace_lookup_symbol_at
+               D_DEBUG_AT( Fusion_Reactor, "  -> %s (%p)\n", direct_trace_lookup_symbol_at( reaction->func ), reaction->func );
+#endif
 
           if (reaction->func( msg_data, reaction->ctx ) == RS_REMOVE) {
                FusionReactorDetach detach;
@@ -914,7 +963,7 @@ fusion_reactor_dispatch_channel( FusionReactor      *reactor,
      }
 
      /* Handle global reactions first. */
-     if (reactor->globals) {
+     if (channel == 0 && reactor->globals) {
           if (globals)
                process_globals( reactor, msg_data, globals );
           else
@@ -1012,6 +1061,16 @@ fusion_reactor_set_dispatch_callback( FusionReactor  *reactor,
 DirectResult
 fusion_reactor_set_name( FusionReactor *reactor,
                          const char    *name )
+{
+     D_UNIMPLEMENTED();
+
+     return DR_UNIMPLEMENTED;
+}
+
+DirectResult
+fusion_reactor_add_permissions( FusionReactor            *reactor,
+                                FusionID                  fusion_id,
+                                FusionReactorPermissions  permissions )
 {
      D_UNIMPLEMENTED();
 
@@ -1293,7 +1352,7 @@ _fusion_reactor_free_all( FusionWorld *world )
      D_DEBUG_AT( Fusion_Reactor, "_fusion_reactor_free_all() <- nodes %p\n", world->reactor_nodes );
 
 
-     pthread_mutex_lock( &world->reactor_nodes_lock );
+     direct_mutex_lock( &world->reactor_nodes_lock );
 
      direct_list_foreach_safe (node, node_temp, world->reactor_nodes) {
           NodeLink *link, *link_temp;
@@ -1320,7 +1379,7 @@ _fusion_reactor_free_all( FusionWorld *world )
 
      world->reactor_nodes = NULL;
 
-     pthread_mutex_unlock( &world->reactor_nodes_lock );
+     direct_mutex_unlock( &world->reactor_nodes_lock );
 }
 
 static void
@@ -1426,7 +1485,7 @@ lock_node( int reactor_id, bool add_it, bool wlock, FusionReactor *reactor, Fusi
      }
 
 
-     pthread_mutex_lock( &world->reactor_nodes_lock );
+     direct_mutex_lock( &world->reactor_nodes_lock );
 
      direct_list_foreach_safe (node, n, world->reactor_nodes) {
           D_MAGIC_ASSERT( node, ReactorNode );
@@ -1478,7 +1537,7 @@ lock_node( int reactor_id, bool add_it, bool wlock, FusionReactor *reactor, Fusi
                     direct_list_move_to_front( &world->reactor_nodes, &node->link );
                }
 
-               pthread_mutex_unlock( &world->reactor_nodes_lock );
+               direct_mutex_unlock( &world->reactor_nodes_lock );
 
                return node;
           }
@@ -1533,12 +1592,12 @@ lock_node( int reactor_id, bool add_it, bool wlock, FusionReactor *reactor, Fusi
 
           direct_list_prepend( &world->reactor_nodes, &node->link );
 
-          pthread_mutex_unlock( &world->reactor_nodes_lock );
+          direct_mutex_unlock( &world->reactor_nodes_lock );
 
           return node;
      }
 
-     pthread_mutex_unlock( &world->reactor_nodes_lock );
+     direct_mutex_unlock( &world->reactor_nodes_lock );
 
      return NULL;
 }
@@ -1557,23 +1616,6 @@ unlock_node( ReactorNode *node )
 }
 
 #else /* FUSION_BUILD_MULTI */
-
-/***************************
- *  Internal declarations  *
- ***************************/
-
-/*
- *
- */
-struct __Fusion_FusionReactor {
-     DirectLink       *reactions; /* reactor listeners attached to node  */
-     pthread_mutex_t   reactions_lock;
-
-     DirectLink       *globals; /* global reactions attached to node  */
-     pthread_mutex_t   globals_lock;
-
-     bool              destroyed;
-};
 
 static void
 process_globals( FusionReactor      *reactor,
@@ -1595,8 +1637,13 @@ fusion_reactor_new( int                msg_size,
      if (!reactor)
           return NULL;
 
+     reactor->msg_size = msg_size;
+     reactor->world    = (FusionWorld *)world;
+
      direct_util_recursive_pthread_mutex_init( &reactor->reactions_lock );
      direct_util_recursive_pthread_mutex_init( &reactor->globals_lock );
+
+     D_MAGIC_SET( reactor, FusionReactor );
 
      return reactor;
 }
@@ -1604,6 +1651,7 @@ fusion_reactor_new( int                msg_size,
 DirectResult
 fusion_reactor_set_lock( FusionReactor  *reactor,
                          FusionSkirmish *lock )
+
 {
      D_ASSERT( reactor != NULL );
      D_ASSERT( lock != NULL );
@@ -1629,20 +1677,9 @@ fusion_reactor_attach (FusionReactor *reactor,
                        void          *ctx,
                        Reaction      *reaction)
 {
-     D_ASSERT( reactor != NULL );
-     D_ASSERT( func != NULL );
-     D_ASSERT( reaction != NULL );
+     D_MAGIC_ASSERT( reactor, FusionReactor );
 
-     reaction->func = func;
-     reaction->ctx  = ctx;
-
-     pthread_mutex_lock( &reactor->reactions_lock );
-
-     direct_list_prepend( &reactor->reactions, &reaction->link );
-
-     pthread_mutex_unlock( &reactor->reactions_lock );
-
-     return DR_OK;
+     return fusion_reactor_attach_channel( reactor, 0, func, ctx, reaction );
 }
 
 DirectResult
@@ -1651,6 +1688,8 @@ fusion_reactor_detach (FusionReactor *reactor,
 {
      D_ASSERT( reactor != NULL );
      D_ASSERT( reaction != NULL );
+
+     D_MAGIC_ASSERT( reactor, FusionReactor );
 
      pthread_mutex_lock( &reactor->reactions_lock );
 
@@ -1670,6 +1709,8 @@ fusion_reactor_attach_global (FusionReactor  *reactor,
      D_ASSERT( reactor != NULL );
      D_ASSERT( index >= 0 );
      D_ASSERT( reaction != NULL );
+
+     D_MAGIC_ASSERT( reactor, FusionReactor );
 
      reaction->index = index;
      reaction->ctx   = ctx;
@@ -1691,6 +1732,8 @@ fusion_reactor_detach_global (FusionReactor  *reactor,
 {
      D_ASSERT( reactor != NULL );
      D_ASSERT( reaction != NULL );
+
+     D_MAGIC_ASSERT( reactor, FusionReactor );
 
      pthread_mutex_lock( &reactor->globals_lock );
 
@@ -1716,9 +1759,23 @@ fusion_reactor_attach_channel( FusionReactor *reactor,
                                void          *ctx,
                                Reaction      *reaction )
 {
-     D_UNIMPLEMENTED();
+     D_ASSERT( reactor != NULL );
+     D_ASSERT( func != NULL );
+     D_ASSERT( reaction != NULL );
 
-     return DR_UNIMPLEMENTED;
+     D_MAGIC_ASSERT( reactor, FusionReactor );
+
+     reaction->func      = func;
+     reaction->ctx       = ctx;
+     reaction->node_link = (void*)(long) channel;
+
+     pthread_mutex_lock( &reactor->reactions_lock );
+
+     direct_list_prepend( &reactor->reactions, &reaction->link );
+
+     pthread_mutex_unlock( &reactor->reactions_lock );
+
+     return DR_OK;
 }
 
 DirectResult
@@ -1729,42 +1786,12 @@ fusion_reactor_dispatch_channel( FusionReactor      *reactor,
                                  bool                self,
                                  const ReactionFunc *globals )
 {
-     D_UNIMPLEMENTED();
-
-     return DR_UNIMPLEMENTED;
-}
-
-DirectResult
-fusion_reactor_set_dispatch_callback( FusionReactor  *reactor,
-                                      FusionCall     *call,
-                                      void           *call_ptr )
-{
-     D_UNIMPLEMENTED();
-
-     return DR_UNIMPLEMENTED;
-}
-
-DirectResult
-fusion_reactor_set_name( FusionReactor *reactor,
-                         const char    *name )
-{
-     D_UNIMPLEMENTED();
-
-     return DR_UNIMPLEMENTED;
-}
-
-DirectResult
-fusion_reactor_dispatch (FusionReactor      *reactor,
-                         const void         *msg_data,
-                         bool                self,
-                         const ReactionFunc *globals)
-{
-     DirectLink *l;
-
      D_ASSERT( reactor != NULL );
      D_ASSERT( msg_data != NULL );
 
-     if (reactor->globals) {
+     D_MAGIC_ASSERT( reactor, FusionReactor );
+
+     if (channel == 0 && reactor->globals) {
           if (globals)
                process_globals( reactor, msg_data, globals );
           else
@@ -1775,38 +1802,59 @@ fusion_reactor_dispatch (FusionReactor      *reactor,
      if (!self)
           return DR_OK;
 
-     pthread_mutex_lock( &reactor->reactions_lock );
-
-     l = reactor->reactions;
-     while (l) {
-          DirectLink *next     = l->next;
-          Reaction   *reaction = (Reaction*) l;
-
-          switch (reaction->func( msg_data, reaction->ctx )) {
-               case RS_REMOVE:
-                    direct_list_remove( &reactor->reactions, l );
-                    break;
-
-               case RS_DROP:
-                    pthread_mutex_unlock( &reactor->reactions_lock );
-                    return DR_OK;
-
-               default:
-                    break;
-          }
-
-          l = next;
-     }
-
-     pthread_mutex_unlock( &reactor->reactions_lock );
+     _fusion_event_dispatcher_process_reactions( reactor->world, reactor, channel, (void *)msg_data, msg_size );
 
      return DR_OK;
 }
 
 DirectResult
+fusion_reactor_set_dispatch_callback( FusionReactor  *reactor,
+                                      FusionCall     *call,
+                                      void           *call_ptr )
+{
+     D_MAGIC_ASSERT( reactor, FusionReactor );
+
+     D_UNIMPLEMENTED();
+
+     return DR_UNIMPLEMENTED;
+}
+
+DirectResult
+fusion_reactor_set_name( FusionReactor *reactor,
+                         const char    *name )
+{
+     D_MAGIC_ASSERT( reactor, FusionReactor );
+
+     D_UNIMPLEMENTED();
+
+     return DR_UNIMPLEMENTED;
+}
+
+DirectResult
+fusion_reactor_add_permissions( FusionReactor            *reactor,
+                                FusionID                  fusion_id,
+                                FusionReactorPermissions  permissions )
+{
+     D_MAGIC_ASSERT( reactor, FusionReactor );
+
+     return DR_OK;
+}
+
+DirectResult
+fusion_reactor_dispatch (FusionReactor      *reactor,
+                         const void         *msg_data,
+                         bool                self,
+                         const ReactionFunc *globals)
+{
+     D_MAGIC_ASSERT( reactor, FusionReactor );
+
+     return fusion_reactor_dispatch_channel( reactor, 0, msg_data, reactor->msg_size, self, globals );
+}
+
+DirectResult
 fusion_reactor_direct( FusionReactor *reactor, bool direct )
 {
-     D_ASSERT( reactor != NULL );
+     D_MAGIC_ASSERT( reactor, FusionReactor );
      
      return DR_OK;
 }
@@ -1814,7 +1862,7 @@ fusion_reactor_direct( FusionReactor *reactor, bool direct )
 DirectResult
 fusion_reactor_destroy (FusionReactor *reactor)
 {
-     D_ASSERT( reactor != NULL );
+     D_MAGIC_ASSERT( reactor, FusionReactor );
 
      D_ASSUME( !reactor->destroyed );
 
@@ -1826,15 +1874,20 @@ fusion_reactor_destroy (FusionReactor *reactor)
 DirectResult
 fusion_reactor_free (FusionReactor *reactor)
 {
-     D_ASSERT( reactor != NULL );
+     D_MAGIC_ASSERT( reactor, FusionReactor );
 
 //     D_ASSUME( reactor->destroyed );
+
+     if (_fusion_event_dispatcher_process_reactor_free( reactor->world, reactor ))
+          return DR_OK;
 
      reactor->reactions = NULL;
      pthread_mutex_destroy( &reactor->reactions_lock );
 
      reactor->globals = NULL;
      pthread_mutex_destroy( &reactor->globals_lock );
+
+     D_MAGIC_CLEAR( reactor );
 
      D_FREE( reactor );
 

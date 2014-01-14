@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,27 +28,20 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <time.h>
 #include <string.h>
 #include <errno.h>
 
-#include <pthread.h>
-
-#include <fusion/reactor.h>
 #include <direct/list.h>
+#include <direct/thread.h>
 
 #include <directfb.h>
-
-#include <core/coredefs.h>
-#include <core/coretypes.h>
-
-#include <core/input.h>
-#include <core/windows.h>
 
 #include <misc/util.h>
 
@@ -68,7 +63,7 @@ IDirectFBDataBuffer_File_Destruct( IDirectFBDataBuffer *thiz )
 
      direct_stream_destroy( data->stream );
 
-     pthread_mutex_destroy( &data->mutex );
+     direct_mutex_deinit( &data->mutex );
 
      IDirectFBDataBuffer_Destruct( thiz );
 }
@@ -107,9 +102,9 @@ IDirectFBDataBuffer_File_SeekTo( IDirectFBDataBuffer *thiz,
      if (!direct_stream_seekable( data->stream ))
           return DFB_UNSUPPORTED;
           
-     pthread_mutex_lock( &data->mutex );
+     direct_mutex_lock( &data->mutex );
      ret = direct_stream_seek( data->stream, offset );
-     pthread_mutex_unlock( &data->mutex );
+     direct_mutex_unlock( &data->mutex );
 
      return ret;
 }
@@ -150,9 +145,9 @@ IDirectFBDataBuffer_File_WaitForData( IDirectFBDataBuffer *thiz,
      
      DIRECT_INTERFACE_GET_DATA(IDirectFBDataBuffer_File)
 
-     pthread_mutex_lock( &data->mutex );          
+     direct_mutex_lock( &data->mutex );          
      ret = direct_stream_wait( data->stream, length, NULL );
-     pthread_mutex_unlock( &data->mutex );
+     direct_mutex_unlock( &data->mutex );
      
      return ret;
 }
@@ -171,7 +166,8 @@ IDirectFBDataBuffer_File_WaitForDataWithTimeout( IDirectFBDataBuffer *thiz,
      tv.tv_sec  = seconds;
      tv.tv_usec = milli_seconds*1000;
 
-     while (pthread_mutex_trylock( &data->mutex )) {
+#ifndef WIN32
+     while (direct_mutex_trylock( &data->mutex )) {
           struct timespec t, r;
           
           if (errno != EBUSY)
@@ -190,10 +186,13 @@ IDirectFBDataBuffer_File_WaitForDataWithTimeout( IDirectFBDataBuffer *thiz,
                tv.tv_usec += 999999;
           }
      }
-         
+#else
+     direct_mutex_lock( &data->mutex );
+#endif
+
      ret = direct_stream_wait( data->stream, length, &tv );
      
-     pthread_mutex_unlock( &data->mutex );
+     direct_mutex_unlock( &data->mutex );
 
      return ret;
 }
@@ -211,9 +210,9 @@ IDirectFBDataBuffer_File_GetData( IDirectFBDataBuffer *thiz,
      if (!data_buffer || !length)
           return DFB_INVARG;
 
-     pthread_mutex_lock( &data->mutex );
+     direct_mutex_lock( &data->mutex );
      ret = direct_stream_read( data->stream, length, data_buffer, read_out );
-     pthread_mutex_unlock( &data->mutex );
+     direct_mutex_unlock( &data->mutex );
 
      return ret;
 }
@@ -232,10 +231,10 @@ IDirectFBDataBuffer_File_PeekData( IDirectFBDataBuffer *thiz,
      if (!data_buffer || !length)
           return DFB_INVARG;
 
-     pthread_mutex_lock( &data->mutex );
+     direct_mutex_lock( &data->mutex );
      ret = direct_stream_peek( data->stream, length,
                                offset, data_buffer, read_out );
-     pthread_mutex_unlock( &data->mutex );
+     direct_mutex_unlock( &data->mutex );
      
      return ret;
 }
@@ -261,13 +260,14 @@ IDirectFBDataBuffer_File_PutData( IDirectFBDataBuffer *thiz,
 DFBResult
 IDirectFBDataBuffer_File_Construct( IDirectFBDataBuffer *thiz,
                                     const char          *filename,
-                                    CoreDFB             *core )
+                                    CoreDFB             *core,
+                                    IDirectFB           *idirectfb )
 {
      DFBResult ret;
 
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBDataBuffer_File)
 
-     ret = IDirectFBDataBuffer_Construct( thiz, filename, core );
+     ret = IDirectFBDataBuffer_Construct( thiz, filename, core, idirectfb );
      if (ret)
           return ret;
 
@@ -277,7 +277,7 @@ IDirectFBDataBuffer_File_Construct( IDirectFBDataBuffer *thiz,
           return ret;
      }
 
-     direct_util_recursive_pthread_mutex_init( &data->mutex );
+     direct_mutex_init( &data->mutex );
 
      thiz->Release                = IDirectFBDataBuffer_File_Release;
      thiz->Flush                  = IDirectFBDataBuffer_File_Flush;

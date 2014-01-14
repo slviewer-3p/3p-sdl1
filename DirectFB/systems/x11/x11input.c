@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,10 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
+//#define DIRECT_ENABLE_DEBUG
+
 #include <config.h>
 
 #include <fusion/types.h>
@@ -39,17 +45,21 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
+#include <X11/keysym.h>
+#include <X11/XKBlib.h>
 
 
-#include <core/coredefs.h>
-#include <core/coretypes.h>
+#include <core/core.h>
 #include <core/input.h>
 #include <core/layer_context.h>
 #include <core/layer_control.h>
 #include <core/layers_internal.h>
 #include <core/system.h>
 
+#include <core/DisplayTask.h>
+
 #include <direct/mem.h>
+#include <direct/memcpy.h>
 #include <direct/thread.h>
 
 #include "xwindow.h"
@@ -78,11 +88,13 @@ typedef struct {
 static DFBInputEvent motionX = {
      .type    = DIET_UNKNOWN,
      .axisabs = 0,
+     .min     = 0,
 };
 
 static DFBInputEvent motionY = {
      .type    = DIET_UNKNOWN,
      .axisabs = 0,
+     .min     = 0,
 };
 
 static void
@@ -116,12 +128,16 @@ motion_realize( X11InputData *data )
           if (motionY.type != DIET_UNKNOWN)
                motionX.flags |= DIEF_FOLLOW;
 
+          motionX.max = data->x11->shared->update.xw->width - 1; // FIXME
+
           dfb_input_dispatch( data->device, &motionX );
 
           motionX.type = DIET_UNKNOWN;
      }
 
      if (motionY.type != DIET_UNKNOWN) {
+          motionY.max = data->x11->shared->update.xw->height - 1; // FIXME
+
           dfb_input_dispatch( data->device, &motionY );
 
           motionY.type = DIET_UNKNOWN;
@@ -380,12 +396,19 @@ xsymbol_to_symbol( KeySym xKeySymbol )
 
 
 
-static void handleMouseEvent(XEvent* pXEvent, X11InputData* pData)
+static void handleMouseEvent(XEvent* pXEvent, X11InputData* pData, DFBX11 *x11)
 {
      static int          iMouseEventCount = 0;
      DFBInputEvent  dfbEvent;
      if (pXEvent->type == MotionNotify) {
-          motion_compress( pXEvent->xmotion.x, pXEvent->xmotion.y, pXEvent );
+          int x = pXEvent->xmotion.x;
+          
+          if (x11->shared->stereo) {
+               x %= x11->shared->stereo_width;
+               x *= 2;
+          }
+
+          motion_compress( x, pXEvent->xmotion.y, pXEvent );
           ++iMouseEventCount;
      }
 
@@ -452,12 +475,19 @@ static void handleMouseEvent(XEvent* pXEvent, X11InputData* pData)
 }
 
 static void
-handle_expose( const XExposeEvent *expose )
+handle_expose_Async( void *ctx,
+                     void *ctx2 )
 {
-     CoreLayer               *layer = 0;
-     const DisplayLayerFuncs *funcs = 0;
+     DFBX11                  *x11    = ctx;
+     const XExposeEvent      *expose = ctx2;
+     CoreLayer               *layer  = 0;
      CoreLayerContext        *context;
      int                      i;
+     X11LayerData            *lds;
+
+     D_DEBUG_AT( X11_Input, "%s( %d,%d-%dx%d )\n", __FUNCTION__, expose->x, expose->y, expose->width, expose->height );
+
+     //D_INFO_LINE_MSG("handle_expose %d,%d-%dx%d", expose->x, expose->y, expose->width, expose->height);
 
      /* find the correct layer */
      for( i=0; i<dfb_layer_num(); i++ ) {
@@ -473,30 +503,42 @@ handle_expose( const XExposeEvent *expose )
      if( i==dfb_layer_num() )
           return;
 
-     funcs = layer->funcs;
-
-     D_ASSERT( funcs != NULL );
-     D_ASSERT( funcs->UpdateRegion != NULL );
+     lds = layer->shared->layer_data;
 
      /* Get the currently active context. */
      if (dfb_layer_get_active_context( layer, &context ) == DFB_OK) {
           CoreLayerRegion *region;
 
           /* Get the first region. */
-          if (dfb_layer_context_get_primary_region( context,
-                                                    false, &region ) == DFB_OK)
-          {
-               /* Lock the region to avoid tearing due to concurrent updates. */
+          if (dfb_layer_context_get_primary_region( context, false, &region ) == DFB_OK) {
+               /* Lock the region. */
                dfb_layer_region_lock( region );
 
                /* Get the surface of the region. */
-               if (region->surface && region->surface_lock.buffer) {
-                    DFBRegion update = { expose->x, expose->y,
-                                         expose->x + expose->width  - 1,
-                                         expose->y + expose->height - 1 };
+               if (region->surface && D_FLAGS_ARE_SET( region->state, CLRSF_REALIZED )) {
+                    if (dfb_config->task_manager) {
+                         DFBRegion update = { expose->x, expose->y,
+                                              expose->x + expose->width  - 1,
+                                              expose->y + expose->height - 1 };
 
-                    funcs->UpdateRegion( layer, layer->driver_data, layer->layer_data,
-                                         region->region_data, region->surface, &update, &region->surface_lock );
+                         /* Tell the driver about the update if the region is realized. */
+                         D_DEBUG_AT( X11_Input, "  -> Issuing display task...\n" );
+
+                         dfb_surface_lock( region->surface );
+
+                         DisplayTask_Generate( region, &update, &update, DSFLIP_NONE, -1, NULL );
+
+                         dfb_surface_unlock( region->surface );
+                    }
+                    else {
+                         if (lds->lock_left.buffer) {
+                              DFBRegion update = { expose->x, expose->y,
+                                                   expose->x + expose->width  - 1,
+                                                   expose->y + expose->height - 1 };
+
+                              dfb_x11_update_screen( x11, lds, &update, &update, &lds->lock_left, &lds->lock_right );
+                         }
+                    }
                }
 
                /* Unlock the region. */
@@ -518,93 +560,125 @@ handle_expose( const XExposeEvent *expose )
 static void*
 x11EventThread( DirectThread *thread, void *driver_data )
 {
-     X11InputData *data   = driver_data;
-     DFBX11       *x11    = data->x11;
-     DFBX11Shared *shared = x11->shared;
+     X11InputData   *data   = driver_data;
+     DFBX11         *x11    = data->x11;
+     int             x11_fd = ConnectionNumber(x11->display);
+     XExposeEvent    expose_event = { 0 };
+     fd_set          in_fds;
+     struct timeval  tv;
 
      while (!data->stop) {
-          unsigned int  pull = 23;
+          unsigned int  pull = 2000;
           XEvent        xEvent; 
           DFBInputEvent dfbEvent;
           static int    nextKeyIsRepeat = false;
 
           /* FIXME: Detect key repeats, we're receiving KeyPress, KeyRelease, KeyPress, KeyRelease... !!?? */
 
-          if (shared->window_count == 0) {
-               /* no window, so no event */
-               usleep( 50000 );
-               continue;
+          if (expose_event.type) {
+               handle_expose_Async( x11, &expose_event );
+               expose_event.type = 0;
           }
 
-          usleep( 10000 );
 
-          XLockDisplay( x11->display );
+          // Create a File Description Set containing x11_fd
+          FD_ZERO(&in_fds);
+          FD_SET(x11_fd, &in_fds);
 
-          while (!data->stop && pull-- && XPending( x11->display )) {
-               XNextEvent( x11->display, &xEvent );
+          // Set our timer.
+          tv.tv_sec  = 0;
+          tv.tv_usec = 20000;
 
-               /* is this key repeat? idea from GII */
-               if ( (xEvent.type == KeyRelease) && (XPending( x11->display )) ) {
-                    XEvent peekEvent;
-                    XPeekEvent( x11->display, &peekEvent );
-                    if ( (peekEvent.type == KeyPress) &&
-                         (peekEvent.xkey.keycode == xEvent.xkey.keycode) &&
-                         (peekEvent.xkey.time - xEvent.xkey.time < 2) ) {
-                              nextKeyIsRepeat = true;
+          // Wait for X Event or a Timer
+          if (select(x11_fd+1, &in_fds, 0, 0, &tv)) {
+               XLockDisplay( x11->display );
+
+               while (!data->stop && pull-- && XPending( x11->display )) {
+                    XNextEvent( x11->display, &xEvent );
+
+                    //D_INFO_LINE_MSG("x11 event %d",xEvent.type);
+                    /* is this key repeat? idea from GII */
+                    if ( (xEvent.type == KeyRelease) && (XPending( x11->display )) ) {
+                         XEvent peekEvent;
+                         XPeekEvent( x11->display, &peekEvent );
+                         if ( (peekEvent.type == KeyPress) &&
+                              (peekEvent.xkey.keycode == xEvent.xkey.keycode) &&
+                              (peekEvent.xkey.time - xEvent.xkey.time < 2) ) {
+                                   nextKeyIsRepeat = true;
+                         }
                     }
+
+                    XUnlockDisplay( x11->display );
+
+                    D_DEBUG_AT( X11_Input, "Event received: %d\n", xEvent.type );
+
+                    switch (xEvent.type) {
+                         case ButtonPress:
+                         case ButtonRelease:
+                              motion_realize( data );
+                         case MotionNotify:
+                              handleMouseEvent( &xEvent, data, x11 ); // crash ???
+                              break;
+
+                         case KeyPress:
+                         case KeyRelease:
+                              motion_realize( data );
+
+                              dfbEvent.type     = (xEvent.type == KeyPress) ? DIET_KEYPRESS : DIET_KEYRELEASE;
+                              dfbEvent.flags    = DIEF_KEYCODE | DIEF_TIMESTAMP;
+                              dfbEvent.key_code = xEvent.xkey.keycode;
+
+                              dfbEvent.timestamp.tv_sec  =  xEvent.xkey.time / 1000;
+                              dfbEvent.timestamp.tv_usec = (xEvent.xkey.time % 1000) * 1000;
+
+                              if ( (xEvent.type == KeyPress) && nextKeyIsRepeat ) {
+                                   nextKeyIsRepeat = false;
+                                   dfbEvent.flags |= DIEF_REPEAT;
+                              }
+
+                              dfb_input_dispatch( data->device, &dfbEvent );
+                              break;
+
+                         case Expose:
+                              //D_INFO_LINE_MSG("<- expose %d,%d-%dx%d",
+                              //                xEvent.xexpose.x, xEvent.xexpose.y, xEvent.xexpose.width, xEvent.xexpose.height);
+                              if (expose_event.type != 0) {
+                                   DFBRegion e1 = {
+                                        expose_event.x, expose_event.y, expose_event.x + expose_event.width - 1, expose_event.y + expose_event.height - 1
+                                   };
+                                   DFBRegion e2 = {
+                                        xEvent.xexpose.x, xEvent.xexpose.y, xEvent.xexpose.x + xEvent.xexpose.width - 1, xEvent.xexpose.y + xEvent.xexpose.height - 1
+                                   };
+
+                                   dfb_region_region_union( &e1, &e2 );
+
+                                   expose_event.x      = e1.x1;
+                                   expose_event.y      = e1.y1;
+                                   expose_event.width  = e1.x2 - e1.x1 + 1;
+                                   expose_event.height = e1.y2 - e1.y1 + 1;
+                              }
+                              else
+                                   expose_event = xEvent.xexpose;
+                              //D_INFO_LINE_MSG("-> expose %d,%d-%dx%d",
+                              //                expose_event.x, expose_event.y, expose_event.width, expose_event.height);
+                              break;
+
+                         case DestroyNotify:
+                              /* this event is mainly to unblock XNextEvent. */
+                              break;
+
+                         default:
+                              break;
+                    }
+
+                    XLockDisplay( x11->display );
                }
 
                XUnlockDisplay( x11->display );
 
-               D_DEBUG_AT( X11_Input, "Event received: %d\n", xEvent.type );
-
-               switch (xEvent.type) {
-                    case ButtonPress:
-                    case ButtonRelease:
-                         motion_realize( data );
-                    case MotionNotify:
-                         handleMouseEvent( &xEvent, data ); // crash ???
-                         break;
-
-                    case KeyPress:
-                    case KeyRelease: {
-                         motion_realize( data );
-
-                         dfbEvent.type     = (xEvent.type == KeyPress) ? DIET_KEYPRESS : DIET_KEYRELEASE;
-                         dfbEvent.flags    = DIEF_KEYCODE | DIEF_TIMESTAMP;
-                         dfbEvent.key_code = xEvent.xkey.keycode;
-
-                         dfbEvent.timestamp.tv_sec  =  xEvent.xkey.time / 1000;
-                         dfbEvent.timestamp.tv_usec = (xEvent.xkey.time % 1000) * 1000;
-
-                         if ( (xEvent.type == KeyPress) && nextKeyIsRepeat ) {
-                              nextKeyIsRepeat = false;
-                              dfbEvent.flags |= DIEF_REPEAT;
-                         }
-
-                         dfb_input_dispatch( data->device, &dfbEvent );
-                         break;
-                    }
-
-                    case Expose:
-                         handle_expose( &xEvent.xexpose );
-                         break;
-
-                    case DestroyNotify:
-                         /* this event is mainly to unblock XNextEvent. */
-                         break;
-
-                    default:
-                         break;
-               }
-
-               XLockDisplay( x11->display );
+               if (!data->stop)
+                    motion_realize( data );
           }
-
-          XUnlockDisplay( x11->display );
-
-          if (!data->stop)
-               motion_realize( data );
      }
 
      return NULL;
@@ -649,14 +723,9 @@ driver_open_device( CoreInputDevice  *device,
                     void            **driver_data )
 {
      X11InputData *data;
-     DFBX11       *x11    = dfb_system_data();
-     DFBX11Shared *shared = x11->shared;
+     DFBX11       *x11 = dfb_system_data();
 
      D_DEBUG_AT( X11_Input, "%s()\n", __FUNCTION__ );
-
-     fusion_skirmish_prevail( &shared->lock );
-
-     fusion_skirmish_dismiss( &shared->lock );
 
      /* set device vendor and name */
      snprintf( info->desc.vendor, DFB_INPUT_DEVICE_DESC_VENDOR_LENGTH, "XServer" );
@@ -707,7 +776,7 @@ driver_get_keymap_entry( CoreInputDevice           *device,
      XLockDisplay( x11->display );
 
      for (i=0; i<4; i++) {
-          KeySym xSymbol = XKeycodeToKeysym( x11->display, entry->code, i );
+          KeySym xSymbol = XkbKeycodeToKeysym( x11->display, entry->code, 0, i );
 
           if (i == 0)
                entry->identifier = xsymbol_to_id( xSymbol );

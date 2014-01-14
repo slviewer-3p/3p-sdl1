@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __CORE__LAYER_CONTEXT_H__
 #define __CORE__LAYER_CONTEXT_H__
@@ -56,7 +60,25 @@ FUSION_OBJECT_METHODS( CoreLayerContext, dfb_layer_context )
 
 
 DFBResult dfb_layer_context_init( CoreLayerContext *context,
-                                  CoreLayer        *layer );
+                                  CoreLayer        *layer,
+                                  bool              stack );
+
+/*
+ * Locking
+ */
+DirectResult dfb_layer_context_lock  ( CoreLayerContext *context );
+DirectResult dfb_layer_context_unlock( CoreLayerContext *context );
+
+
+CoreWindowStack *dfb_layer_context_windowstack( const CoreLayerContext *context );
+
+bool             dfb_layer_context_active     ( const CoreLayerContext *context );
+
+
+
+
+
+
 
 DFBResult dfb_layer_context_get_primary_region( CoreLayerContext  *context,
                                                 bool               create,
@@ -116,6 +138,14 @@ DFBResult dfb_layer_context_set_coloradjustment( CoreLayerContext            *co
 DFBResult dfb_layer_context_get_coloradjustment( CoreLayerContext            *context,
                                                  DFBColorAdjustment          *ret_adjustment );
 
+DFBResult dfb_layer_context_set_stereo_depth   ( CoreLayerContext            *context,
+                                                 bool                         follow_video,
+                                                 int                          z );
+
+DFBResult dfb_layer_context_get_stereo_depth   ( CoreLayerContext            *context,
+                                                 bool                        *follow_video,
+                                                 int                         *ret_z );
+
 DFBResult dfb_layer_context_set_field_parity   ( CoreLayerContext            *context,
                                                  int                          field );
 
@@ -136,14 +166,22 @@ DFBResult dfb_layer_context_create_window( CoreDFB                     *core,
 CoreWindow      *dfb_layer_context_find_window( CoreLayerContext       *context,
                                                 DFBWindowID             id );
 
-CoreWindowStack *dfb_layer_context_windowstack( const CoreLayerContext *context );
 
-bool             dfb_layer_context_active     ( const CoreLayerContext *context );
 
-/*
- * Locking
- */
-DirectResult dfb_layer_context_lock  ( CoreLayerContext *context );
-DirectResult dfb_layer_context_unlock( CoreLayerContext *context );
+
+DFBResult dfb_layer_context_allocate_surface    ( CoreLayer                   *layer,
+                                                  CoreLayerContext            *context,
+                                                  CoreLayerRegion             *region,
+                                                  CoreLayerRegionConfig       *config );
+
+DFBResult dfb_layer_context_reallocate_surface  ( CoreLayer                   *layer,
+                                                  CoreLayerContext            *context,
+                                                  CoreLayerRegion             *region,
+                                                  CoreLayerRegionConfig       *config );
+
+DFBResult dfb_layer_context_deallocate_surface  ( CoreLayer                   *layer,
+                                                  CoreLayerContext            *context,
+                                                  CoreLayerRegion             *region );
 
 #endif
+

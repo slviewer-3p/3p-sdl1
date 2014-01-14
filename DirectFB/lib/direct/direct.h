@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,24 +28,30 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __DIRECT__DIRECT_H__
 #define __DIRECT__DIRECT_H__
 
 #include <direct/types.h>
 
-DirectResult direct_initialize( void );
-DirectResult direct_shutdown( void );
+DirectResult DIRECT_API direct_initialize( void );
+DirectResult DIRECT_API direct_shutdown( void );
 
 
 typedef void (*DirectCleanupHandlerFunc)( void *ctx );
 
 
-DirectResult direct_cleanup_handler_add( DirectCleanupHandlerFunc   func,
-                                         void                      *ctx,
-                                         DirectCleanupHandler     **ret_handler );
+DirectResult DIRECT_API direct_cleanup_handler_add( DirectCleanupHandlerFunc   func,
+                                                    void                      *ctx,
+                                                    DirectCleanupHandler     **ret_handler );
 
-DirectResult direct_cleanup_handler_remove( DirectCleanupHandler   *handler );
+DirectResult DIRECT_API direct_cleanup_handler_remove( DirectCleanupHandler   *handler );
 
+
+
+void __D_direct_init( void );
+void __D_direct_deinit( void );
 
 #endif
 

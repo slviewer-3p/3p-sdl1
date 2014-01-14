@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __CORE__SURFACE_POOL_H__
 #define __CORE__SURFACE_POOL_H__
 
@@ -43,7 +47,10 @@ typedef enum {
      CSPCAPS_PHYSICAL    = 0x00000001,  /* pool provides physical address to buffer */
      CSPCAPS_VIRTUAL     = 0x00000002,  /* pool provides virtual address to buffer */
 
-     CSPCAPS_ALL         = 0x00000003
+     CSPCAPS_READ        = 0x00000004,  /* pool provides Read() function (set automatically) */
+     CSPCAPS_WRITE       = 0x00000008,  /* pool provides Write() function (set automatically) */
+
+     CSPCAPS_ALL         = 0x0000000F
 } CoreSurfacePoolCapabilities;
 
 typedef enum {
@@ -168,6 +175,42 @@ typedef struct {
                             void                   *pool_data,
                             void                   *pool_local,
                             CoreSurfaceBuffer      *buffer );
+
+     /*
+      * Manage interlocks
+      */
+     DFBResult (*PreLock) ( CoreSurfacePool        *pool,
+                            void                   *pool_data,
+                            void                   *pool_local,
+                            CoreSurfaceAllocation  *allocation,
+                            void                   *alloc_data,
+                            CoreSurfaceAccessorID   accessor,
+                            CoreSurfaceAccessFlags  access );
+
+     /*
+      * Handle preallocation
+      *
+      * The surface pool checks the description and extracts/generates
+      * information for the surface configuration, to be later used in
+      * the AllocateBuffer function.
+      */
+     DFBResult (*PreAlloc)( CoreSurfacePool             *pool,
+                            void                        *pool_data,
+                            void                        *pool_local,
+                            const DFBSurfaceDescription *description,
+                            CoreSurfaceConfig           *config );
+
+     /*
+      * Cache operations
+      */
+     DFBResult (*CacheOp) ( CoreSurfacePool        *pool,
+                            void                   *pool_data,
+                            void                   *pool_local,
+                            CoreSurfaceAllocation  *allocation,
+                            void                   *alloc_data,
+                            CoreSurfaceAccessorID   accessor,
+                            bool                    flush,
+                            bool                    invalidate );
 } SurfacePoolFuncs;
 
 
@@ -202,6 +245,9 @@ typedef DFBEnumerationResult (*CoreSurfaceAllocCallback)( CoreSurfaceAllocation 
 
 
 
+DFBResult dfb_surface_pools_prealloc ( const DFBSurfaceDescription *description,
+                                       CoreSurfaceConfig           *config );
+
 DFBResult dfb_surface_pools_negotiate( CoreSurfaceBuffer       *buffer,
                                        CoreSurfaceAccessorID    accessor,
                                        CoreSurfaceAccessFlags   access,
@@ -211,6 +257,9 @@ DFBResult dfb_surface_pools_negotiate( CoreSurfaceBuffer       *buffer,
 
 DFBResult dfb_surface_pools_enumerate( CoreSurfacePoolCallback  callback,
                                        void                    *ctx );
+
+DFBResult dfb_surface_pools_lookup   ( CoreSurfacePoolID        pool_id,
+                                       CoreSurfacePool        **ret_pool );
 
 DFBResult dfb_surface_pools_allocate ( CoreSurfaceBuffer       *buffer,
                                        CoreSurfaceAccessorID    accessor,
@@ -222,9 +271,19 @@ DFBResult dfb_surface_pool_initialize( CoreDFB                 *core,
                                        const SurfacePoolFuncs  *funcs,
                                        CoreSurfacePool        **ret_pool );
 
+DFBResult dfb_surface_pool_initialize2( CoreDFB                 *core,
+                                        const SurfacePoolFuncs  *funcs,
+                                        void                    *ctx,
+                                        CoreSurfacePool        **ret_pool );
+
 DFBResult dfb_surface_pool_join      ( CoreDFB                 *core,
                                        CoreSurfacePool         *pool,
                                        const SurfacePoolFuncs  *funcs );
+
+DFBResult dfb_surface_pool_join2     ( CoreDFB                 *core,
+                                       CoreSurfacePool         *pool,
+                                       const SurfacePoolFuncs  *funcs,
+                                       void                    *ctx );
 
 DFBResult dfb_surface_pool_destroy   ( CoreSurfacePool         *pool );
 
@@ -242,6 +301,11 @@ DFBResult dfb_surface_pool_deallocate( CoreSurfacePool         *pool,
 DFBResult dfb_surface_pool_displace  ( CoreSurfacePool         *pool,
                                        CoreSurfaceBuffer       *buffer,
                                        CoreSurfaceAllocation  **ret_allocation );
+
+DFBResult dfb_surface_pool_prelock   ( CoreSurfacePool         *pool,
+                                       CoreSurfaceAllocation   *allocation,
+                                       CoreSurfaceAccessorID    accessor,
+                                       CoreSurfaceAccessFlags   access );
 
 DFBResult dfb_surface_pool_lock      ( CoreSurfacePool         *pool,
                                        CoreSurfaceAllocation   *allocation,
@@ -263,9 +327,33 @@ DFBResult dfb_surface_pool_write     ( CoreSurfacePool         *pool,
                                        int                      pitch,
                                        const DFBRectangle      *rect );
 
+DFBResult dfb_surface_pool_cache_op  ( CoreSurfacePool         *pool,
+                                       CoreSurfaceAllocation   *allocation,
+                                       CoreSurfaceAccessorID    accessor,
+                                       bool                     flush,
+                                       bool                     invalidate );
+
 DFBResult dfb_surface_pool_enumerate ( CoreSurfacePool         *pool,
                                        CoreSurfaceAllocCallback  callback,
                                        void                    *ctx );
+
+
+/*
+     Adds the extra access flags to each of the surface pools that match the
+     CoreSurfaceTypeFlags specified.  This allows the graphics driver to
+     specify in its driver_init_driver function that it supports the local
+     surface pool, shared surface pool, and/or pre-allocated surface pool.
+     For example:
+
+          dfb_surface_pool_gfx_driver_update( CSTF_INTERNAL | CSTF_PREALLOCATED,
+                                              CSAID_GPU,
+                                              CSAF_READ | CSAF_WRITE );
+
+     Returns true if a surface pool was updated, otherwise returns false.
+*/
+bool dfb_surface_pool_gfx_driver_update( CoreSurfaceTypeFlags   types,
+                                         CoreSurfaceAccessorID  accessor,
+                                         CoreSurfaceAccessFlags access );
 
 
 /*

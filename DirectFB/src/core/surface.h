@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __CORE__SURFACE_H__
 #define __CORE__SURFACE_H__
@@ -55,16 +59,34 @@ typedef enum {
      CSNF_PALETTE_UPDATE = 0x00000080,  /* current palette has been altered */
      CSNF_ALPHA_RAMP     = 0x00000100,  /* alpha ramp was modified */
      CSNF_DISPLAY        = 0x00000200,  /* surface buffer displayed */
+     CSNF_FRAME          = 0x00000400,  /* flip count ack */
+     CSNF_BUFFER_ALLOCATION_DESTROY
+                         = 0x00000800,  /* Buffer allocation about to be destroyed */
 
-     CSNF_ALL            = 0x000003FF
+     CSNF_ALL            = 0x00000FFF
 } CoreSurfaceNotificationFlags;
 
 typedef struct {
      CoreSurfaceNotificationFlags  flags;
      CoreSurface                  *surface;
 
+     /* The following field is used only by the CSNF_DISPLAY message. */
      int                           index;
+
+     /* The following fields are used only by the CSNF_BUFFER_ALLOCATION_DESTROY message. */
+     CoreSurfaceBuffer *buffer_no_access;  /* Pointer to associated CoreSurfaceBuffer being 
+                                              destroyed. Do not dereference. */
+     void              *surface_data;      /* CoreSurface's shared driver specific data. */
+     int                surface_object_id; /* CoreSurface's Fusion ID. */
+
+     unsigned int                  flip_count;     
 } CoreSurfaceNotification;
+
+
+typedef enum {
+     CSCH_NOTIFICATION,
+     CSCH_EVENT
+} CoreSurfaceChannel;
 
 
 typedef enum {
@@ -73,10 +95,11 @@ typedef enum {
      CSCONF_SIZE         = 0x00000001,
      CSCONF_FORMAT       = 0x00000002,
      CSCONF_CAPS         = 0x00000004,
+     CSCONF_COLORSPACE   = 0x00000008,
 
      CSCONF_PREALLOCATED = 0x00000010,
 
-     CSCONF_ALL          = 0x00000017
+     CSCONF_ALL          = 0x0000001F
 } CoreSurfaceConfigFlags;
 
 typedef enum {
@@ -102,12 +125,19 @@ typedef struct {
 
      DFBDimension             size;
      DFBSurfacePixelFormat    format;
+     DFBSurfaceColorSpace     colorspace;
      DFBSurfaceCapabilities   caps;
 
      struct {
-          void *addr;
-          int   pitch;
+          void                    *addr;               /* " */
+          unsigned long            phys;               /* " */
+          unsigned long            offset;             /* " */
+          unsigned int             pitch;              /* " */
+
+          void                    *handle;             /* " */
      }                        preallocated[MAX_SURFACE_BUFFERS];
+
+     CoreSurfacePoolID        preallocated_pool_id;
 
      DFBDimension             min_size;
 } CoreSurfaceConfig;
@@ -124,14 +154,17 @@ typedef enum {
 } CoreSurfacePolicy;
 
 typedef enum {
-     CSAF_NONE           = 0x00000000,
+     CSAF_NONE             = 0x00000000,
 
-     CSAF_READ           = 0x00000001,  /* accessor may read */
-     CSAF_WRITE          = 0x00000002,  /* accessor may write */
+     CSAF_READ             = 0x00000001,  /* accessor may read */
+     CSAF_WRITE            = 0x00000002,  /* accessor may write */
 
-     CSAF_SHARED         = 0x00000010,  /* other processes can read/write at the same time (shared mapping) */
+     CSAF_SHARED           = 0x00000010,  /* other processes can read/write at the same time (shared mapping) */
 
-     CSAF_ALL            = 0x00000013
+     CSAF_CACHE_INVALIDATE = 0x00000100,  /* accessor should invalidate its cache before reading/writing */
+     CSAF_CACHE_FLUSH      = 0x00000200,  /* accessor should flush its cache after writing */
+
+     CSAF_ALL              = 0x00000313
 } CoreSurfaceAccessFlags;
 
 typedef enum {
@@ -167,7 +200,7 @@ typedef enum {
 
      _CSAID_NUM          = 0x00000018,  /* number of statically assigned IDs for usage in static arrays */
 
-     CSAID_ANY           = 0x00000100,  /* any other accessor needs to be registered using IDs starting from here */
+     CSAID_ANY           = 0x00000100   /* any other accessor needs to be registered using IDs starting from here */
 } CoreSurfaceAccessorID;
 
 typedef enum {
@@ -206,12 +239,13 @@ struct __DFB_CoreSurface
      int                      field;
      u8                       alpha_ramp[4];
 
-     CoreSurfaceBuffer       *buffers[MAX_SURFACE_BUFFERS];
+     CoreSurfaceBuffer      **buffers;
+     CoreSurfaceBuffer       *left_buffers[MAX_SURFACE_BUFFERS];
+     CoreSurfaceBuffer       *right_buffers[MAX_SURFACE_BUFFERS];
      int                      num_buffers;
-
      int                      buffer_indices[MAX_SURFACE_BUFFERS];
 
-     unsigned int             flips;
+     u32                      flips;
 
      CorePalette             *palette;
      GlobalReaction           palette_reaction;
@@ -219,7 +253,21 @@ struct __DFB_CoreSurface
      FusionSHMPoolShared     *shmpool;
 
      void                    *data;         /* Shared system driver-specific data for this surface. */
+
+     FusionCall               call;
+
+     FusionVector             clients;
+     u32                      flips_acked;
+
+     DFBFrameTimeConfig       frametime_config;
+
+     long long                last_frame_time;
 };
+
+#define CORE_SURFACE_ASSERT(surface)                                                           \
+     do {                                                                                      \
+          D_MAGIC_ASSERT( surface, CoreSurface );                                              \
+     } while (0)
 
 
 /*
@@ -244,6 +292,7 @@ DFBResult dfb_surface_create_simple ( CoreDFB                      *core,
                                       int                           width,
                                       int                           height,
                                       DFBSurfacePixelFormat         format,
+                                      DFBSurfaceColorSpace          colorspace,
                                       DFBSurfaceCapabilities        caps,
                                       CoreSurfaceTypeFlags          type,
                                       unsigned long                 resource_id,
@@ -259,16 +308,58 @@ DFBResult dfb_surface_notify        ( CoreSurface                  *surface,
 DFBResult dfb_surface_notify_display( CoreSurface                  *surface,
                                       CoreSurfaceBuffer            *buffer);
 
+DFBResult dfb_surface_notify_display2( CoreSurface                  *surface,
+                                       int                           index,
+                                       DFB_DisplayTask              *task );
+
+DFBResult dfb_surface_notify_frame  ( CoreSurface                  *surface,
+                                      unsigned int                  flip_count );
+
+/*
+     Prepares and sends a notification message that a change is about to happen to the specified
+     surface buffer pool allocation.  The notification message will be received by all pocesses
+     that have listeners attached to the associated CoreSurface's reactor.
+
+     At present, only THE CSNF_BUFFER_ALLOCATION_DESTROY message is handled.
+*/
+DFBResult dfb_surface_pool_notify   ( CoreSurface                  *surface,
+                                      CoreSurfaceBuffer            *buffer,
+                                      CoreSurfaceAllocation        *allocation,
+                                      CoreSurfaceNotificationFlags  flags );
+
 DFBResult dfb_surface_flip          ( CoreSurface                  *surface,
                                       bool                          swap );
+
+DFBResult dfb_surface_flip_buffers  ( CoreSurface                  *surface,
+                                      bool                          swap );
+
+DFBResult dfb_surface_dispatch_event( CoreSurface                  *surface,
+                                      DFBSurfaceEventType           type );
+
+DFBResult dfb_surface_dispatch_update( CoreSurface                  *surface,
+                                       const DFBRegion              *update,
+                                       const DFBRegion              *update_right,
+                                       long long                     timestamp );
 
 DFBResult dfb_surface_reconfig      ( CoreSurface                  *surface,
                                       const CoreSurfaceConfig      *config );
 
 DFBResult dfb_surface_destroy_buffers( CoreSurface                 *surface );
 
+DFBResult dfb_surface_deallocate_buffers( CoreSurface              *surface );
+
+DFBResult dfb_surface_destroy       ( CoreSurface                  *surface );
+
 DFBResult dfb_surface_lock_buffer   ( CoreSurface                  *surface,
                                       CoreSurfaceBufferRole         role,
+                                      CoreSurfaceAccessorID         accessor,
+                                      CoreSurfaceAccessFlags        access,
+                                      CoreSurfaceBufferLock        *ret_lock );
+
+DFBResult dfb_surface_lock_buffer2  ( CoreSurface                  *surface,
+                                      CoreSurfaceBufferRole         role,
+                                      u32                           flip_count,
+                                      DFBSurfaceStereoEye           eye,
                                       CoreSurfaceAccessorID         accessor,
                                       CoreSurfaceAccessFlags        access,
                                       CoreSurfaceBufferLock        *ret_lock );
@@ -293,6 +384,17 @@ DFBResult dfb_surface_dump_buffer   ( CoreSurface                  *surface,
                                       const char                   *path,
                                       const char                   *prefix );
 
+DFBResult dfb_surface_dump_buffer2  ( CoreSurface                  *surface,
+                                      CoreSurfaceBufferRole         role,
+                                      DFBSurfaceStereoEye           eye,
+                                      const char                   *path,
+                                      const char                   *prefix );
+
+DFBResult dfb_surface_dump_raw_buffer( CoreSurface                  *surface,
+                                       CoreSurfaceBufferRole         role,
+                                       const char                   *path,
+                                       const char                   *prefix );
+
 DFBResult dfb_surface_set_palette   ( CoreSurface                  *surface,
                                       CorePalette                  *palette );
 
@@ -305,8 +407,10 @@ DFBResult dfb_surface_set_alpha_ramp( CoreSurface                  *surface,
                                       u8                            a2,
                                       u8                            a3 );
 
+DFBResult dfb_surface_clear_buffers  ( CoreSurface                  *surface );
 
-static inline DirectResult
+
+static __inline__ DirectResult
 dfb_surface_lock( CoreSurface *surface )
 {
      D_MAGIC_ASSERT( surface, CoreSurface );
@@ -314,7 +418,7 @@ dfb_surface_lock( CoreSurface *surface )
      return fusion_skirmish_prevail( &surface->lock );
 }
 
-static inline DirectResult
+static __inline__ DirectResult
 dfb_surface_trylock( CoreSurface *surface )
 {
      D_MAGIC_ASSERT( surface, CoreSurface );
@@ -322,7 +426,7 @@ dfb_surface_trylock( CoreSurface *surface )
      return fusion_skirmish_swoop( &surface->lock );
 }
 
-static inline DirectResult
+static __inline__ DirectResult
 dfb_surface_unlock( CoreSurface *surface )
 {
      D_MAGIC_ASSERT( surface, CoreSurface );
@@ -330,44 +434,208 @@ dfb_surface_unlock( CoreSurface *surface )
      return fusion_skirmish_dismiss( &surface->lock );
 }
 
-static inline CoreSurfaceBuffer *
+static __inline__ CoreSurfaceBuffer *
 dfb_surface_get_buffer( CoreSurface           *surface,
                         CoreSurfaceBufferRole  role )
 {
-     D_MAGIC_ASSERT( surface, CoreSurface );
      D_ASSERT( role == CSBR_FRONT || role == CSBR_BACK || role == CSBR_IDLE );
+
+     D_MAGIC_ASSERT( surface, CoreSurface );
+     FUSION_SKIRMISH_ASSERT( &surface->lock );
 
      D_ASSERT( surface->num_buffers > 0 );
 
      return surface->buffers[ surface->buffer_indices[(surface->flips + role) % surface->num_buffers] ];
 }
 
-static inline void *
+static __inline__ CoreSurfaceBuffer *
+dfb_surface_get_buffer2( CoreSurface           *surface,
+                         CoreSurfaceBufferRole  role,
+                         DFBSurfaceStereoEye    eye )
+{
+     D_ASSERT( role == CSBR_FRONT || role == CSBR_BACK || role == CSBR_IDLE );
+     D_ASSERT( eye == DSSE_LEFT || eye == DSSE_RIGHT );
+
+     D_MAGIC_ASSERT( surface, CoreSurface );
+     FUSION_SKIRMISH_ASSERT( &surface->lock );
+
+     D_ASSERT( surface->num_buffers > 0 );
+
+     if (eye == DSSE_LEFT)
+          return surface->left_buffers[ surface->buffer_indices[(surface->flips + role) % surface->num_buffers] ];
+
+     return surface->right_buffers[ surface->buffer_indices[(surface->flips + role) % surface->num_buffers] ];
+}
+
+static __inline__ CoreSurfaceBuffer *
+dfb_surface_get_buffer3( CoreSurface           *surface,
+                         CoreSurfaceBufferRole  role,
+                         DFBSurfaceStereoEye    eye,
+                         u32                    flip_count )
+{
+     D_ASSERT( role == CSBR_FRONT || role == CSBR_BACK || role == CSBR_IDLE );
+     D_ASSERT( eye == DSSE_LEFT || eye == DSSE_RIGHT );
+
+     D_MAGIC_ASSERT( surface, CoreSurface );
+     FUSION_SKIRMISH_ASSERT( &surface->lock );
+
+     D_ASSERT( surface->num_buffers > 0 );
+
+     if (eye == DSSE_LEFT)
+          return surface->left_buffers[ surface->buffer_indices[(flip_count + role) % surface->num_buffers] ];
+
+     return surface->right_buffers[ surface->buffer_indices[(flip_count + role) % surface->num_buffers] ];
+}
+
+static __inline__ void
+dfb_surface_get_data_offsets( const CoreSurfaceConfig * const config,
+                              const void              * const data,
+                              int                      pitch,
+                              int                      x,
+                              int                      y,
+                              unsigned int             num,
+                              u8                     ** const pointers,
+                              int                     * const pitches )
+{
+     D_ASSERT( config != NULL );
+     D_ASSERT( data != NULL );
+     D_ASSERT( pitch > 0 );
+     D_ASSERT( x >= 0 );
+     D_ASSERT( x < config->size.w );
+     D_ASSERT( y >= 0 );
+     D_ASSERT( y < config->size.h );
+     D_ASSERT( !num
+               || (num && pointers && pitches) );
+
+     if (!num)
+          return;
+
+     switch (config->format) {
+          case DSPF_NV12:
+          case DSPF_NV21:
+          case DSPF_NV16:
+               if (num < 2)
+                    return;
+               break;
+
+          case DSPF_I420:
+          case DSPF_YV12:
+          case DSPF_YV16:
+          case DSPF_YUV444P:
+               if (num < 3)
+                    return;
+               break;
+
+          default:
+               if (num < 1)
+                    return;
+               break;
+     }
+
+     if (config->caps & DSCAPS_SEPARATED) {
+          if (y & 1)
+               y += config->size.h;
+
+          y >>= 1;
+     }
+
+     switch (config->format) {
+          case DSPF_NV12:
+          case DSPF_NV21:
+               pitches[1] = pitch;
+               pointers[1] = ( (u8*)data
+                               + pitch * config->size.h
+                               + pitches[1] * y/2
+                               + DFB_BYTES_PER_LINE( config->format, x/2 ) );
+               break;
+
+          case DSPF_NV16:
+               pitches[1] = pitch;
+               pointers[1] = ( (u8*)data
+                               + pitch * config->size.h
+                               + pitches[1] * y
+                               + DFB_BYTES_PER_LINE( config->format, x/2 ) );
+               break;
+
+          case DSPF_I420:
+               pitches[1] = pitches[2] = pitch / 2;
+               pointers[1] = ( (u8*)data
+                               + pitch * config->size.h
+                               + pitches[1] * y/2
+                               + DFB_BYTES_PER_LINE( config->format, x/2 ) );
+               pointers[2] = ( (u8*)data
+                               + pitch * config->size.h
+                               + pitches[1] * config->size.h/2
+                               + pitches[2] * y/2
+                               + DFB_BYTES_PER_LINE( config->format, x/2 ) );
+               break;
+
+          case DSPF_YV12:
+               pitches[1] = pitches[2] = pitch / 2;
+               pointers[2] = ( (u8*)data
+                               + pitch * config->size.h
+                               + pitches[2] * y/2
+                               + DFB_BYTES_PER_LINE( config->format, x/2 ) );
+               pointers[1] = ( (u8*)data
+                               + pitch * config->size.h
+                               + pitches[2] * config->size.h/2
+                               + pitches[1] * y/2
+                               + DFB_BYTES_PER_LINE( config->format, x/2 ) );
+               break;
+
+          case DSPF_YV16:
+               pitches[1] = pitches[2] = pitch / 2;
+               pointers[2] = ( (u8*)data
+                               + pitch * config->size.h
+                               + pitches[2] * y
+                               + DFB_BYTES_PER_LINE( config->format, x/2 ) );
+               pointers[1] = ( (u8*)data
+                               + pitch * config->size.h
+                               + pitches[2] * config->size.h
+                               + pitches[1] * y
+                               + DFB_BYTES_PER_LINE( config->format, x/2 ) );
+               break;
+
+          case DSPF_YUV444P:
+               pitches[1] = pitches[2] = pitch;
+               pointers[1] = ( (u8*)data
+                               + pitch * config->size.h
+                               + pitches[1] * y
+                               + DFB_BYTES_PER_LINE( config->format, x ) );
+               pointers[2] = ( (u8*)data
+                               + pitch * config->size.h
+                               + pitches[1] * config->size.h
+                               + pitches[2] * y
+                               + DFB_BYTES_PER_LINE( config->format, x ) );
+               break;
+
+          default:
+               break;
+     }
+
+     pointers[0] = ( (u8*)data
+                     + pitch * y
+                     + DFB_BYTES_PER_LINE( config->format, x ) );
+     pitches[0] = pitch;
+}
+
+static __inline__ void *
 dfb_surface_data_offset( const CoreSurface *surface,
                          void              *data,
                          int                pitch,
                          int                x,
                          int                y )
 {
-     D_ASSERT( surface != NULL );
-     D_ASSERT( data != NULL );
-     D_ASSERT( pitch > 0 );
-     D_ASSERT( x >= 0 );
-     D_ASSERT( x < surface->config.size.w );
-     D_ASSERT( y >= 0 );
-     D_ASSERT( y < surface->config.size.h );
+     u8 *pointers[1];
+     int pitches[1];
 
-     if (surface->config.caps & DSCAPS_SEPARATED) {
-          if (y & 1)
-               y += surface->config.size.h;
+     dfb_surface_get_data_offsets( &surface->config, data, pitch, x, y,
+                                   1, pointers, pitches);
 
-          y >>= 1;
-     }
-
-     return (u8*)data + pitch * y + DFB_BYTES_PER_LINE( surface->config.format, x );
+     return pointers[0];
 }
 
-static inline void
+static __inline__ void
 dfb_surface_calc_buffer_size( CoreSurface *surface,
                               int          byte_align,
                               int          pixel_align,
@@ -392,7 +660,7 @@ dfb_surface_calc_buffer_size( CoreSurface *surface,
           *ret_size = pitch * DFB_PLANE_MULTIPLY( format, surface->config.size.h );
 }
 
-static inline void
+static __inline__ void
 dfb_surface_caps_apply_policy( CoreSurfacePolicy       policy,
                                DFBSurfaceCapabilities *caps )
 {
@@ -411,7 +679,7 @@ dfb_surface_caps_apply_policy( CoreSurfacePolicy       policy,
      }
 }
 
-static inline DFBResult
+static __inline__ DFBResult
 dfb_surface_resize( CoreSurface *surface,
                     int          width,
                     int          height )
@@ -429,7 +697,7 @@ dfb_surface_resize( CoreSurface *surface,
      return dfb_surface_reconfig( surface, &config );
 }
 
-static inline DFBResult
+static __inline__ DFBResult
 dfb_surface_reformat( CoreSurface           *surface,
                       int                    width,
                       int                    height,
@@ -457,6 +725,7 @@ typedef enum {
      DFB_LAYER_REGION_SURFACE_LISTENER,
      DFB_WINDOWSTACK_BACKGROUND_IMAGE_LISTENER
 } DFB_SURFACE_GLOBALS;
+
 
 #endif
 

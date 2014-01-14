@@ -18,6 +18,9 @@ if ENABLE_VOODOO
 PROXY_DIR = proxy
 endif
 
+if BUILD_DVC
+DVC_DIR = lib/dvc
+endif
 
 if DIRECTFB_BUILD_PURE_VOODOO
 NON_PURE_VOODOO_SUBDIRS = 
@@ -29,18 +32,44 @@ NON_PURE_VOODOO_SUBDIRS = \
 	$(LINUXONLY_DIRS)
 endif
 
+if ENABLE_DIVINE
+DIVINE_DIR = lib/divine
+endif
+
+if ENABLE_SAWMAN
+SAWMAN_DIR = lib/sawman
+endif
+
+if ENABLE_FUSIONDALE
+FUSIONDALE_EXAMPLES_DIR = examples/fusiondale
+endif
+
+if ENABLE_FUSIONSOUND
+FUSIONSOUND_EXAMPLES_DIR = examples/fusionsound
+endif
+
 SUBDIRS = \
 	data			\
 	docs			\
 	include 		\
+	include/++dfb		\
 	lib			\
 	src 			\
+	lib/++dfb		\
+	$(SAWMAN_DIR)		\
+	$(DIVINE_DIR)		\
+	$(DVC_DIR)		\
+	$(TOOLS_DIR)		\
 	$(NON_PURE_VOODOO_SUBDIRS)	\
 	$(PROXY_DIR)		\
 	$(TESTS_DIR)		\
-	$(TOOLS_DIR)		\
+	$(FUSIONDALE_EXAMPLES_DIR) \
+	$(FUSIONSOUND_EXAMPLES_DIR) \
+	examples/++dfb		\
 	patches			\
-	rules
+	rules			\
+	build-android
+
 
 bin_SCRIPTS = directfb-config
 

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __IDIRECTFBPALETTE_H__
 #define __IDIRECTFBPALETTE_H__
 
@@ -39,13 +43,16 @@ typedef struct {
      int                     ref;            /* reference counter */
 
      CorePalette            *palette;        /* the palette object */
+
+     CoreDFB                *core;
 } IDirectFBPalette_data;
 
 /*
  * initializes interface struct and private data
  */
 DFBResult IDirectFBPalette_Construct( IDirectFBPalette *thiz,
-                                      CorePalette      *palette );
+                                      CorePalette      *palette,
+                                      CoreDFB          *core );
 
 
 #endif

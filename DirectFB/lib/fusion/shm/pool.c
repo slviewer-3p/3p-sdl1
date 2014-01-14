@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <unistd.h>
@@ -36,6 +40,7 @@
 #include <direct/mem.h>
 #include <direct/messages.h>
 
+#include <fusion/conf.h>
 #include <fusion/shmalloc.h>
 #include <fusion/fusion_internal.h>
 
@@ -208,8 +213,9 @@ DirectResult
 fusion_shm_pool_attach( FusionSHM           *shm,
                         FusionSHMPoolShared *pool )
 {
-     DirectResult     ret;
      FusionSHMShared *shared;
+
+     (void)shared;
 
      D_DEBUG_AT( Fusion_SHMPool, "%s( %p, %p )\n", __FUNCTION__, shm, pool );
 
@@ -221,11 +227,6 @@ fusion_shm_pool_attach( FusionSHM           *shm,
      D_MAGIC_ASSERT( shared, FusionSHMShared );
 
      D_ASSERT( shared == pool->shm );
-
-     ret = fusion_skirmish_prevail( &pool->lock );
-     if (ret) {
-          return ret;
-     }
 
      D_ASSERT( pool->active );
      D_ASSERT( pool->index >= 0 );
@@ -233,19 +234,16 @@ fusion_shm_pool_attach( FusionSHM           *shm,
      D_ASSERT( pool == &shared->pools[pool->index] );
      D_ASSERT( !shm->pools[pool->index].attached );
 
-     ret = join_pool( shm, &shm->pools[pool->index], pool );
-
-     fusion_skirmish_dismiss( &pool->lock );
-
-     return ret;
+     return join_pool( shm, &shm->pools[pool->index], pool );
 }
 
 DirectResult
 fusion_shm_pool_detach( FusionSHM           *shm,
                         FusionSHMPoolShared *pool )
 {
-     DirectResult     ret;
      FusionSHMShared *shared;
+
+     (void)shared;
 
      D_DEBUG_AT( Fusion_SHMPool, "%s( %p, %p )\n", __FUNCTION__, shm, pool );
 
@@ -257,12 +255,6 @@ fusion_shm_pool_detach( FusionSHM           *shm,
      D_MAGIC_ASSERT( shared, FusionSHMShared );
 
      D_ASSERT( shared == pool->shm );
-
-     ret = fusion_skirmish_prevail( &pool->lock );
-     if (ret) {
-          fusion_skirmish_dismiss( &shared->lock );
-          return ret;
-     }
 
      D_ASSERT( pool->active );
      D_ASSERT( pool->index >= 0 );
@@ -274,8 +266,6 @@ fusion_shm_pool_detach( FusionSHM           *shm,
      D_MAGIC_ASSERT( &shm->pools[pool->index], FusionSHMPool );
 
      leave_pool( shm, &shm->pools[pool->index], pool );
-
-     fusion_skirmish_dismiss( &pool->lock );
 
      return DR_OK;
 }
@@ -412,7 +402,6 @@ init_pool( FusionSHM           *shm,
            bool                 debug )
 {
      DirectResult         ret;
-     int                  fd;
      int                  size;
      FusionWorld         *world;
      FusionSHMPoolNew     pool_new    = { .pool_id = 0 };
@@ -458,6 +447,10 @@ init_pool( FusionSHM           *shm,
 
      ioctl( world->fusion_fd, FUSION_ENTRY_SET_INFO, &info );
 
+     fusion_entry_add_permissions( world, FT_SHMPOOL, pool_new.pool_id, 0,
+                                   FUSION_SHMPOOL_ATTACH,
+                                   FUSION_SHMPOOL_DETACH,
+                                   0 );
 
      /* Set pool to attach to. */
      pool_attach.pool_id = pool_new.pool_id;
@@ -485,7 +478,7 @@ init_pool( FusionSHM           *shm,
                fusion_world_index( shm->world ), pool_new.pool_id );
 
      /* Initialize the heap. */
-     ret = __shmalloc_init_heap( shm, buf, pool_new.addr_base, max_size, &fd, &size );
+     ret = __shmalloc_init_heap( shm, buf, pool_new.addr_base, max_size, &size );
      if (ret) {
           while (ioctl( world->fusion_fd, FUSION_SHMPOOL_DESTROY, &shared->pool_id )) {
                if (errno != EINTR) {
@@ -503,7 +496,6 @@ init_pool( FusionSHM           *shm,
      pool->shm      = shm;
      pool->shared   = shared;
      pool->pool_id  = pool_new.pool_id;
-     pool->fd       = fd;
      pool->filename = D_STRDUP( buf );
 
      /* Initialize shared data. */
@@ -516,7 +508,7 @@ init_pool( FusionSHM           *shm,
      shared->heap       = pool_new.addr_base;
      shared->heap->pool = shared;
 
-     fusion_skirmish_init( &shared->lock, name, world );
+     fusion_skirmish_init2( &shared->lock, name, world, fusion_config->secure_fusion );
 
 
      D_MAGIC_SET( pool, FusionSHMPool );
@@ -534,7 +526,6 @@ join_pool( FusionSHM           *shm,
            FusionSHMPoolShared *shared )
 {
      DirectResult         ret;
-     int                  fd;
      FusionWorld         *world;
      FusionSHMPoolAttach  pool_attach = { .pool_id = 0 };
      char                 buf[FUSION_SHM_TMPFS_PATH_NAME_LEN + 32];
@@ -575,7 +566,8 @@ join_pool( FusionSHM           *shm,
                fusion_world_index( shm->world ), shared->pool_id );
 
      /* Join the heap. */
-     ret = __shmalloc_join_heap( shm, buf, pool_attach.addr_base, shared->max_size, &fd );
+     ret = __shmalloc_join_heap( shm, buf, pool_attach.addr_base, shared->max_size,
+                                 !fusion_config->secure_fusion );
      if (ret) {
           while (ioctl( world->fusion_fd, FUSION_SHMPOOL_DETACH, &shared->pool_id )) {
                if (errno != EINTR) {
@@ -593,7 +585,6 @@ join_pool( FusionSHM           *shm,
      pool->shm      = shm;
      pool->shared   = shared;
      pool->pool_id  = shared->pool_id;
-     pool->fd       = fd;
      pool->filename = D_STRDUP( buf );
 
 
@@ -628,9 +619,6 @@ leave_pool( FusionSHM           *shm,
 
      if (munmap( shared->addr_base, shared->max_size ))
           D_PERROR( "Fusion/SHM: Could not munmap shared memory file '%s'!\n", pool->filename );
-
-     if (pool->fd != -1 && close( pool->fd ))
-          D_PERROR( "Fusion/SHM: Could not close shared memory file '%s'!\n", pool->filename );
 
      pool->attached = false;
 
@@ -670,9 +658,6 @@ shutdown_pool( FusionSHM           *shm,
      if (munmap( shared->addr_base, shared->max_size ))
           D_PERROR( "Fusion/SHM: Could not munmap shared memory file '%s'!\n", pool->filename );
 
-     if (pool->fd != -1 && close( pool->fd ))
-          D_PERROR( "Fusion/SHM: Could not close shared memory file '%s'!\n", pool->filename );
-
      if (unlink( pool->filename ))
           D_PERROR( "Fusion/SHM: Could not unlink shared memory file '%s'!\n", pool->filename );
 
@@ -700,7 +685,6 @@ init_pool( FusionSHM           *shm,
            bool                 debug )
 {
      DirectResult   ret;
-     int            fd;
      int            size;
      long           page_size;
      int            pool_id;
@@ -742,16 +726,15 @@ init_pool( FusionSHM           *shm,
                fusion_world_index( world ), pool_id );
 
      /* Initialize the heap. */
-     ret = __shmalloc_init_heap( shm, buf, pool_addr_base, max_size, &fd, &size );
+     ret = __shmalloc_init_heap( shm, buf, pool_addr_base, max_size, &size );
      if (ret)
           return ret;
 
-     /* Initialize local data. */
+     /* initialize local data. */
      pool->attached = true;
      pool->shm      = shm;
      pool->shared   = shared;
      pool->pool_id  = pool_id;
-     pool->fd       = fd;
      pool->filename = D_STRDUP( buf );
 
      /* Initialize shared data. */
@@ -782,7 +765,6 @@ join_pool( FusionSHM           *shm,
            FusionSHMPoolShared *shared )
 {
      DirectResult  ret;
-     int           fd;
      FusionWorld  *world;
      char          buf[FUSION_SHM_TMPFS_PATH_NAME_LEN + 32];
 
@@ -808,7 +790,8 @@ join_pool( FusionSHM           *shm,
                fusion_world_index( shm->world ), shared->pool_id );
 
      /* Join the heap. */
-     ret = __shmalloc_join_heap( shm, buf, shared->addr_base, shared->max_size, &fd );
+     ret = __shmalloc_join_heap( shm, buf, shared->addr_base, shared->max_size,
+                                 true/*!fusion_config->secure_fusion*/ );
      if (ret)
           return ret;
 
@@ -817,7 +800,6 @@ join_pool( FusionSHM           *shm,
      pool->shm      = shm;
      pool->shared   = shared;
      pool->pool_id  = shared->pool_id;
-     pool->fd       = fd;
      pool->filename = D_STRDUP( buf );
 
 
@@ -845,9 +827,6 @@ leave_pool( FusionSHM           *shm,
 
      if (munmap( shared->addr_base, shared->max_size ))
           D_PERROR( "Fusion/SHM: Could not munmap shared memory file '%s'!\n", pool->filename );
-
-     if (pool->fd != -1 && close( pool->fd ))
-          D_PERROR( "Fusion/SHM: Could not close shared memory file '%s'!\n", pool->filename );
 
      pool->attached = false;
 
@@ -879,9 +858,6 @@ shutdown_pool( FusionSHM           *shm,
 
      if (munmap( shared->addr_base, shared->max_size ))
           D_PERROR( "Fusion/SHM: Could not munmap shared memory file '%s'!\n", pool->filename );
-
-     if (pool->fd != -1 && close( pool->fd ))
-          D_PERROR( "Fusion/SHM: Could not close shared memory file '%s'!\n", pool->filename );
 
      if (unlink( pool->filename ))
           D_PERROR( "Fusion/SHM: Could not unlink shared memory file '%s'!\n", pool->filename );

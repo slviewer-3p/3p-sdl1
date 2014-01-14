@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __CORE__WINDOWS_INTERNAL_H__
 #define __CORE__WINDOWS_INTERNAL_H__
 
@@ -40,6 +44,8 @@
 #include <core/windows.h>
 
 #include <direct/list.h>
+
+#include <fusion/fusion.h>
 #include <fusion/lock.h>
 #include <fusion/object.h>
 
@@ -52,7 +58,9 @@ typedef enum {
      CWF_ENTERED     = 0x00000004,
      CWF_DESTROYED   = 0x00000008,
 
-     CWF_ALL         = 0x0000000F
+     CWF_INSERTED    = 0x00000010,
+
+     CWF_ALL         = 0x0000001F
 } CoreWindowFlags;
 
 #define DFB_WINDOW_INITIALIZED(w)  ((w)->flags & CWF_INITIALIZED)
@@ -108,6 +116,16 @@ struct __DFB_CoreWindow {
      CoreWindow             *subfocus;       /* which of the sub windows has the focus? */
 
      unsigned long           resource_id;
+
+     FusionCall              call;
+
+     struct {
+          int                hot_x;
+          int                hot_y;
+          CoreSurface       *surface;
+     } cursor;
+
+     DFBWindowCapabilities   requested_caps; /* original caps from application upon window creation */
 };
 
 typedef enum {
@@ -185,9 +203,21 @@ struct __DFB_CoreWindowStack {
      FusionSHMPoolShared *shmpool;
 
      CoreWindowStackFlags flags;
+
+     FusionCall           call;
+
+
+     FusionDispatchCleanup  *motion_cleanup;
+
+     DFBInputEvent           motion_x;
+     DFBInputEvent           motion_y;
+     long long               motion_ts;
+
+     FusionVector            visible_windows;     /* list of visible windows */
 };
 
 
+DFBResult dfb_wm_deactivate_all_stacks( void *data );
 DFBResult dfb_wm_close_all_stacks( void *data );
 
 

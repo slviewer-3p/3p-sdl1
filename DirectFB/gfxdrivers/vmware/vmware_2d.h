@@ -1,8 +1,16 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
+
+   Written by Denis Oliver Kropp <dok@directfb.org>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
+              Sven Neumann <neo@directfb.org>,
+              Ville Syrjälä <syrjala@sci.fi> and
+              Claudio Ciccani <klan@users.sf.net>.
 
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -23,6 +31,8 @@
 #ifndef __VMWARE_2D_H__
 #define __VMWARE_2D_H__
 
+#include <direct/processor.h>
+
 
 #define VMWARE_SUPPORTED_DRAWINGFLAGS      (DSDRAW_NOFX)
 
@@ -32,15 +42,6 @@
 
 #define VMWARE_SUPPORTED_BLITTINGFUNCTIONS (DFXL_BLIT)
 
-
-DFBResult vmwareEngineSync   ( void                *drv,
-                               void                *dev );
-
-void      vmwareEngineReset  ( void                *drv,
-                               void                *dev );
-
-void      vmwareEmitCommands ( void                *drv,
-                               void                *dev );
 
 void      vmwareCheckState   ( void                *drv,
                                void                *dev,
@@ -62,6 +63,53 @@ bool      vmwareBlit         ( void                *drv,
                                DFBRectangle        *srect,
                                int                  dx,
                                int                  dy );
+
+
+
+void      vmwareEngineReset  ( void                *drv,
+                               void                *dev );
+
+DFBResult vmwareEngineSync   ( void                *drv,
+                               void                *dev );
+DFBResult vmwareWaitSerial   ( void                *drv,
+                               void                *dev,
+                               const CoreGraphicsSerial *serial );
+
+void      vmwareGetSerial    ( void                *drv,
+                               void                *dev,
+                               CoreGraphicsSerial  *serial );
+
+void      vmwareEmitCommands ( void                *drv,
+                               void                *dev );
+
+
+extern const DirectProcessorFuncs *virtual2DFuncs;
+
+
+typedef enum {
+     V2D_OP_SERIAL,
+     V2D_OP_FILL,
+     V2D_OP_BLIT
+} Virtual2DOp;
+
+typedef struct {
+     CoreGraphicsSerial serial;
+
+     Virtual2DOp    op;
+
+     void          *dst_addr;
+     int            dst_bpp;
+     int            dst_pitch;
+
+     void          *src_addr;
+     int            src_bpp;
+     int            src_pitch;
+
+     DFBRectangle   dst;
+     DFBRectangle   src;
+
+     u32            color;
+} Virtual2DPacket;
 
 #endif
 

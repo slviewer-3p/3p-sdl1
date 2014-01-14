@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,15 +28,17 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <direct/debug.h>
 #include <direct/mem.h>
 
-#include <fusion/fusion.h>
-
 #include <core/core.h>
 #include <core/surface_pool.h>
+#include <core/system.h>
+#include <misc/conf.h>
 
 
 /**********************************************************************************************************************/
@@ -43,7 +47,6 @@ typedef struct {
 } LocalPoolData;
 
 typedef struct {
-     FusionCall  call;
 } LocalPoolLocalData;
 
 typedef struct {
@@ -52,27 +55,7 @@ typedef struct {
      void       *addr;
      int         pitch;
      int         size;
-
-     FusionCall  call;
-     FusionID    fid;
 } LocalAllocationData;
-
-/**********************************************************************************************************************/
-
-static FusionCallHandlerResult
-local_surface_pool_call_handler( int           caller,
-                                 int           call_arg,
-                                 void         *call_ptr,
-                                 void         *ctx,
-                                 unsigned int  serial,
-                                 int          *ret_val )
-{
-     D_FREE( call_ptr );
-
-     *ret_val = 0;
-
-     return FCHR_RETURN;
-}
 
 /**********************************************************************************************************************/
 
@@ -102,20 +85,18 @@ localInitPool( CoreDFB                    *core,
                void                       *system_data,
                CoreSurfacePoolDescription *ret_desc )
 {
-     LocalPoolLocalData *local = pool_local;
-
      D_MAGIC_ASSERT( pool, CoreSurfacePool );
-     D_ASSERT( pool_local != NULL );
      D_ASSERT( ret_desc != NULL );
 
-     ret_desc->caps              = CSPCAPS_NONE;
-     ret_desc->access[CSAID_CPU] = CSAF_READ | CSAF_WRITE;
-     ret_desc->types             = CSTF_FONT | CSTF_INTERNAL;
-     ret_desc->priority          = CSPP_PREFERED;
+     ret_desc->caps              = CSPCAPS_VIRTUAL;
+     ret_desc->access[CSAID_CPU] = CSAF_READ | CSAF_WRITE | CSAF_SHARED;
+     ret_desc->types             = CSTF_LAYER | CSTF_WINDOW | CSTF_CURSOR | CSTF_FONT | CSTF_SHARED | CSTF_INTERNAL;
+     ret_desc->priority          = CSPP_DEFAULT;
+
+     if (dfb_system_caps() & CSCAPS_SYSMEM_EXTERNAL)
+          ret_desc->types |= CSTF_EXTERNAL;
 
      snprintf( ret_desc->name, DFB_SURFACE_POOL_DESC_NAME_LENGTH, "System Memory" );
-
-     fusion_call_init( &local->call, local_surface_pool_call_handler, local, dfb_core_world(core) );
 
      return DFB_OK;
 }
@@ -127,12 +108,9 @@ localJoinPool( CoreDFB                    *core,
                void                       *pool_local,
                void                       *system_data )
 {
-     LocalPoolLocalData *local = pool_local;
-
      D_MAGIC_ASSERT( pool, CoreSurfacePool );
-     D_ASSERT( pool_local != NULL );
 
-     return fusion_call_init( &local->call, local_surface_pool_call_handler, local, dfb_core_world(core) );
+     return DFB_OK;
 }
 
 static DFBResult
@@ -140,28 +118,9 @@ localDestroyPool( CoreSurfacePool *pool,
                   void            *pool_data,
                   void            *pool_local )
 {
-     CoreSurfaceAllocation *allocation;
-     LocalPoolLocalData    *local = pool_local;
-     LocalAllocationData   *data;
-     FusionID               fid;
-
-     DFBResult res;
-     int       i;
-
      D_MAGIC_ASSERT( pool, CoreSurfacePool );
-     D_ASSERT( pool_local != NULL );
 
-     res = fusion_call_destroy( &local->call );
-     fid = fusion_id( dfb_core_world(NULL) );
-
-     /* remove the local allocations */
-     fusion_vector_foreach (allocation, i, pool->allocs) {
-          data = allocation->data;
-          if( data->fid == fid )
-               D_FREE( data->addr );
-     }
-
-     return res;    
+     return DFB_OK;
 }
 
 static DFBResult
@@ -169,28 +128,9 @@ localLeavePool( CoreSurfacePool *pool,
                 void            *pool_data,
                 void            *pool_local )
 {
-     CoreSurfaceAllocation *allocation;
-     LocalPoolLocalData    *local = pool_local;
-     LocalAllocationData   *data;
-     FusionID               fid;
-     
-     DFBResult res;
-     int       i;
-
      D_MAGIC_ASSERT( pool, CoreSurfacePool );
-     D_ASSERT( pool_local != NULL );
 
-     res = fusion_call_destroy( &local->call );
-     fid = fusion_id( dfb_core_world(NULL) );
-
-     /* remove the local allocations */
-     fusion_vector_foreach (allocation, i, pool->allocs) {
-          data = allocation->data;
-          if( data->fid == fid )
-               D_FREE( data->addr );
-     }
-
-     return res;    
+     return DFB_OK;
 }
 
 static DFBResult
@@ -202,7 +142,6 @@ localAllocateBuffer( CoreSurfacePool       *pool,
                      void                  *alloc_data )
 {
      CoreSurface         *surface;
-     LocalPoolLocalData  *local = pool_local;
      LocalAllocationData *alloc = alloc_data;
 
      D_MAGIC_ASSERT( pool, CoreSurfacePool );
@@ -211,16 +150,40 @@ localAllocateBuffer( CoreSurfacePool       *pool,
 
      surface = buffer->surface;
      D_MAGIC_ASSERT( surface, CoreSurface );
+#ifndef ANDROID_NDK
+     /* Create aligned local system surface buffer if both base address and pitch are non-zero. */
+     if (dfb_config->system_surface_align_base && dfb_config->system_surface_align_pitch) {
+          /* Make sure base address and pitch are a positive power of two. */
+          D_ASSERT( dfb_config->system_surface_align_base >= 4 );
+          D_ASSERT( !(dfb_config->system_surface_align_base & (dfb_config->system_surface_align_base-1)) );
+          D_ASSERT( dfb_config->system_surface_align_pitch >= 2 );
+          D_ASSERT( !(dfb_config->system_surface_align_pitch & (dfb_config->system_surface_align_pitch-1)) );
 
-     dfb_surface_calc_buffer_size( surface, 8, 0, &alloc->pitch, &alloc->size );
+          dfb_surface_calc_buffer_size( surface, dfb_config->system_surface_align_pitch, 0,
+                                        &alloc->pitch, &alloc->size );
 
-     alloc->addr = D_MALLOC( alloc->size );
-     if (!alloc->addr)
-          return D_OOM();
+          /* Note: The posix_memalign function requires base alignment to actually be at least four. */
+          int tempRet = posix_memalign( &alloc->addr, dfb_config->system_surface_align_base, alloc->size );
+          if ( tempRet != 0 ) {
+              D_ERROR( "Local surface pool: Error from posix_memalign:%d with base alignment value:%d. "
+                       "%s()-%s:%d\n",
+                       tempRet, dfb_config->system_surface_align_base,
+                       __FUNCTION__, __FILE__, __LINE__ );
+              return DFB_FAILURE;
+          }
+     }
+     else {
+#endif
+          /* Create un-aligned local system surface buffer. */
 
-     alloc->call = local->call;
-     alloc->fid  = fusion_id( dfb_core_world(NULL) );
+          dfb_surface_calc_buffer_size( surface, 8, 0, &alloc->pitch, &alloc->size );
 
+          alloc->addr = D_MALLOC( alloc->size );
+          if (!alloc->addr)
+               return D_OOM();
+#ifndef ANDROID_NDK
+     }
+#endif
      D_MAGIC_SET( alloc, LocalAllocationData );
 
      allocation->flags = CSALF_VOLATILE;
@@ -237,16 +200,16 @@ localDeallocateBuffer( CoreSurfacePool       *pool,
                        CoreSurfaceAllocation *allocation,
                        void                  *alloc_data )
 {
-     DFBResult            ret;
      LocalAllocationData *alloc = alloc_data;
 
      D_MAGIC_ASSERT( pool, CoreSurfacePool );
-     D_MAGIC_ASSERT( buffer, CoreSurfaceBuffer );
      D_MAGIC_ASSERT( alloc, LocalAllocationData );
 
-     ret = fusion_call_execute( &alloc->call, FCEF_ONEWAY, 0, alloc->addr, NULL );
-//     if (ret)
-//          D_DERROR( ret, "SurfPool/Local: Could not call buffer owner to free it there!\n" );
+     if (dfb_config->system_surface_align_base && dfb_config->system_surface_align_pitch)
+          // This was allocated by posix_memalign and requires "free()".
+          free( alloc->addr );
+     else
+          D_FREE( alloc->addr );
 
      D_MAGIC_CLEAR( alloc );
 

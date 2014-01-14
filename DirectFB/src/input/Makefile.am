@@ -1,8 +1,9 @@
 ## Makefile.am for DirectFB/src/input
 
 INCLUDES = \
-	-I$(top_builddir)/lib		\
 	-I$(top_builddir)/include	\
+	-I$(top_builddir)/lib		\
+	-I$(top_builddir)/src		\
 	-I$(top_srcdir)/include		\
 	-I$(top_srcdir)/lib		\
 	-I$(top_srcdir)/src
@@ -28,4 +29,3 @@ endif
 libdirectfb_input_la_SOURCES = \
 	$(NON_PURE_VOODOO_SOURCESs)	\
 	idirectfbinputbuffer.c
-

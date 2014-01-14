@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -130,6 +134,7 @@ mouse_motion_realize( SerialMouseData *data )
 static void
 mouse_setspeed( SerialMouseData *data )
 {
+     int res;
      struct termios tty;
 
      tcgetattr (data->fd, &tty);
@@ -146,7 +151,8 @@ mouse_setspeed( SerialMouseData *data )
 
      tcsetattr (data->fd, TCSAFLUSH, &tty);
 
-     write (data->fd, "*n", 2);
+     res = write (data->fd, "*n", 2);
+     (void)res;
 }
 
 /* the main routine for MS mice (plus extensions) */
@@ -527,7 +533,11 @@ driver_open_device( CoreInputDevice      *device,
      info->prefered_id     = DIDID_MOUSE;
 
      info->desc.type       = DIDTF_MOUSE;
+#ifndef DIRECTFB_DISABLE_DEPRECATED
      info->desc.caps       = DICAPS_AXES | DICAPS_BUTTONS;
+#else
+     info->desc.caps       = DIDCAPS_AXES | DIDCAPS_BUTTONS;
+#endif
      info->desc.max_axis   = DIAI_Y;
      info->desc.max_button = (protocol > PROTOCOL_MS) ? DIBI_MIDDLE : DIBI_RIGHT;
 

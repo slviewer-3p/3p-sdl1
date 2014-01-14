@@ -1,7 +1,16 @@
 /*
-   (c) Copyright 2009  Denis Oliver Kropp <dok@directfb.org>
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
+
+   Written by Denis Oliver Kropp <dok@directfb.org>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
+              Sven Neumann <neo@directfb.org>,
+              Ville Syrjälä <syrjala@sci.fi> and
+              Claudio Ciccani <klan@users.sf.net>.
 
    This file is subject to the terms and conditions of the MIT License:
 
@@ -57,6 +66,7 @@ main( int argc, char *argv[] )
      DFBPoint      p_dst = { 0, 0 };
      DFBPoint      p_src = { 50, 50 };
 
+     CardState    *statep = &state;
      /* Initialize DirectFB. */
      ret = DirectFBInit( &argc, &argv );
      if (ret) {
@@ -89,19 +99,19 @@ main( int argc, char *argv[] )
       *                                                   150x150
       */
 
-     ret = dfb_surface_create_simple( core, 100, 100, DSPF_ARGB, DSCAPS_NONE, CSTF_NONE, 0, NULL, &dst );
+     ret = dfb_surface_create_simple( core, 100, 100, DSPF_ARGB, DSCS_RGB, DSCAPS_NONE, CSTF_NONE, 0, NULL, &dst );
      if (ret) {
           D_DERROR( ret, "CoreTest/Blit2: dfb_surface_create_simple(dst) failed!\n" );
           goto error_dst;
      }
 
-     ret = dfb_surface_create_simple( core, 100, 100, DSPF_ARGB, DSCAPS_NONE, CSTF_NONE, 0, NULL, &src );
+     ret = dfb_surface_create_simple( core, 100, 100, DSPF_ARGB, DSCS_RGB, DSCAPS_NONE, CSTF_NONE, 0, NULL, &src );
      if (ret) {
           D_DERROR( ret, "CoreTest/Blit2: dfb_surface_create_simple(src) failed!\n" );
           goto error_src;
      }
 
-     ret = dfb_surface_create_simple( core, 150, 150, DSPF_ARGB, DSCAPS_NONE, CSTF_NONE, 0, NULL, &src2 );
+     ret = dfb_surface_create_simple( core, 150, 150, DSPF_ARGB, DSCS_RGB, DSCAPS_NONE, CSTF_NONE, 0, NULL, &src2 );
      if (ret) {
           D_DERROR( ret, "CoreTest/Blit2: dfb_surface_create_simple(src2) failed!\n" );
           goto error_src2;
@@ -109,28 +119,28 @@ main( int argc, char *argv[] )
 
 
      /* Initialize state */
-     dfb_state_init( &state, core );
+     dfb_state_init( statep, core );
 
 
      /* Fill source with red */
-     dfb_state_set_clip( &state, &clip );
-     dfb_state_set_destination( &state, src );
-     dfb_state_set_color( &state, &red );
+     dfb_state_set_clip( statep, &clip );
+     dfb_state_set_destination( statep, src );
+     dfb_state_set_color( statep, &red );
 
-     dfb_gfxcard_fillrectangles( &rect, 1, &state );
+     dfb_gfxcard_fillrectangles( &rect, 1, statep );
 
      dfb_surface_dump_buffer( src, CSBR_FRONT, "/", "coretest_blit2_src" );
 
 
      /* Fill source2 with blue/white */
-     dfb_state_set_clip( &state, &c150 );
-     dfb_state_set_destination( &state, src2 );
+     dfb_state_set_clip( statep, &c150 );
+     dfb_state_set_destination( statep, src2 );
 
-     dfb_state_set_color( &state, &white );
-     dfb_gfxcard_fillrectangles( &r150, 1, &state );
+     dfb_state_set_color( statep, &white );
+     dfb_gfxcard_fillrectangles( &r150, 1, statep );
 
-     dfb_state_set_color( &state, &blue );
-     dfb_gfxcard_fillrectangles( &rect, 1, &state );
+     dfb_state_set_color( statep, &blue );
+     dfb_gfxcard_fillrectangles( &rect, 1, statep );
 
      dfb_surface_dump_buffer( src2, CSBR_FRONT, "/", "coretest_blit2_src2" );
 
@@ -138,15 +148,15 @@ main( int argc, char *argv[] )
      /*
       * Setup dual source blit
       */
-     dfb_state_set_clip( &state, &clip );
-     dfb_state_set_destination( &state, dst );
-     dfb_state_set_source( &state, src );
-     dfb_state_set_source2( &state, src2 );
+     dfb_state_set_clip( statep, &clip );
+     dfb_state_set_destination( statep, dst );
+     dfb_state_set_source( statep, src );
+     dfb_state_set_source2( statep, src2 );
 
-     dfb_state_set_blitting_flags( &state, DSBLIT_BLEND_ALPHACHANNEL );
+     dfb_state_set_blitting_flags( statep, DSBLIT_BLEND_ALPHACHANNEL );
 
-     dfb_state_set_src_blend( &state, DSBF_ONE );
-     dfb_state_set_dst_blend( &state, DSBF_INVSRCALPHA );
+     dfb_state_set_src_blend( statep, DSBF_ONE );
+     dfb_state_set_dst_blend( statep, DSBF_INVSRCALPHA );
 
      /*
       * Perform dual source blit 
@@ -171,17 +181,17 @@ main( int argc, char *argv[] )
       *  
       *        100x100
       */
-     dfb_gfxcard_batchblit2( &rect, &p_dst, &p_src, 1, &state );
+     dfb_gfxcard_batchblit2( &rect, &p_dst, &p_src, 1, statep );
 
      dfb_surface_dump_buffer( dst, CSBR_BACK, "/", "coretest_blit2_dst" );
 
 
      /* Shutdown state */
-     dfb_state_set_destination( &state, NULL );
-     dfb_state_set_source( &state, NULL );
-     dfb_state_set_source2( &state, NULL );
+     dfb_state_set_destination( statep, NULL );
+     dfb_state_set_source( statep, NULL );
+     dfb_state_set_source2( statep, NULL );
 
-     dfb_state_destroy( &state );
+     dfb_state_destroy( statep );
 
 
 

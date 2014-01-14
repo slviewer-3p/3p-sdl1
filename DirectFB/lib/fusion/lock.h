@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,24 +28,26 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __FUSION__LOCK_H__
 #define __FUSION__LOCK_H__
-
-#include <pthread.h>
 
 #include <fusion/types.h>
 
 #include <direct/messages.h>
+#include <direct/thread.h>
 #include <direct/util.h>
 
 typedef struct {
-     pthread_mutex_t          lock;
-     pthread_cond_t           cond;
+     int                      magic;
+     DirectMutex              lock;
+     DirectWaitQueue          cond;
      int                      count;
      char                    *name;
 } FusionSkirmishSingle;
 
-typedef union {
+typedef struct {
      /* multi app */
      struct {
           int                      id;
@@ -66,43 +70,55 @@ typedef union {
 /*
  * Initialize.
  */
-DirectResult fusion_skirmish_init   ( FusionSkirmish    *skirmish,
-                                      const char        *name,
-                                      const FusionWorld *world );
+DirectResult FUSION_API fusion_skirmish_init   ( FusionSkirmish    *skirmish,
+                                                 const char        *name,
+                                                 const FusionWorld *world );
+
+DirectResult FUSION_API fusion_skirmish_init2  ( FusionSkirmish    *skirmish,
+                                                 const char        *name,
+                                                 const FusionWorld *world,
+                                                 bool               local );
 
 /*
  * Lock.
  */
-DirectResult fusion_skirmish_prevail( FusionSkirmish    *skirmish );
+DirectResult FUSION_API fusion_skirmish_prevail( FusionSkirmish    *skirmish );
 
 /*
  * Try lock.
  */
-DirectResult fusion_skirmish_swoop  ( FusionSkirmish    *skirmish );
+DirectResult FUSION_API fusion_skirmish_swoop  ( FusionSkirmish    *skirmish );
 
 /*
  * Find out how many times current thread has acquired lock. 
  */
-DirectResult fusion_skirmish_lock_count( FusionSkirmish *skirmish, int *lock_count );
+DirectResult FUSION_API fusion_skirmish_lock_count( FusionSkirmish *skirmish, int *lock_count );
 
 /*
  * Unlock.
  */
-DirectResult fusion_skirmish_dismiss( FusionSkirmish    *skirmish );
+DirectResult FUSION_API fusion_skirmish_dismiss( FusionSkirmish    *skirmish );
 
 /*
  * Deinitialize.
  */
-DirectResult fusion_skirmish_destroy( FusionSkirmish    *skirmish );
+DirectResult FUSION_API fusion_skirmish_destroy( FusionSkirmish    *skirmish );
 
 /*
  * Wait & Notify.
  *
  * Must be locked!
  */
-DirectResult fusion_skirmish_wait   ( FusionSkirmish    *skirmish,
-                                      unsigned int       timeout );
-DirectResult fusion_skirmish_notify ( FusionSkirmish    *skirmish );
+DirectResult FUSION_API fusion_skirmish_wait   ( FusionSkirmish    *skirmish,
+                                                 unsigned int       timeout );
+DirectResult FUSION_API fusion_skirmish_notify ( FusionSkirmish    *skirmish );
+
+
+DirectResult FUSION_API fusion_skirmish_prevail_multi( FusionSkirmish **skirmishs,
+                                                       unsigned int     num );
+
+DirectResult FUSION_API fusion_skirmish_dismiss_multi( FusionSkirmish **skirmishs,
+                                                       unsigned int     num );
 
 
 #if D_DEBUG_ENABLED
@@ -120,6 +136,28 @@ DirectResult fusion_skirmish_notify ( FusionSkirmish    *skirmish );
      do {                                                                                 \
      } while (0)
 #endif
+
+
+typedef enum {
+     FUSION_SKIRMISH_PERMIT_NONE                  = 0x00000000,
+
+     FUSION_SKIRMISH_PERMIT_PREVAIL               = 0x00000001,
+     FUSION_SKIRMISH_PERMIT_SWOOP                 = 0x00000002,
+     FUSION_SKIRMISH_PERMIT_DISMISS               = 0x00000004,
+     FUSION_SKIRMISH_PERMIT_LOCK_COUNT            = 0x00000008,
+     FUSION_SKIRMISH_PERMIT_WAIT                  = 0x00000010,
+     FUSION_SKIRMISH_PERMIT_NOTIFY                = 0x00000020,
+     FUSION_SKIRMISH_PERMIT_DESTROY               = 0x00000040,
+
+     FUSION_SKIRMISH_PERMIT_ALL                   = 0x0000007F
+} FusionSkirmishPermissions;
+
+/*
+ * Give permissions to another fusionee to use the skirmish.
+ */
+DirectResult  FUSION_API fusion_skirmish_add_permissions( FusionSkirmish            *skimrish,
+                                                          FusionID                   fusion_id,
+                                                          FusionSkirmishPermissions  permissions );
 
 #endif
 

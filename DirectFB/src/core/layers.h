@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __CORE__LAYERS_H__
 #define __CORE__LAYERS_H__
 
@@ -41,6 +45,7 @@ struct __DFB_CoreLayerRegionConfig {
      int                        width;            /* width of the source in pixels */
      int                        height;           /* height of the source in pixels */
      DFBSurfacePixelFormat      format;           /* pixel format of the source surface */
+     DFBSurfaceColorSpace       colorspace;       /* color space of the source surface */
      DFBSurfaceCapabilities     surface_caps;     /* capabilities of the source surface */
      DFBDisplayLayerBufferMode  buffermode;       /* surface buffer configuration */
 
@@ -63,6 +68,8 @@ struct __DFB_CoreLayerRegionConfig {
      DFBRegion                 *clips;            /* clip regions */
      int                        num_clips;        /* number of clip regions */
      DFBBoolean                 positive;         /* show or cut out regions */
+
+     bool                       keep_buffers;
 };
 
 #if D_DEBUG_ENABLED
@@ -72,6 +79,7 @@ struct __DFB_CoreLayerRegionConfig {
                                                                                                                    \
           D_DEBUG_AT( domain, "  -> size       %dx%d\n", _config->width, _config->height );                        \
           D_DEBUG_AT( domain, "  -> format     %s\n", dfb_pixelformat_name( _config->format ) );                   \
+          D_DEBUG_AT( domain, "  -> color spc  %d\n", _config->colorspace );                                       \
           D_DEBUG_AT( domain, "  -> surf caps  0x%08x\n", _config->surface_caps );                                 \
           D_DEBUG_AT( domain, "  -> buffermode %d\n", _config->buffermode );                                       \
           D_DEBUG_AT( domain, "  -> options    0x%08x\n", _config->options );                                      \
@@ -98,6 +106,7 @@ typedef enum {
      CLRCF_BUFFERMODE   = 0x00000010,
      CLRCF_OPTIONS      = 0x00000020,
      CLRCF_SOURCE_ID    = 0x00000040,
+     CLRCF_COLORSPACE   = 0x00000080,
 
      CLRCF_SOURCE       = 0x00000100,
      CLRCF_DEST         = 0x00000200,
@@ -114,9 +123,9 @@ typedef enum {
      CLRCF_SURFACE      = 0x10000000,
      CLRCF_PALETTE      = 0x20000000,
 
-     CLRCF_FREEZE       = 0x80000000,
+     CLRCF_FREEZE       = 0x40000000,
 
-     CLRCF_ALL          = 0xB013377F
+     CLRCF_ALL          = 0x701337FF
 } CoreLayerRegionConfigFlags;
 
 typedef struct {
@@ -199,6 +208,15 @@ typedef struct {
                                          void                   *layer_data,
                                          DFBColorAdjustment     *adjustment );
 
+     /*
+      * Set the stereo depth for L/R mono and stereo layers.     // FIXME: Use SetRegion()!
+      */
+     DFBResult (*SetStereoDepth)       ( CoreLayer              *layer,
+                                         void                   *driver_data,
+                                         void                   *layer_data,
+                                         bool                    follow_video,
+                                         int                     z );
+
 
    /** Region Control **/
 
@@ -232,7 +250,8 @@ typedef struct {
                                  CoreLayerRegionConfigFlags  updated,
                                  CoreSurface                *surface,
                                  CorePalette                *palette,
-                                 CoreSurfaceBufferLock      *lock );
+                                 CoreSurfaceBufferLock      *left_lock,
+                                 CoreSurfaceBufferLock      *right_lock );
 
      /*
       * Remove a region from the layer.
@@ -251,7 +270,10 @@ typedef struct {
                                  void                       *region_data,
                                  CoreSurface                *surface,
                                  DFBSurfaceFlipFlags         flags,
-                                 CoreSurfaceBufferLock      *lock );
+                                 const DFBRegion            *left_update,
+                                 CoreSurfaceBufferLock      *left_lock,
+                                 const DFBRegion            *right_update,
+                                 CoreSurfaceBufferLock      *right_lock );
 
      /*
       * Indicate updates to the front buffer content.
@@ -261,8 +283,10 @@ typedef struct {
                                  void                       *layer_data,
                                  void                       *region_data,
                                  CoreSurface                *surface,
-                                 const DFBRegion            *update,
-                                 CoreSurfaceBufferLock      *lock );
+                                 const DFBRegion            *left_update,
+                                 CoreSurfaceBufferLock      *left_lock,
+                                 const DFBRegion            *right_update,
+                                 CoreSurfaceBufferLock      *right_lock );
 
      /*
       * Control hardware deinterlacing.
@@ -361,6 +385,8 @@ CardState  *dfb_layer_state( CoreLayer *layer );
 DFBDisplayLayerID dfb_layer_id( const CoreLayer *layer );
 
 DFBDisplayLayerID dfb_layer_id_translated( const CoreLayer *layer );
+
+DFBDisplayLayerID dfb_layer_id_translate( DFBDisplayLayerID layer_id );
 
 DFBSurfacePixelFormat dfb_primary_layer_pixelformat( void );
 

@@ -1,7 +1,16 @@
 /*
-   (c) Copyright 2008  Denis Oliver Kropp
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
+
+   Written by Denis Oliver Kropp <dok@directfb.org>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
+              Sven Neumann <neo@directfb.org>,
+              Ville Syrjälä <syrjala@sci.fi> and
+              Claudio Ciccani <klan@users.sf.net>.
 
    This file is subject to the terms and conditions of the MIT License:
 
@@ -128,8 +137,6 @@ main( int argc, char *argv[] )
      DFBSurfacePixelFormat   source_format = DSPF_UNKNOWN;
      DFBSurfacePixelFormat   dest_format   = DSPF_UNKNOWN;
      bool                    dest_resize   = false;
-     bool                    benchmark     = false;
-     bool                    rerender      = false;
 
      /* Initialize DirectFB. */
      ret = DirectFBInit( &argc, &argv );
@@ -168,10 +175,6 @@ main( int argc, char *argv[] )
           }
           else if (strcmp (arg, "-r") == 0 || strcmp (arg, "--resize") == 0)
                dest_resize = true;
-          else if (strcmp (arg, "-b") == 0 || strcmp (arg, "--benchmark") == 0)
-               benchmark = true;
-          else if (strcmp (arg, "-R") == 0 || strcmp (arg, "--rerender") == 0)
-               rerender = true;
           else if (!url)
                url = arg;
           else

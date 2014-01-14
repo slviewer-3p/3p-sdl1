@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -48,6 +52,12 @@
 #include <core/windows.h>
 #include <core/windows_internal.h> /* FIXME */
 #include <core/wm.h>
+
+#include <core/CoreGraphicsState.h>
+#include <core/CoreLayerRegion.h>
+#include <core/CoreSurface.h>
+#include <core/CoreWindow.h>
+#include <core/CoreWindowStack.h>
 
 #include <display/idirectfbsurface.h>
 #include <display/idirectfbsurface_window.h>
@@ -126,14 +136,16 @@ IDirectFBSurface_Window_Flip( IDirectFBSurface    *thiz,
                               const DFBRegion     *region,
                               DFBSurfaceFlipFlags  flags )
 {
-     DFBResult ret;
-     DFBRegion reg;
+     DFBResult    ret = DFB_OK;
+     DFBRegion    reg;
+     CoreSurface *surface;
 
      DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Window)
 
      D_DEBUG_AT( Surface, "%s( %p, %p, 0x%08x )\n", __FUNCTION__, thiz, region, flags );
 
-     if (!data->base.surface)
+     surface = data->base.surface;
+     if (!surface)
           return DFB_DESTROYED;
 
      if (data->base.locked)
@@ -151,10 +163,12 @@ IDirectFBSurface_Window_Flip( IDirectFBSurface    *thiz,
 
           DIRECT_INTERFACE_GET_DATA_FROM( data->base.parent, parent_data, IDirectFBSurface );
 
-          /* Signal end of sequence of operations. */
-          dfb_state_lock( &parent_data->state );
-          dfb_state_stop_drawing( &parent_data->state );
-          dfb_state_unlock( &parent_data->state );
+          if (parent_data) {
+               /* Signal end of sequence of operations. */
+               dfb_state_lock( &parent_data->state );
+               dfb_state_stop_drawing( &parent_data->state );
+               dfb_state_unlock( &parent_data->state );
+          }
      }
 
 
@@ -172,7 +186,7 @@ IDirectFBSurface_Window_Flip( IDirectFBSurface    *thiz,
 
      D_DEBUG_AT( Surface, "  -> FLIP %4d,%4d-%4dx%4d\n", DFB_RECTANGLE_VALS_FROM_REGION( &reg ) );
 
-
+#if 0
      if (flags & DSFLIP_PIPELINE) {
           dfb_gfxcard_wait_serial( &data->window->serial2 );
 
@@ -180,36 +194,144 @@ IDirectFBSurface_Window_Flip( IDirectFBSurface    *thiz,
 
           dfb_state_get_serial( &data->base.state, &data->window->serial1 );
      }
+#endif
 
+     CoreGraphicsStateClient_FlushCurrent( 0 );
 
-     if (data->window->region) {
-          dfb_layer_region_flip_update( data->window->region, &reg, flags );
+     D_DEBUG_AT( Surface, "  -> FLIP %4d,%4d-%4dx%4d %4dx%4d\n", DFB_RECTANGLE_VALS_FROM_REGION( &reg ), surface->config.size.w, surface->config.size.h );
+
+     data->base.local_flip_buffers = surface->num_buffers;
+
+     if (surface->config.caps & DSCAPS_FLIPPING) {
+          if ((flags & DSFLIP_SWAP) || (!(flags & DSFLIP_BLIT) &&
+                                        reg.x1 == 0 && reg.y1 == 0 &&
+                                        reg.x2 == surface->config.size.w - 1 &&
+                                        reg.y2 == surface->config.size.h - 1))
+               data->base.local_flip_count++;
      }
-     else {
-          if (data->base.surface->config.caps & DSCAPS_FLIPPING) {
-               if (!(flags & DSFLIP_BLIT) && reg.x1 == 0 && reg.y1 == 0 &&
-                   reg.x2 == data->base.surface->config.size.w  - 1 &&
-                   reg.y2 == data->base.surface->config.size.h - 1)
-               {
-                    ret = dfb_surface_lock( data->base.surface );
-                    if (ret)
-                         return ret;
 
-                    dfb_surface_flip( data->base.surface, false );
+     ret = CoreWindow_Repaint( data->window, &reg, &reg, flags, data->base.current_frame_time );
+     if (ret)
+          return ret;
 
-                    dfb_surface_unlock( data->base.surface );
-               }
-               else
-                    dfb_back_to_front_copy( data->base.surface, &reg );
+     if (!data->window->config.opacity && data->base.caps & DSCAPS_PRIMARY) {
+          CoreWindowConfig config = { .opacity = 0xff };
+
+          ret = CoreWindow_SetConfig( data->window, &config, NULL, 0, CWCF_OPACITY );
+     }
+
+     IDirectFBSurface_WaitForBackBuffer( &data->base );
+
+     return ret;
+}
+
+static DFBResult
+IDirectFBSurface_Window_FlipStereo( IDirectFBSurface    *thiz,
+                                    const DFBRegion     *left_region,
+                                    const DFBRegion     *right_region,
+                                    DFBSurfaceFlipFlags  flags )
+{
+     DFBResult    ret = DFB_OK;
+     DFBRegion    l_reg, r_reg;
+     CoreSurface *surface;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Window)
+
+     D_DEBUG_AT( Surface, "%s( %p, %p, %p, 0x%08x )\n", __FUNCTION__, thiz, left_region, right_region, flags );
+
+     surface = data->base.surface;
+     if (!surface)
+          return DFB_DESTROYED;
+
+     if (!(data->base.surface->config.caps & DSCAPS_STEREO)) 
+          return DFB_UNSUPPORTED;
+
+     if (data->base.locked)
+          return DFB_LOCKED;
+
+     if (!data->base.area.current.w || !data->base.area.current.h ||
+         (left_region && (left_region->x1 > left_region->x2 || left_region->y1 > left_region->y2)) ||
+         (right_region && (right_region->x1 > right_region->x2 || right_region->y1 > right_region->y2)))
+          return DFB_INVAREA;
+
+
+     IDirectFBSurface_StopAll( &data->base );
+
+     if (data->base.parent) {
+          IDirectFBSurface_data *parent_data;
+
+          DIRECT_INTERFACE_GET_DATA_FROM( data->base.parent, parent_data, IDirectFBSurface );
+
+          if (parent_data) {
+               /* Signal end of sequence of operations. */
+               dfb_state_lock( &parent_data->state );
+               dfb_state_stop_drawing( &parent_data->state );
+               dfb_state_unlock( &parent_data->state );
           }
-
-          dfb_window_repaint( data->window, &reg, flags );
      }
 
-     if (!data->window->config.opacity && data->base.caps & DSCAPS_PRIMARY)
-          dfb_window_set_opacity( data->window, 0xff );
+     dfb_region_from_rectangle( &l_reg, &data->base.area.current );
+     dfb_region_from_rectangle( &r_reg, &data->base.area.current );
 
-     return DFB_OK;
+     if (left_region) {
+          DFBRegion clip = DFB_REGION_INIT_TRANSLATED( left_region,
+                                                       data->base.area.wanted.x,
+                                                       data->base.area.wanted.y );
+
+          if (!dfb_region_region_intersect( &l_reg, &clip ))
+               return DFB_INVAREA;
+     }
+     if (right_region) {
+          DFBRegion clip = DFB_REGION_INIT_TRANSLATED( right_region,
+                                                       data->base.area.wanted.x,
+                                                       data->base.area.wanted.y );
+
+          if (!dfb_region_region_intersect( &r_reg, &clip ))
+               return DFB_INVAREA;
+     }
+
+     D_DEBUG_AT( Surface, "  -> FLIPSTEREO Left: %4d,%4d-%4dx%4d Right: %4d,%4d-%4dx%4d\n", 
+                 DFB_RECTANGLE_VALS_FROM_REGION( &l_reg ), DFB_RECTANGLE_VALS_FROM_REGION( &r_reg ) );
+
+
+#if 0
+     if (flags & DSFLIP_PIPELINE) {
+          dfb_gfxcard_wait_serial( &data->window->serial2 );
+
+          data->window->serial2 = data->window->serial1;
+
+          dfb_state_get_serial( &data->base.state, &data->window->serial1 );
+     }
+#endif
+
+     data->base.local_flip_buffers = surface->num_buffers;
+
+     CoreGraphicsStateClient_FlushCurrent( 0 );
+
+     if (surface->config.caps & DSCAPS_FLIPPING) {
+          if ((flags & DSFLIP_SWAP) || (!(flags & DSFLIP_BLIT) &&
+                                        l_reg.x1 == 0 && l_reg.y1 == 0 &&
+                                        l_reg.x2 == surface->config.size.w - 1 &&
+                                        l_reg.y2 == surface->config.size.h - 1 &&
+                                        r_reg.x1 == 0 && r_reg.y1 == 0 &&
+                                        r_reg.x2 == surface->config.size.w - 1 &&
+                                        r_reg.y2 == surface->config.size.h - 1))
+               data->base.local_flip_count++;
+     }
+
+     ret = CoreWindow_Repaint( data->window, &l_reg, &r_reg, flags, data->base.current_frame_time );
+     if (ret)
+          return ret;
+
+     if (!data->window->config.opacity && data->base.caps & DSCAPS_PRIMARY) {
+          CoreWindowConfig config = { .opacity = 0xff };
+
+          ret = CoreWindow_SetConfig( data->window, &config, NULL, 0, CWCF_OPACITY );
+     }
+
+     IDirectFBSurface_WaitForBackBuffer( &data->base );
+
+     return ret;
 }
 
 static DFBResult
@@ -260,13 +382,13 @@ IDirectFBSurface_Window_GetSubSurface( IDirectFBSurface    *thiz,
           /* Construct */
           ret = IDirectFBSurface_Window_Construct( *surface, thiz, &wanted, &granted,
                                                    data->window, data->base.caps |
-                                                   DSCAPS_SUBSURFACE, data->base.core );
+                                                   DSCAPS_SUBSURFACE, data->base.core, data->base.idirectfb );
      }
      else {
           /* Construct */
           ret = IDirectFBSurface_Window_Construct( *surface, thiz, NULL, NULL,
                                                    data->window, data->base.caps |
-                                                   DSCAPS_SUBSURFACE, data->base.core );
+                                                   DSCAPS_SUBSURFACE, data->base.core, data->base.idirectfb );
      }
      
      return ret;
@@ -279,27 +401,32 @@ IDirectFBSurface_Window_Construct( IDirectFBSurface       *thiz,
                                    DFBRectangle           *granted,
                                    CoreWindow             *window,
                                    DFBSurfaceCapabilities  caps,
-                                   CoreDFB                *core )
+                                   CoreDFB                *core,
+                                   IDirectFB              *dfb )
 {
-     DFBResult        ret;
-     DFBInsets        insets;
-     CoreWindowStack *stack;
+     DFBResult    ret;
+     DFBInsets    insets;
+     CoreSurface *surface;
 
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBSurface_Window)
 
      D_DEBUG_AT( Surface, "%s( %p )\n", __FUNCTION__, thiz );
 
-     stack = window->stack;
-     D_MAGIC_ASSERT( stack, CoreWindowStack );
+     D_MAGIC_ASSERT( window, CoreWindow );
+     D_MAGIC_ASSERT( window->stack, CoreWindowStack );
 
-     dfb_layer_context_lock( stack->context );
+     ret = CoreWindow_GetInsets( window, &insets );
+     if (ret)
+          return ret;
 
-     dfb_wm_get_insets( stack, window, &insets );
-     
-     dfb_layer_context_unlock( stack->context );
+     ret = CoreWindow_GetSurface( window, &surface );
+     if (ret)
+          return ret;
 
-     ret = IDirectFBSurface_Construct( thiz, parent, wanted, granted, &insets,
-                                       window->surface, caps, core );
+     ret = IDirectFBSurface_Construct( thiz, parent, wanted, granted, &insets, surface, caps, core, dfb );
+
+     dfb_surface_unref( surface );
+
      if (ret)
           return ret;
 
@@ -322,8 +449,9 @@ IDirectFBSurface_Window_Construct( IDirectFBSurface       *thiz,
                D_WARN( "Non-flipping window surface and no 'autoflip-window' option used" );
      }
 
-     thiz->Release = IDirectFBSurface_Window_Release;
-     thiz->Flip = IDirectFBSurface_Window_Flip;
+     thiz->Release       = IDirectFBSurface_Window_Release;
+     thiz->Flip          = IDirectFBSurface_Window_Flip;
+     thiz->FlipStereo    = IDirectFBSurface_Window_FlipStereo;
      thiz->GetSubSurface = IDirectFBSurface_Window_GetSubSurface;
      
      return DFB_OK;
@@ -349,7 +477,7 @@ Flipping_Thread( DirectThread *thread,
            */
           thiz->Flip( thiz, NULL, 0 );
 
-          usleep(40000);
+          direct_thread_sleep( 40000 );
      }
 
      return NULL;

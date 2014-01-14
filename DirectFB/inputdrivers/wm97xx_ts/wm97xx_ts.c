@@ -1,5 +1,4 @@
 /*
-
    Driver for Wolfson WM9705/WM9712 touchscreen controllers as
    found in the Dell Axim and Toshiba e740.
 
@@ -7,18 +6,20 @@
 
    NOTE: Please make sure that pressure measurement is enable in the
          kernel driver. (i.e. pil != 0) Please read
-		  wolfson-touchscreen.txt in your kernel documentation for
-		  details.
+                 wolfson-touchscreen.txt in your kernel documentation for
+                 details.
 
    Based on the h3600_ts.c driver:
 
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -207,7 +208,11 @@ driver_open_device( CoreInputDevice      *device,
      info->prefered_id     = DIDID_MOUSE;
 
      info->desc.type       = DIDTF_MOUSE;
+#ifndef DIRECTFB_DISABLE_DEPRECATED
      info->desc.caps       = DICAPS_AXES | DICAPS_BUTTONS;
+#else
+     info->desc.caps       = DIDCAPS_AXES | DIDCAPS_BUTTONS;
+#endif
      info->desc.max_axis   = DIAI_Y;
      info->desc.max_button = DIBI_LEFT;
 

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,10 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
+
+//#define DIRECT_ENABLE_DEBUG
 
 #include <config.h>
 
@@ -55,6 +61,10 @@
 #include <core/windowstack.h>
 #include <core/wm.h>
 
+#include <core/CoreLayerRegion.h>
+#include <core/CoreSurface.h>
+#include <core/CoreWindow.h>
+
 #include <misc/conf.h>
 #include <misc/util.h>
 
@@ -71,7 +81,8 @@
 #include <core/windows_internal.h>
 
 
-D_DEBUG_DOMAIN( Core_Windows, "Core/Windows", "DirectFB Window Core" );
+D_DEBUG_DOMAIN( Core_Windows,        "Core/Windows",        "DirectFB Window Core" );
+D_DEBUG_DOMAIN( Core_Windows_Events, "Core/Windows/Events", "DirectFB Window Core Events" );
 
 
 typedef struct {
@@ -113,10 +124,15 @@ window_destructor( FusionObject *object, bool zombie, void *ctx )
           return;
      }
 
+     CoreWindow_Deinit_Dispatch( &window->call );
+
      dfb_windowstack_lock( stack );
 
      dfb_window_destroy( window );
 
+
+     if (window->cursor.surface)
+          dfb_surface_unlink( &window->cursor.surface );
 
      if (window->caps & DWCAPS_SUBWINDOW) {
           int         index;
@@ -130,16 +146,20 @@ window_destructor( FusionObject *object, bool zombie, void *ctx )
 
           fusion_vector_remove( &toplevel->subwindows, index );
 
-          dfb_window_unlink( &window->toplevel );
+          window->toplevel = NULL;
      }
      else {
-          D_ASSERT( fusion_vector_size(&window->subwindows) == 0 );
+          CoreWindow *sub;
+          int         i;
+
+          fusion_vector_foreach (sub, i, window->subwindows) {
+               sub->toplevel = NULL;
+          }
 
           fusion_vector_destroy( &window->subwindows );
      }
 
      dfb_windowstack_unlock( stack );
-
 
      /* Unlink the primary region of the context. */
      if (window->primary_region)
@@ -159,26 +179,24 @@ dfb_window_pool_create( const FusionWorld *world )
                                        window_destructor, NULL, world );
 }
 
-/**************************************************************************************************/
-
-static DFBResult
-create_region( CoreDFB                 *core,
-               CoreLayerContext        *context,
-               CoreWindow              *window,
-               DFBSurfacePixelFormat    format,
-               DFBSurfaceCapabilities   surface_caps,
-               CoreLayerRegion        **ret_region,
-               CoreSurface            **ret_surface )
+DFBResult
+dfb_window_create_region( CoreWindow              *window,
+                          CoreLayerContext        *context,
+                          CoreSurface             *window_surface,
+                          DFBSurfacePixelFormat    format,
+                          DFBSurfaceColorSpace     colorspace,
+                          DFBSurfaceCapabilities   surface_caps,
+                          CoreLayerRegion        **ret_region,
+                          CoreSurface            **ret_surface )
 {
      DFBResult              ret;
      CoreLayerRegionConfig  config;
      CoreLayerRegion       *region;
-     CoreSurface           *surface;
+     CoreSurface           *surface = window_surface;
      CoreSurfaceConfig      scon;
 
-     D_ASSERT( core != NULL );
-     D_ASSERT( context != NULL );
      D_ASSERT( window != NULL );
+     D_ASSERT( context != NULL );
      D_ASSERT( ret_region != NULL );
      D_ASSERT( ret_surface != NULL );
 
@@ -187,6 +205,7 @@ create_region( CoreDFB                 *core,
      config.width         = window->config.bounds.w;
      config.height        = window->config.bounds.h;
      config.format        = format;
+     config.colorspace    = colorspace;
      config.options       = context->config.options & DLOP_FLICKER_FILTERING;
      config.source        = (DFBRectangle) { 0, 0, config.width, config.height };
      config.dest          = window->config.bounds;
@@ -217,6 +236,7 @@ create_region( CoreDFB                 *core,
      if (ret)
           return ret;
 
+     region->config.keep_buffers = true;
 
      do {
           ret = dfb_layer_region_set_configuration( region, &config, CLRCF_ALL );
@@ -233,16 +253,19 @@ create_region( CoreDFB                 *core,
           }
      } while (ret);
 
-     scon.flags  = CSCONF_SIZE | CSCONF_FORMAT | CSCONF_CAPS;
-     scon.size.w = config.width;
-     scon.size.h = config.height;
-     scon.format = format;
-     scon.caps   = surface_caps | DSCAPS_VIDEOONLY;
+     if (!surface) {
+          scon.flags          = CSCONF_SIZE | CSCONF_FORMAT | CSCONF_COLORSPACE | CSCONF_CAPS;
+          scon.size.w         = config.width;
+          scon.size.h         = config.height;
+          scon.format         = format;
+          scon.colorspace     = colorspace;
+          scon.caps           = surface_caps | DSCAPS_VIDEOONLY;
 
-     ret = dfb_surface_create( core, &scon, CSTF_SHARED | CSTF_LAYER, context->layer_id, NULL, &surface );
-     if (ret) {
-          dfb_layer_region_unref( region );
-          return ret;
+          ret = dfb_surface_create( core_dfb, &scon, CSTF_SHARED | CSTF_LAYER, context->layer_id, NULL, &surface );
+          if (ret) {
+               dfb_layer_region_unref( region );
+               return ret;
+          }
      }
 
      ret = dfb_layer_region_set_surface( region, surface );
@@ -252,11 +275,13 @@ create_region( CoreDFB                 *core,
           return ret;
      }
 
-     ret = dfb_layer_region_enable( region );
-     if (ret) {
-          dfb_surface_unref( surface );
-          dfb_layer_region_unref( region );
-          return ret;
+     if (!window_surface) {
+          ret = dfb_layer_region_enable( region );
+          if (ret) {
+               dfb_surface_unref( surface );
+               dfb_layer_region_unref( region );
+               return ret;
+          }
      }
 
      *ret_region  = region;
@@ -264,6 +289,8 @@ create_region( CoreDFB                 *core,
 
      return DFB_OK;
 }
+
+/**************************************************************************************************/
 
 static DFBResult
 init_subwindow( CoreWindow      *window,
@@ -291,7 +318,7 @@ init_subwindow( CoreWindow      *window,
      }
 
      /* Link top level window into sub window structure */
-     ret = dfb_window_link( &window->toplevel, toplevel );
+     window->toplevel = toplevel;
      if (ret)
           return ret;
 
@@ -321,6 +348,7 @@ dfb_window_create( CoreWindowStack             *stack,
      DFBWindowCapabilities   caps;
      DFBSurfaceCapabilities  surface_caps;
      DFBSurfacePixelFormat   pixelformat;
+     DFBSurfaceColorSpace    colorspace;
      DFBWindowID             toplevel_id;
 
      D_DEBUG_AT( Core_Windows, "%s( %p )\n", __FUNCTION__, stack );
@@ -332,23 +360,30 @@ dfb_window_create( CoreWindowStack             *stack,
      D_ASSERT( desc->height > 0 );
      D_ASSERT( ret_window != NULL );
 
-     if (desc->width > 4096 || desc->height > 4096)
+     if (desc->width > 4096 || desc->height > 4096) {
+          D_DEBUG_AT( Core_Windows, "  -> LIMIT EXCEEDED (%dx%d / 4096x4096)\n", desc->width, desc->height );
           return DFB_LIMITEXCEEDED;
+     }
 
      /* Lock the window stack. */
-     if (dfb_windowstack_lock( stack ))
+     if (dfb_windowstack_lock( stack )) {
+          D_DEBUG_AT( Core_Windows, "  -> WINDOWSTACK LOCK FAILED\n" );
           return DFB_FUSION;
+     }
 
      context = stack->context;
      layer   = dfb_layer_at( context->layer_id );
 
+     D_DEBUG_AT( Core_Windows, "  -> caps 0x%08x\n", desc->caps );
 
      caps         = desc->caps;
      pixelformat  = desc->pixelformat;
+     colorspace   = desc->colorspace;
      surface_caps = desc->surface_caps & (DSCAPS_INTERLACED    | DSCAPS_SEPARATED  |
                                           DSCAPS_PREMULTIPLIED | DSCAPS_DEPTH      |
                                           DSCAPS_STATIC_ALLOC  | DSCAPS_SYSTEMONLY |
-                                          DSCAPS_VIDEOONLY);
+                                          DSCAPS_VIDEOONLY     | DSCAPS_TRIPLE     |
+                                          DSCAPS_GL);
      toplevel_id  = (desc->flags & DWDESC_TOPLEVEL_ID) ? desc->toplevel_id : 0;
 
      if (toplevel_id != 0)
@@ -356,6 +391,8 @@ dfb_window_create( CoreWindowStack             *stack,
      else
           caps &= ~DWCAPS_SUBWINDOW;
 
+     if (caps & DWCAPS_STEREO)
+          surface_caps |= DSCAPS_STEREO;
 
      if (!dfb_config->translucent_windows) {
           caps &= ~DWCAPS_ALPHACHANNEL;
@@ -374,6 +411,7 @@ dfb_window_create( CoreWindowStack             *stack,
                     pixelformat = DSPF_ARGB;
           }
           else if (! DFB_PIXELFORMAT_HAS_ALPHA(pixelformat)) {
+               D_DEBUG_AT( Core_Windows, "  -> PIXELFORMAT '%s' HAS NO ALPHA\n", dfb_pixelformat_name(pixelformat) );
                dfb_windowstack_unlock( stack );
                return DFB_INVARG;
           }
@@ -386,6 +424,17 @@ dfb_window_create( CoreWindowStack             *stack,
 
                pixelformat = DSPF_RGB16;
           }
+     }
+
+     /* Set the color space. */
+     if (colorspace == DSCS_UNKNOWN) {
+          colorspace = DFB_COLORSPACE_DEFAULT(pixelformat);
+     }
+     else if (! DFB_COLORSPACE_IS_COMPATIBLE(colorspace, pixelformat)) {
+          D_DEBUG_AT( Core_Windows, "  -> COLORSPACE '%s' IS NOT COMPATIBLE with FORMAT '%s'\n",
+                      dfb_colorspace_name(colorspace), dfb_pixelformat_name(pixelformat) );
+          dfb_windowstack_unlock( stack );
+          return DFB_INVARG;
      }
 
      /* Choose window surface policy */
@@ -415,8 +464,10 @@ dfb_window_create( CoreWindowStack             *stack,
 
      dfb_surface_caps_apply_policy( surface_policy, &surface_caps );
 
-     if (caps & DWCAPS_DOUBLEBUFFER)
-          surface_caps |= DSCAPS_DOUBLE;
+     if (caps & DWCAPS_DOUBLEBUFFER) {
+          if (!(surface_caps & DSCAPS_TRIPLE))
+               surface_caps |= DSCAPS_DOUBLE;
+     }
 
 
      memset( &config, 0, sizeof(CoreWindowConfig) );
@@ -441,12 +492,19 @@ dfb_window_create( CoreWindowStack             *stack,
 
      /* Create the window object. */
      window = dfb_core_create_window( layer->core );
+     if (!window) {
+          D_DEBUG_AT( Core_Windows, "  -> CORE CREATE WINDOW FAILED\n" );
+          dfb_windowstack_unlock( stack );
+          return DFB_FUSION;
+     }
 
-     window->id                 = ++stack->id_pool;
-     window->caps               = caps;
-     window->stack              = stack;
-     window->config             = config;
-     window->config.association = (desc->flags & DWDESC_PARENT) ? desc->parent_id : 0;
+     window->id                  = ++stack->id_pool;
+     window->caps                = caps | DWCAPS_NOFOCUS;
+     window->requested_caps      = caps;
+     window->stack               = stack;
+     window->config              = config;
+     window->config.association  = (desc->flags & DWDESC_PARENT) ? desc->parent_id : 0;
+     window->config.cursor_flags = dfb_config->default_cursor_flags;
 
      /* Set toplevel window ID (new sub window feature) */
      window->toplevel_id = toplevel_id;
@@ -458,6 +516,7 @@ dfb_window_create( CoreWindowStack             *stack,
 
      ret = dfb_wm_preconfigure_window( stack, window );
      if(ret) {
+          D_DEBUG_AT( Core_Windows, "  -> WINDOW PRECONFIGURE FAILED (%s)\n", DirectResultString(ret) );
           D_MAGIC_CLEAR( window );
           fusion_object_destroy( &window->object );
           dfb_windowstack_unlock( stack );
@@ -472,6 +531,7 @@ dfb_window_create( CoreWindowStack             *stack,
      if (caps & DWCAPS_SUBWINDOW) {
           ret = init_subwindow( window, stack, toplevel_id );
           if (ret) {
+               D_DEBUG_AT( Core_Windows, "  -> SUBWINDOW INIT FAILED (%s)\n", DirectResultString(ret) );
                D_MAGIC_CLEAR( window );
                fusion_object_destroy( &window->object );
                dfb_windowstack_unlock( stack );
@@ -497,9 +557,10 @@ dfb_window_create( CoreWindowStack             *stack,
                CoreLayerRegion *region = NULL;
 
                /* Create a region for the window. */
-               ret = create_region( layer->core, context, window,
-                                    pixelformat, surface_caps, &region, &surface );
+               ret = dfb_window_create_region( window, context, NULL,
+                                               pixelformat, colorspace, surface_caps, &region, &surface );
                if (ret) {
+                    D_DEBUG_AT( Core_Windows, "  -> REGION CREATE FAILED (%s)\n", DirectResultString(ret) );
                     D_MAGIC_CLEAR( window );
                     fusion_object_destroy( &window->object );
                     dfb_windowstack_unlock( stack );
@@ -520,6 +581,7 @@ dfb_window_create( CoreWindowStack             *stack,
                /* Get the primary region of the layer context. */
                ret = dfb_layer_context_get_primary_region( context, true, &region );
                if (ret) {
+                    D_DEBUG_AT( Core_Windows, "  -> LAYER CONTEXT PRIMARY REGION FAILED (%s)\n", DirectResultString(ret) );
                     D_MAGIC_CLEAR( window );
                     fusion_object_destroy( &window->object );
                     dfb_windowstack_unlock( stack );
@@ -543,12 +605,14 @@ dfb_window_create( CoreWindowStack             *stack,
                if (!window->surface) {
                     /* Create the surface for the window. */
                     ret = dfb_surface_create_simple( layer->core, config.bounds.w, config.bounds.h,
-                                                     pixelformat, surface_caps, CSTF_SHARED | CSTF_WINDOW,
+                                                     pixelformat, colorspace, surface_caps, 
+                                                     CSTF_SHARED | CSTF_WINDOW,
                                                      (desc->flags & DWDESC_RESOURCE_ID) ?
                                                      desc->resource_id : window->id,
                                                      region->surface ?
                                                      region->surface->palette : NULL, &surface );
                     if (ret) {
+                         D_DEBUG_AT( Core_Windows, "  -> SURFACE CREATE FAILED (%s)\n", DirectResultString(ret) );
                          D_DERROR( ret, "Core/Windows: Failed to create window surface!\n" );
                          D_MAGIC_CLEAR( window );
                          dfb_layer_region_unlink( &window->primary_region );
@@ -572,6 +636,8 @@ dfb_window_create( CoreWindowStack             *stack,
      /* Pass the new window to the window manager. */
      ret = dfb_wm_add_window( stack, window );
      if (ret) {
+          D_DEBUG_AT( Core_Windows, "  -> WINDOW ADD FAILED (%s)\n", DirectResultString(ret) );
+
           D_DERROR( ret, "Core/Windows: Failed to add window to manager!\n" );
 
           D_MAGIC_CLEAR( window );
@@ -595,6 +661,8 @@ dfb_window_create( CoreWindowStack             *stack,
 
      /* Increase number of windows. */
      stack->num++;
+
+     CoreWindow_Init_Dispatch( layer->core, window, &window->call );
 
      /* Finally activate the object. */
      fusion_object_activate( &window->object );
@@ -683,6 +751,7 @@ dfb_window_destroy( CoreWindow *window )
 
      /* Unlink the window's surface. */
      if (window->surface) {
+          dfb_surface_destroy_buffers( window->surface );
           dfb_surface_unlink( &window->surface );
      }
 
@@ -935,6 +1004,47 @@ dfb_window_set_config( CoreWindow             *window,
      }
 
      ret = dfb_wm_set_window_config( window, config, flags );
+
+     /* Unlock the window stack. */
+     dfb_windowstack_unlock( stack );
+
+     return ret;
+}
+
+DFBResult
+dfb_window_set_cursor_shape( CoreWindow   *window,
+                             CoreSurface  *surface,
+                             unsigned int  hot_x,
+                             unsigned int  hot_y )
+{
+     DFBResult         ret   = DFB_OK;
+     CoreWindowStack  *stack = window->stack;
+
+     D_MAGIC_ASSERT( window, CoreWindow );
+
+     /* Lock the window stack. */
+     if (dfb_windowstack_lock( stack ))
+          return DFB_FUSION;
+
+     /* Never call WM after destroying the window. */
+     if (DFB_WINDOW_DESTROYED( window )) {
+          dfb_windowstack_unlock( stack );
+          return DFB_DESTROYED;
+     }
+
+     window->cursor.hot_x = hot_x;
+     window->cursor.hot_y = hot_y;
+
+     if (window->cursor.surface)
+          dfb_surface_unlink( &window->cursor.surface );
+
+     if (surface) {
+          ret = dfb_surface_link( &window->cursor.surface, surface );
+          if (ret == DFB_OK) {
+               if (window->flags & CWF_FOCUSED)
+                    dfb_windowstack_cursor_set_shape( stack, surface, hot_x, hot_y );
+          }
+     }
 
      /* Unlock the window stack. */
      dfb_windowstack_unlock( stack );
@@ -1602,8 +1712,10 @@ dfb_window_ungrab_key( CoreWindow                 *window,
 
 DFBResult
 dfb_window_repaint( CoreWindow          *window,
-                    const DFBRegion     *region,
-                    DFBSurfaceFlipFlags  flags )
+                    const DFBRegion     *left_region,
+                    const DFBRegion     *right_region,
+                    DFBSurfaceFlipFlags  flags,
+                    long long            timestamp )
 {
      DFBResult        ret;
      CoreWindowStack *stack = window->stack;
@@ -1611,11 +1723,27 @@ dfb_window_repaint( CoreWindow          *window,
      D_MAGIC_ASSERT( window, CoreWindow );
      D_ASSERT( window->stack != NULL );
 
-     DFB_REGION_ASSERT_IF( region );
+     DFB_REGION_ASSERT_IF( left_region );
+     DFB_REGION_ASSERT_IF( right_region );
+
+     D_DEBUG_AT( Core_Windows, "%s( %p, left %d,%d-%dx%d, right %d,%d-%dx%d, flags 0x%08x, timestamp %lld )\n", __FUNCTION__, window,
+                 DFB_RECTANGLE_VALS_FROM_REGION( left_region ),
+                 DFB_RECTANGLE_VALS_FROM_REGION( right_region ), flags, timestamp );
 
      /* Lock the window stack. */
      if (dfb_windowstack_lock( stack ))
           return DFB_FUSION;
+
+     if (window->region && window->region->state & CLRSF_ENABLED) {
+          D_DEBUG_AT( Core_Windows, "  -> updating single window region\n" );
+
+          ret = CoreLayerRegion_FlipUpdate2( window->region, left_region, right_region, flags, timestamp );
+     }
+     else {
+          D_DEBUG_AT( Core_Windows, "  -> updating composed window region\n" );
+
+          ret = CoreSurface_Flip2( window->surface, DFB_FALSE, left_region, right_region, flags, timestamp );
+     }
 
      /* Never call WM after destroying the window. */
      if (DFB_WINDOW_DESTROYED( window )) {
@@ -1623,7 +1751,11 @@ dfb_window_repaint( CoreWindow          *window,
           return DFB_DESTROYED;
      }
 
-     ret = dfb_wm_update_window( window, region, flags );
+     if (!dfb_config->single_window || fusion_vector_size( &window->stack->visible_windows ) != 1) {
+          D_DEBUG_AT( Core_Windows, "  -> dispatching update to window manager\n" );
+
+          ret = dfb_wm_update_window( window, left_region, right_region, flags );
+     }
 
      /* Unlock the window stack. */
      dfb_windowstack_unlock( stack );
@@ -1695,6 +1827,22 @@ dfb_window_post_event( CoreWindow     *window,
      D_ASSERT( event != NULL );
 
      D_ASSUME( !DFB_WINDOW_DESTROYED( window ) || event->type == DWET_DESTROYED );
+
+     switch (event->type) {
+          case DWET_BUTTONDOWN:
+          case DWET_BUTTONUP:
+               D_DEBUG_AT( Core_Windows_Events, "%s( window id %u )\n", __FUNCTION__, window->object.id );
+               D_DEBUG_AT( Core_Windows_Events, "  -> TYPE    0x%08x\n", event->type );
+
+               D_DEBUG_AT( Core_Windows_Events, "  => BUTTON%s\n", event->type == DWET_BUTTONDOWN ? "DOWN" : "UP" );
+               D_DEBUG_AT( Core_Windows_Events, "     -> button  %d\n", event->button );
+               D_DEBUG_AT( Core_Windows_Events, "     -> x, y    %d,%d\n", event->x, event->y );
+               D_DEBUG_AT( Core_Windows_Events, "     -> cx, cy  %d,%d\n", event->cx, event->cy );
+               break;
+
+          default:
+               break;
+     }
 
      if (! (event->type & window->config.events))
           return;

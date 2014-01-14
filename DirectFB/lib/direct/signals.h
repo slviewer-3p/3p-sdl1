@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,10 +28,12 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __DIRECT__SIGNALS_H__
 #define __DIRECT__SIGNALS_H__
 
-#include <direct/types.h>
+#include <direct/os/signals.h>
 
 
 typedef enum {
@@ -43,15 +47,15 @@ typedef DirectSignalHandlerResult (*DirectSignalHandlerFunc)( int   num,
                                                               void *ctx );
 
 
-DirectResult direct_signals_initialize( void );
-DirectResult direct_signals_shutdown( void );
+DirectResult DIRECT_API direct_signals_initialize( void );
+DirectResult DIRECT_API direct_signals_shutdown( void );
 
 /*
  * Modifies the current thread's signal mask to block everything.
  * Should be called by input threads once to avoid killing themselves
  * in the signal handler by deinitializing all input drivers.
  */
-void direct_signals_block_all( void );
+void DIRECT_API direct_signals_block_all( void );
 
 /*
  * Signal number to use when registering a handler for any interrupt.
@@ -59,12 +63,12 @@ void direct_signals_block_all( void );
 #define DIRECT_SIGNAL_ANY     -1
 
 
-DirectResult direct_signal_handler_add   ( int                       num,
-                                           DirectSignalHandlerFunc   func,
-                                           void                     *ctx,
-                                           DirectSignalHandler     **ret_handler );
+DirectResult DIRECT_API direct_signal_handler_add   ( int                       num,
+                                                      DirectSignalHandlerFunc   func,
+                                                      void                     *ctx,
+                                                      DirectSignalHandler     **ret_handler );
 
-DirectResult direct_signal_handler_remove( DirectSignalHandler      *handler );
+DirectResult DIRECT_API direct_signal_handler_remove( DirectSignalHandler      *handler );
 
 
 #endif

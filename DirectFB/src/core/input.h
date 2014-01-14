@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __INPUT_H__
 #define __INPUT_H__
@@ -116,6 +120,10 @@ typedef struct {
                                   void                         *driver_data,
                                   DFBInputDeviceAxisIdentifier  axis,
                                   DFBInputDeviceAxisInfo       *ret_info);
+
+     DFBResult (*SetConfiguration)(CoreInputDevice              *device,
+                                   void                         *driver_data,
+                                   const DFBInputDeviceConfig   *config);
 } InputDriverFuncs;
 
 
@@ -173,15 +181,28 @@ DFBResult         dfb_input_device_get_keymap_entry( CoreInputDevice           *
                                                      int                        keycode,
                                                      DFBInputDeviceKeymapEntry *entry );
 
-DFBResult         dfb_input_device_set_keymap_entry( CoreInputDevice           *device,
-                                                     int                        keycode,
-                                                     DFBInputDeviceKeymapEntry *entry );
+DFBResult         dfb_input_device_set_keymap_entry( CoreInputDevice                 *device,
+                                                     int                              keycode,
+                                                     const DFBInputDeviceKeymapEntry *entry );
 
 DFBResult         dfb_input_device_load_keymap   ( CoreInputDevice           *device,
                                                    char                      *filename );
 
 DFBResult         dfb_input_device_reload_keymap   ( CoreInputDevice           *device );
 
+DFBResult         dfb_input_device_set_configuration( CoreInputDevice            *device,
+                                                      const DFBInputDeviceConfig *config );
+
+
+typedef struct {
+     DFBInputDeviceModifierMask   modifiers_l;
+     DFBInputDeviceModifierMask   modifiers_r;
+     DFBInputDeviceLockState      locks;
+     DFBInputDeviceButtonMask     buttons;
+} CoreInputDeviceState;
+
+DFBResult         dfb_input_device_get_state( CoreInputDevice      *device,
+                                              CoreInputDeviceState *ret_state );
 
 
 
@@ -205,5 +226,15 @@ DFBResult         dfb_input_remove_device( int   device_index,
 typedef enum {
      DFB_WINDOWSTACK_INPUTDEVICE_LISTENER
 } DFB_INPUT_GLOBALS;
+
+
+DirectResult CoreInputDevice_Call( CoreInputDevice     *device,
+                                   FusionCallExecFlags  flags,
+                                   int                  call_arg,
+                                   void                *ptr,
+                                   unsigned int         length,
+                                   void                *ret_ptr,
+                                   unsigned int         ret_size,
+                                   unsigned int        *ret_length );
 
 #endif

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,18 +28,31 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-
 #include <string.h>
+
+#include <direct/conf.h>
+#include <direct/direct.h>
+#include <direct/interface.h>
+#include <direct/log.h>
+#include <direct/mem.h>
+#include <direct/messages.h>
+#include <direct/util.h>
 
 #include <directfb.h>
 #include <directfb_version.h>
 
 #include <misc/conf.h>
+
+#if !DIRECTFB_BUILD_PURE_VOODOO
+#include <unistd.h>
+
+#include <direct/thread.h>
 
 #include <core/core.h>
 #include <core/coredefs.h>
@@ -52,19 +67,11 @@
 #include <core/surface.h>
 #include <core/windows.h>
 #include <core/windowstack.h>
-#include <core/wm.h>
 
 #include <gfx/convert.h>
 
-#include <direct/conf.h>
-#include <direct/direct.h>
-#include <direct/interface.h>
-#include <direct/log.h>
-#include <direct/mem.h>
-#include <direct/messages.h>
-#include <direct/util.h>
-
 #include <display/idirectfbsurface.h>
+#endif
 
 #include <idirectfb.h>
 
@@ -74,9 +81,11 @@
 #endif
 
 
+static DFBResult CreateRemote( const char *host, int session, IDirectFB **ret_interface );
+
+
 IDirectFB *idirectfb_singleton = NULL;
 
-static DFBResult CreateRemote( const char *host, int session, IDirectFB **ret_interface );
 
 /*
  * Version checking
@@ -137,12 +146,6 @@ DirectFBSetOption( const char *name, const char *value )
           return DFB_INIT;
      }
 
-     if (idirectfb_singleton) {
-          D_ERROR( "DirectFBSetOption: DirectFBSetOption has to be "
-                   "called before DirectFBCreate!\n" );
-          return DFB_INIT;
-     }
-
      if (!name)
           return DFB_INVARG;
 
@@ -158,11 +161,12 @@ DirectFBSetOption( const char *name, const char *value )
  * which is needed to access other functions
  */
 DFBResult
-DirectFBCreate( IDirectFB **interface )
+DirectFBCreate( IDirectFB **interface_ptr )
 {
+#if !DIRECTFB_BUILD_PURE_VOODOO
      DFBResult  ret;
      IDirectFB *dfb;
-     CoreDFB   *core_dfb;
+#endif
 
      if (!dfb_config) {
           /*  don't use D_ERROR() here, it uses dfb_config  */
@@ -171,12 +175,15 @@ DirectFBCreate( IDirectFB **interface )
           return DFB_INIT;
      }
 
-     if (!interface)
+     if (!interface_ptr)
           return DFB_INVARG;
 
-     if (idirectfb_singleton) {
+
+     if (!dfb_config->no_singleton && idirectfb_singleton) {
           idirectfb_singleton->AddRef( idirectfb_singleton );
-          *interface = idirectfb_singleton;
+
+          *interface_ptr = idirectfb_singleton;
+
           return DFB_OK;
      }
 
@@ -186,7 +193,8 @@ DirectFBCreate( IDirectFB **interface )
           direct_log_printf( NULL,
                              "\n"
                              "   ~~~~~~~~~~~~~~~~~~~~~~~~~~| DirectFB " DIRECTFB_VERSION DIRECTFB_VERSION_VENDOR " |~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                             "        (c) 2001-2010  The world wide DirectFB Open Source Community\n"
+                             "        (c) 2012-2013  DirectFB integrated media GmbH\n"
+                             "        (c) 2001-2013  The world wide DirectFB Open Source Community\n"
                              "        (c) 2000-2004  Convergence (integrated media) GmbH\n"
                              "      ----------------------------------------------------------------\n"
                              "\n" );
@@ -194,34 +202,50 @@ DirectFBCreate( IDirectFB **interface )
 
 #if !DIRECTFB_BUILD_PURE_VOODOO
      if (dfb_config->remote.host)
-          return CreateRemote( dfb_config->remote.host, dfb_config->remote.session, interface );
+          return CreateRemote( dfb_config->remote.host, dfb_config->remote.port, interface_ptr );
 
-     ret = dfb_core_create( &core_dfb );
-     if (ret)
-          return ret;
+     static DirectMutex lock = DIRECT_RECURSIVE_MUTEX_INITIALIZER(lock);
+
+     direct_mutex_lock( &lock );
+
+     if (!dfb_config->no_singleton && idirectfb_singleton) {
+          idirectfb_singleton->AddRef( idirectfb_singleton );
+
+          *interface_ptr = idirectfb_singleton;
+
+          direct_mutex_unlock( &lock );
+          return DFB_OK;
+     }
 
      DIRECT_ALLOCATE_INTERFACE( dfb, IDirectFB );
 
-     ret = IDirectFB_Construct( dfb, core_dfb );
+     if (!dfb_config->no_singleton)
+          idirectfb_singleton = dfb;
+
+     ret = IDirectFB_Construct( dfb );
      if (ret) {
-          dfb_core_destroy( core_dfb, false );
+          if (!dfb_config->no_singleton)
+               idirectfb_singleton = NULL;
+
+          direct_mutex_unlock( &lock );
           return ret;
      }
 
-     if (dfb_core_is_master( core_dfb )) {
-          /* not fatal */
-          ret = dfb_wm_post_init( core_dfb );
-          if (ret)
-               D_DERROR( ret, "DirectFBCreate: Post initialization of WM failed!\n" );
+     direct_mutex_unlock( &lock );
 
-          dfb_core_activate( core_dfb );
+     ret = IDirectFB_WaitInitialised( dfb );
+     if (ret) {
+          if (!dfb_config->no_singleton)
+               idirectfb_singleton = NULL;
+          dfb->Release( dfb );
+          return ret;
      }
 
-     *interface = idirectfb_singleton = dfb;
+     *interface_ptr = dfb;
 
      return DFB_OK;
 #else
-     return CreateRemote( dfb_config->remote.host ?: "", dfb_config->remote.session, interface );
+     return CreateRemote( dfb_config->remote.host ? dfb_config->remote.host : "", dfb_config->remote.port, interface_ptr );
 #endif
 }
 
@@ -241,19 +265,6 @@ DirectFBError( const char *msg, DFBResult error )
 const char *
 DirectFBErrorString( DFBResult error )
 {
-     if (D_RESULT_TYPE_IS( error, 'D','F','B' )) {
-          switch (error) {
-               case DFB_NOVIDEOMEMORY:
-                    return "Out of video memory!";
-               case DFB_MISSINGFONT:
-                    return "No font has been set!";
-               case DFB_MISSINGIMAGE:
-                    return "No image has been set!";
-               default:
-                    return "UKNOWN DIRECTFB RESULT!";
-          }
-     }
-
      return DirectResultString( error );
 }
 
@@ -271,11 +282,11 @@ DirectFBErrorFatal( const char *msg, DFBResult error )
 /**************************************************************************************************/
 
 static DFBResult
-CreateRemote( const char *host, int session, IDirectFB **ret_interface )
+CreateRemote( const char *host, int port, IDirectFB **ret_interface )
 {
      DFBResult             ret;
      DirectInterfaceFuncs *funcs;
-     void                 *interface;
+     void                 *interface_ptr;
 
      D_ASSERT( host != NULL );
      D_ASSERT( ret_interface != NULL );
@@ -284,15 +295,15 @@ CreateRemote( const char *host, int session, IDirectFB **ret_interface )
      if (ret)
           return ret;
 
-     ret = funcs->Allocate( &interface );
+     ret = funcs->Allocate( &interface_ptr );
      if (ret)
           return ret;
 
-     ret = funcs->Construct( interface, host, session );
+     ret = funcs->Construct( interface_ptr, host, port );
      if (ret)
           return ret;
 
-     *ret_interface = idirectfb_singleton = interface;
+     *ret_interface = interface_ptr;
 
      return DFB_OK;
 }

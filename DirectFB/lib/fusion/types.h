@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,16 +28,37 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __FUSION__TYPES_H__
 #define __FUSION__TYPES_H__
 
 #include <fusion/build.h>
 
+#include <direct/types.h>
+
+#ifdef WIN32
+// The following ifdef block is the standard way of creating macros which make exporting 
+// from a DLL simpler. All files within this DLL are compiled with the FUSION_EXPORTS
+// symbol defined on the command line. This symbol should not be defined on any project
+// that uses this DLL. This way any other project whose source files include this file see 
+// FUSION_API functions as being imported from a DLL, whereas this DLL sees symbols
+// defined with this macro as being exported.
+#ifdef FUSION_EXPORTS
+#define FUSION_API __declspec(dllexport)
+#else
+#define FUSION_API __declspec(dllimport)
+#endif
+#else
+#define FUSION_API
+#endif
+
 #if FUSION_BUILD_MULTI && FUSION_BUILD_KERNEL
 
+#include <sys/types.h>
 #include <linux/fusion.h>
 
-#define FUSION_API_MAJOR_REQUIRED 8
+#define FUSION_API_MAJOR_REQUIRED 9
 #define FUSION_API_MINOR_REQUIRED 0
 
 #if FUSION_API_MAJOR_REQUIRED > FUSION_API_MAJOR_PROVIDED
@@ -48,6 +71,14 @@
 #endif
 #endif
 
+
+#if FUSION_API_MAJOR_PROVIDED == 8 && FUSION_API_MINOR_PROVIDED == 8 && FUSION_API_MICRO_PROVIDED == 0
+#define FCEF_QUEUE (0)
+#endif
+
+#define FUSION_CALL_MAX_LENGTH     (FUSION_MESSAGE_SIZE-sizeof(FusionReadMessage))
+
+
 #else
 typedef unsigned long FusionID;
 
@@ -56,8 +87,11 @@ typedef unsigned long FusionID;
 typedef enum {
      FCEF_NONE     = 0x00000000,
      FCEF_ONEWAY   = 0x00000001,
-     FCEF_ALL      = 0x00000001
+     FCEF_QUEUE    = 0x00000002,
+     FCEF_ALL      = 0x00000003
 } FusionCallExecFlags;
+
+#define FUSION_CALL_MAX_LENGTH     (64 * 1024)
 
 #endif
 

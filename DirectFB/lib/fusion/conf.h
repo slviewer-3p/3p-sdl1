@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __FUSION__CONF_H__
 #define __FUSION__CONF_H__
 
@@ -41,15 +45,30 @@ struct __Fusion_FusionConfig {
      bool  force_slave;
 
      gid_t shmfile_gid;       /* group that owns shm file */     
+
+     bool  secure_fusion;
+
+     bool  defer_destructors;
+
+     int   trace_ref;
+
+     bool  fork_handler;
+
+     unsigned int call_bin_max_num;
+     unsigned int call_bin_max_data;
+     pid_t        skirmish_warn_on_thread;
 };
 
-extern FusionConfig *fusion_config;
+extern FusionConfig FUSION_API *fusion_config;
 
-extern const char   *fusion_config_usage;
+extern const char   FUSION_API *fusion_config_usage;
 
 
-DirectResult fusion_config_set( const char *name, const char *value );
+DirectResult        FUSION_API  fusion_config_set( const char *name, const char *value );
 
+
+void __Fusion_conf_init( void );
+void __Fusion_conf_deinit( void );
 
 #endif
 

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
@@ -37,6 +41,8 @@
 #include <fusion/reactor.h>
 
 #include <directfb.h>
+
+#include <core/CoreInputDevice.h>
 
 #include <core/coredefs.h>
 #include <core/coretypes.h>
@@ -218,7 +224,7 @@ IDirectFBInputDevice_SetKeymapEntry( IDirectFBInputDevice      *thiz,
          keycode > data->desc.max_keycode)
           return DFB_INVARG;
 
-     return dfb_input_device_set_keymap_entry( data->device, keycode, entry );
+     return CoreInputDevice_SetKeymapEntry( data->device, keycode, entry );
 }
 
 static DFBResult
@@ -253,12 +259,19 @@ static DFBResult
 IDirectFBInputDevice_GetModifiers( IDirectFBInputDevice       *thiz,
                                    DFBInputDeviceModifierMask *modifiers )
 {
+     DFBResult            ret;
+     CoreInputDeviceState state;
+
      DIRECT_INTERFACE_GET_DATA(IDirectFBInputDevice)
 
      if (!modifiers)
           return DFB_INVARG;
 
-     *modifiers = data->modifiers;
+     ret = dfb_input_device_get_state( data->device, &state );
+     if (ret)
+          return ret;
+
+     *modifiers = state.modifiers_l | state.modifiers_r;
 
      return DFB_OK;
 }
@@ -267,12 +280,19 @@ static DFBResult
 IDirectFBInputDevice_GetLockState( IDirectFBInputDevice    *thiz,
                                    DFBInputDeviceLockState *locks )
 {
+     DFBResult            ret;
+     CoreInputDeviceState state;
+
      DIRECT_INTERFACE_GET_DATA(IDirectFBInputDevice)
 
      if (!locks)
           return DFB_INVARG;
 
-     *locks = data->locks;
+     ret = dfb_input_device_get_state( data->device, &state );
+     if (ret)
+          return ret;
+
+     *locks = state.locks;
 
      return DFB_OK;
 }
@@ -281,12 +301,19 @@ static DFBResult
 IDirectFBInputDevice_GetButtons( IDirectFBInputDevice     *thiz,
                                  DFBInputDeviceButtonMask *buttons )
 {
+     DFBResult            ret;
+     CoreInputDeviceState state;
+
      DIRECT_INTERFACE_GET_DATA(IDirectFBInputDevice)
 
      if (!buttons)
           return DFB_INVARG;
 
-     *buttons = data->buttonmask;
+     ret = dfb_input_device_get_state( data->device, &state );
+     if (ret)
+          return ret;
+
+     *buttons = state.buttons;
 
      return DFB_OK;
 }
@@ -294,14 +321,21 @@ IDirectFBInputDevice_GetButtons( IDirectFBInputDevice     *thiz,
 static DFBResult
 IDirectFBInputDevice_GetButtonState( IDirectFBInputDevice           *thiz,
                                      DFBInputDeviceButtonIdentifier  button,
-                                     DFBInputDeviceButtonState      *state)
+                                     DFBInputDeviceButtonState      *ret_state)
 {
+     DFBResult            ret;
+     CoreInputDeviceState state;
+
      DIRECT_INTERFACE_GET_DATA(IDirectFBInputDevice)
 
-     if (!state || (int)button < DIBI_FIRST || button > DIBI_LAST)
+     ret = dfb_input_device_get_state( data->device, &state );
+     if (ret)
+          return ret;
+
+     if (!ret_state || (int)button < DIBI_FIRST || button > DIBI_LAST)
           return DFB_INVARG;
 
-     *state = (data->buttonmask & (1 << button)) ? DIBS_DOWN : DIBS_UP;
+     *ret_state = (state.buttons & (1 << button)) ? DIBS_DOWN : DIBS_UP;
 
      return DFB_OK;
 }
@@ -340,6 +374,15 @@ IDirectFBInputDevice_GetXY( IDirectFBInputDevice *thiz,
      return DFB_OK;
 }
 
+static DFBResult
+IDirectFBInputDevice_SetConfiguration( IDirectFBInputDevice       *thiz,
+                                       const DFBInputDeviceConfig *config )
+{
+     DIRECT_INTERFACE_GET_DATA(IDirectFBInputDevice)
+
+     return CoreInputDevice_SetConfiguration( data->device, config );
+}
+
 DFBResult
 IDirectFBInputDevice_Construct( IDirectFBInputDevice *thiz,
                                 CoreInputDevice      *device )
@@ -371,6 +414,7 @@ IDirectFBInputDevice_Construct( IDirectFBInputDevice *thiz,
      thiz->GetButtonState = IDirectFBInputDevice_GetButtonState;
      thiz->GetAxis = IDirectFBInputDevice_GetAxis;
      thiz->GetXY = IDirectFBInputDevice_GetXY;
+     thiz->SetConfiguration = IDirectFBInputDevice_SetConfiguration;
 
      return DFB_OK;
 }

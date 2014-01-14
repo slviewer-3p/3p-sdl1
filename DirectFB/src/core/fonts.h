@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __FONTS_H__
 #define __FONTS_H__
@@ -110,6 +114,9 @@ struct _CoreGlyphData {
      int              magic;
 
      DFBFontCacheRow *row;
+
+     bool             inserted;
+     bool             retry;
 };
 
 #define CORE_GLYPH_DATA_DEBUG_AT(Domain, data)                                       \
@@ -150,6 +157,15 @@ typedef struct {
 } CoreFontEncoding;
 
 
+typedef enum {
+     CFF_NONE             = 0x00000000,
+
+     CFF_SUBPIXEL_ADVANCE = 0x00000001,
+
+     CFF_ALL              = 0x00000001,
+} CoreFontFlags;
+
+
 #define DFB_FONT_MAX_LAYERS 2
 
 /*
@@ -160,6 +176,9 @@ struct _CoreFont {
      CoreDFB                      *core;
 
      DFBFontManager               *manager;
+
+     DFBFontDescription            description;   /* original description used to create the font */
+     char                         *url;
 
      DFBSurfaceBlittingFlags       blittingflags;
      DFBSurfacePixelFormat         pixel_format;
@@ -206,6 +225,11 @@ struct _CoreFont {
 
 
      int                           magic;
+
+     int                           underline_position;
+     int                           underline_thickness;
+
+     CoreFontFlags                 flags;
 };
 
 #define CORE_FONT_DEBUG_AT(Domain, font)                                             \
@@ -218,7 +242,10 @@ struct _CoreFont {
 /*
  * allocates and initializes a new font structure
  */
-DFBResult dfb_font_create( CoreDFB *core, CoreFont **ret_font );
+DFBResult dfb_font_create( CoreDFB                   *core,
+                           const DFBFontDescription  *description,
+                           const char                *url,
+                           CoreFont                 **ret_font );
 
 /*
  * destroy all data in the CoreFont struct

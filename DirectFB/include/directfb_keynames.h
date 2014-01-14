@@ -213,6 +213,16 @@ struct DFBKeySymbolName {
      { DIKS_CURSOR_LEFT_DOWN, "CURSOR_LEFT_DOWN" }, \
      { DIKS_CURSOR_UP_RIGHT, "CURSOR_UP_RIGHT" }, \
      { DIKS_CURSOR_DOWN_RIGHT, "CURSOR_DOWN_RIGHT" }, \
+     { DIKS_PIP, "PIP" }, \
+     { DIKS_SWAP, "SWAP" }, \
+     { DIKS_FREEZE, "FREEZE" }, \
+     { DIKS_MOVE, "MOVE" }, \
+     { DIKS_CALL, "CALL" }, \
+     { DIKS_SPEAKER, "SPEAKER" }, \
+     { DIKS_SAVE, "SAVE" }, \
+     { DIKS_REDIAL, "REDIAL" }, \
+     { DIKS_FLASH, "FLASH" }, \
+     { DIKS_HOLD, "HOLD" }, \
      { DIKS_F1, "F1" }, \
      { DIKS_F2, "F2" }, \
      { DIKS_F3, "F3" }, \

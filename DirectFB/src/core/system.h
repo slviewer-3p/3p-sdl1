@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __DFB__CORE__SYSTEM_H__
 #define __DFB__CORE__SYSTEM_H__
 
@@ -45,15 +49,29 @@ typedef enum {
      CORE_SDL,
      CORE_VNC,
      CORE_DEVMEM,
-     CORE_TI_CMEM
+     CORE_TI_CMEM,
+     CORE_MESA,
+     CORE_X11VDPAU,
+     CORE_PVR2D,
+     CORE_CARE1,
+     CORE_ANDROID,
+     CORE_EGL,
+     CORE_DRMKMS
 } CoreSystemType;
 
 typedef enum {
-     CSCAPS_NONE         = 0x00000000,  /* None of these. */
+     CSCAPS_NONE              = 0x00000000,  /* None of these. */
 
-     CSCAPS_ACCELERATION = 0x00000001,  /* HW acceleration supported, so probe graphics drivers. */
+     CSCAPS_ACCELERATION      = 0x00000001,  /* HW acceleration supported, so probe graphics drivers. */
+     CSCAPS_PREFER_SHM        = 0x00000002,  /* Prefer shared memory surface pool over local memory pool. */
+     CSCAPS_SECURE_FUSION     = 0x00000004,  /* Fusion needs to be in secure fusion mode. */
+     CSCAPS_ALWAYS_INDIRECT   = 0x00000008,  /* All calls need to be indirect. */
+     CSCAPS_SYSMEM_EXTERNAL   = 0x00000010,  /* Makes system memory surface pools have CSTF_EXTERNAL support. */
+     CSCAPS_DISPLAY_TASKS     = 0x00000020,  /* Calls Task_Done() on display tasks. */
+     CSCAPS_NOTIFY_DISPLAY    = 0x00000040,  /* Calls dfb_surface_notify_display2() when appropriate. */
+     CSCAPS_DISPLAY_PTS       = 0x00000080,  /* Supports PTS on display tasks */
 
-     CSCAPS_ALL          = 0x00000001   /* All of these. */
+     CSCAPS_ALL               = 0x000000FF   /* All of these. */
 } CoreSystemCapabilities;
 
 /*

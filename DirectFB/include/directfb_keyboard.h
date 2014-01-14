@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __DIRECTFB_KEYBOARD_H__
 #define __DIRECTFB_KEYBOARD_H__
@@ -453,6 +457,18 @@ typedef enum {
      DIKS_CURSOR_LEFT_DOWN         = DFB_KEY( SPECIAL, 0x65 ),
      DIKS_CURSOR_UP_RIGHT          = DFB_KEY( SPECIAL, 0x66 ),
      DIKS_CURSOR_DOWN_RIGHT        = DFB_KEY( SPECIAL, 0x67 ),
+
+     DIKS_PIP                      = DFB_KEY( SPECIAL, 0x68 ),
+     DIKS_SWAP                     = DFB_KEY( SPECIAL, 0x69 ),
+     DIKS_FREEZE                   = DFB_KEY( SPECIAL, 0x6A ),
+     DIKS_MOVE                     = DFB_KEY( SPECIAL, 0x6B ),
+
+     DIKS_CALL                     = DFB_KEY( SPECIAL, 0x6C ),
+     DIKS_SPEAKER                  = DFB_KEY( SPECIAL, 0x6D ),
+     DIKS_SAVE                     = DFB_KEY( SPECIAL, 0x6E ),
+     DIKS_REDIAL                   = DFB_KEY( SPECIAL, 0x6F ),
+     DIKS_FLASH                    = DFB_KEY( SPECIAL, 0x70 ),
+     DIKS_HOLD                     = DFB_KEY( SPECIAL, 0x71 ),
 
      /*
       * Unicode private area - DirectFB Function keys

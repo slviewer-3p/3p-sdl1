@@ -1,5 +1,8 @@
 ## Makefile.am for DirectFB/lib/voodoo
 
+SUBDIRS = unix
+
+
 INCLUDES = \
 	-I$(top_builddir)/include	\
 	-I$(top_builddir)/lib		\
@@ -22,14 +25,28 @@ install-exec-local:
 includedir = @INCLUDEDIR@/voodoo
 
 include_HEADERS = \
+	app.h			\
 	build.h			\
 	client.h		\
 	conf.h			\
+	connection.h		\
+	connection_link.h	\
+	connection_packet.h	\
+	connection_raw.h	\
+	dispatcher.h		\
+	init.h			\
+	instance.h		\
 	interface.h		\
+	ivoodooplayer.h		\
+	ivoodooplayer_dispatcher.h	\
+	link.h			\
 	manager.h		\
 	message.h		\
 	server.h		\
+	packet.h		\
 	play.h			\
+	play_internal.h		\
+	play_server.h		\
 	types.h
 
 
@@ -38,10 +55,22 @@ lib_LTLIBRARIES = libvoodoo.la
 libvoodoo_la_SOURCES = \
 	client.c		\
 	conf.c			\
+	connection.cpp		\
+	connection_link.cpp	\
+	connection_packet.cpp	\
+	connection_raw.cpp	\
+	dispatcher.cpp		\
+	init.c			\
+	instance.cpp		\
 	interface.c		\
 	internal.h		\
-	manager.c		\
+	ivoodooplayer.c		\
+	ivoodooplayer_dispatcher.c	\
+	ivoodooplayer_requestor.c	\
+	manager.cpp		\
+	manager_c.cpp		\
 	play.c			\
+	play_server.c		\
 	server.c
 
 libvoodoo_la_LDFLAGS = \
@@ -49,7 +78,9 @@ libvoodoo_la_LDFLAGS = \
 	-release $(LT_RELEASE)					\
 	$(DFB_LDFLAGS)
 
-libvoodoo_la_LIBADD = ../direct/libdirect.la
+libvoodoo_la_LIBADD = \
+	unix/libvoodoo_unix.la	\
+	../direct/libdirect.la
 
 
 #

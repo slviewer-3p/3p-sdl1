@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,45 +28,133 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
+//#define DIRECT_ENABLE_DEBUG
+
 #include <config.h>
 
-#include <errno.h>
-#include <unistd.h>
-
-#include <sys/syscall.h>
-
-#include <direct/build.h>
+#include <direct/atomic.h>
+#include <direct/debug.h>
 #include <direct/system.h>
+#include <direct/util.h>
 
-#if DIRECT_BUILD_GETTID && defined(HAVE_LINUX_UNISTD_H)
-#include <linux/unistd.h>
+
+D_LOG_DOMAIN( Direct_Futex, "Direct/Futex", "Direct Futex" );
+
+/**********************************************************************************************************************/
+
+DirectResult
+direct_futex_wait( int *uaddr,
+                   int  val )
+{
+#ifndef WIN32
+     DirectResult ret;
+
+     D_ASSERT( uaddr != NULL );
+
+     D_DEBUG_AT( Direct_Futex, "%s( %p, %d ) <- %d\n", __FUNCTION__, uaddr, val, *uaddr );
+
+     if (*uaddr != val) {
+          D_DEBUG_AT( Direct_Futex, "  -> value changed!\n" );
+          return DR_OK;
+     }
+
+     while ((ret = direct_futex( uaddr, FUTEX_WAIT, val, NULL, NULL, 0 ))) {
+          switch (ret) {
+               case DR_SIGNALLED:
+                    continue;
+
+               case DR_BUSY:  // EAGAIN
+                    return DR_OK;
+
+               default:
+                    D_DERROR( ret, "Direct/Futex: FUTEX_WAIT (%p, %d) failed!\n", uaddr, val );
+                    return ret;
+          }
+     }
+
+     return DR_OK;
+#else
+     D_UNIMPLEMENTED();
+
+     return DR_UNIMPLEMENTED;
 #endif
+}
 
-__attribute__((no_instrument_function))
-pid_t
-direct_gettid( void )
+DirectResult
+direct_futex_wait_timed( int *uaddr,
+                         int  val,
+                         int  ms )
 {
-     pid_t tid = -1;
-#if DIRECT_BUILD_GETTID && defined(__NR_gettid) /* present on linux >= 2.4.20 */
-     tid = syscall(__NR_gettid);
+#ifndef WIN32
+     DirectResult    ret;
+     struct timespec timeout;
+
+     D_ASSERT( uaddr != NULL );
+
+     D_DEBUG_AT( Direct_Futex, "%s( %p, %d, %d ) <- %d\n", __FUNCTION__, uaddr, val, ms, *uaddr );
+
+     if (*uaddr != val) {
+          D_DEBUG_AT( Direct_Futex, "  -> value changed!\n" );
+          return DR_OK;
+     }
+
+     timeout.tv_sec  =  ms / 1000;
+     timeout.tv_nsec = (ms % 1000) * 1000000;
+
+     while ((ret = direct_futex( uaddr, FUTEX_WAIT, val, &timeout, NULL, 0 ))) {
+          switch (ret) {
+               case DR_SIGNALLED:
+                    continue;
+
+               case DR_BUSY:  // EAGAIN
+                    return DR_OK;
+
+               default:
+                    D_DERROR( ret, "Direct/Futex: FUTEX_WAIT (%p, %d) failed!\n", uaddr, val );
+               case DR_TIMEOUT:
+                    return ret;
+          }
+     }
+     return DR_OK;
+#else
+     D_UNIMPLEMENTED();
+
+     return DR_UNIMPLEMENTED;
 #endif
-     if (tid < 0)
-          tid = getpid();
-
-     return tid;
 }
 
-long
-direct_pagesize( void )
+DirectResult
+direct_futex_wake( int *uaddr, int num )
 {
-     return sysconf( _SC_PAGESIZE );
+#ifndef WIN32
+     DirectResult ret;
+
+     D_ASSERT( uaddr != NULL );
+     D_ASSERT( num > 0 );
+
+     D_DEBUG_AT( Direct_Futex, "%s( %p, %d ) <- %d\n", __FUNCTION__, uaddr, num, *uaddr );
+
+     while ((ret = direct_futex( uaddr, FUTEX_WAKE, num, NULL, NULL, 0 ))) {
+          switch (ret) {
+               case DR_BUSY:  // EAGAIN
+                    continue;
+
+               default:
+                    D_DERROR( ret, "Direct/Futex: FUTEX_WAKE (%p, %d) failed!\n", uaddr, num );
+                    return ret;
+          }
+     }
+
+     return DR_OK;
+#else
+     D_UNIMPLEMENTED();
+
+     return DR_UNIMPLEMENTED;
+#endif
 }
 
-unsigned long
-direct_page_align( unsigned long value )
-{
-     unsigned long mask = sysconf( _SC_PAGESIZE ) - 1;
-
-     return (value + mask) & ~mask;
-}
+unsigned int __Direct_Futex_Wait_Count = 0;
+unsigned int __Direct_Futex_Wake_Count = 0;
 

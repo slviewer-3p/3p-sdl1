@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __DIRECT__MAP_H__
 #define __DIRECT__MAP_H__
@@ -46,27 +50,27 @@ typedef DirectEnumerationResult (*DirectMapIteratorFunc)( DirectMap    *map,
                                                           void         *ctx );
 
 
-DirectResult  direct_map_create ( unsigned int            initial_size,
-                                  DirectMapCompareFunc    compare_func,
-                                  DirectMapHashFunc       hash_func,
-                                  void                   *ctx,
-                                  DirectMap             **ret_map );
+DirectResult DIRECT_API  direct_map_create ( unsigned int            initial_size,
+                                             DirectMapCompareFunc    compare_func,
+                                             DirectMapHashFunc       hash_func,
+                                             void                   *ctx,
+                                             DirectMap             **ret_map );
 
-void          direct_map_destroy( DirectMap              *map );
+void         DIRECT_API  direct_map_destroy( DirectMap              *map );
 
-DirectResult  direct_map_insert ( DirectMap              *map,
-                                  const void             *key,
-                                  void                   *object );
+DirectResult DIRECT_API  direct_map_insert ( DirectMap              *map,
+                                             const void             *key,
+                                             void                   *object );
 
-DirectResult  direct_map_remove ( DirectMap              *map,
-                                  const void             *key );
+DirectResult DIRECT_API  direct_map_remove ( DirectMap              *map,
+                                             const void             *key );
 
-void         *direct_map_lookup ( DirectMap              *map,
-                                  const void             *key );
+void         DIRECT_API *direct_map_lookup ( DirectMap              *map,
+                                             const void             *key );
 
-void          direct_map_iterate( DirectMap              *map,
-                                  DirectMapIteratorFunc   func,
-                                  void                   *ctx );
+void         DIRECT_API  direct_map_iterate( DirectMap              *map,
+                                             DirectMapIteratorFunc   func,
+                                             void                   *ctx );
 
 #endif
 

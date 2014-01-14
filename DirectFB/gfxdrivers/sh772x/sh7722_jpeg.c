@@ -27,7 +27,7 @@
 
 #include <core/layers.h>
 #include <core/surface.h>
-#include <core/surface_buffer.h>
+#include <core/CoreSurface.h>
 #include <core/system.h>
 
 #include <display/idirectfbsurface.h>
@@ -41,7 +41,7 @@ D_DEBUG_DOMAIN( SH7722_JPEG, "SH7722/JPEG", "SH7722 JPEG Processing Unit" );
 
 
 /* callbacks for libshjpeg */
-int sops_init_databuffer( void *private )
+static int sops_init_databuffer( void *private )
 {
      IDirectFBDataBuffer *buffer = (IDirectFBDataBuffer*)private;
      buffer->SeekTo(buffer, 0);
@@ -49,11 +49,11 @@ int sops_init_databuffer( void *private )
      return 0;
 }
 
-int sops_read_databuffer( void *private, size_t *nbytes, void *dataptr )
+static int sops_read_databuffer( void *private, size_t *nbytes, void *dataptr )
 {
      IDirectFBDataBuffer *buffer = (IDirectFBDataBuffer*)private;
 
-     int n;
+     unsigned int n;
  
      buffer->GetData(buffer, *nbytes, dataptr, &n);
      if (n < 0) {
@@ -65,11 +65,9 @@ int sops_read_databuffer( void *private, size_t *nbytes, void *dataptr )
      return 0;
 }
 
-int sops_write_databuffer( void *private, size_t *nbytes, void *dataptr )
+static int sops_write_databuffer( void *private, size_t *nbytes, void *dataptr )
 {
      IDirectFBDataBuffer *buffer = (IDirectFBDataBuffer*)private;
-
-     int n;
 
      if (buffer->PutData(buffer, dataptr, *nbytes) != DFB_OK);
           return -1;
@@ -77,13 +75,13 @@ int sops_write_databuffer( void *private, size_t *nbytes, void *dataptr )
      return 0;
 }
 
-void sops_finalize_databuffer( void *private )
+static void sops_finalize_databuffer( void *private )
 {
      IDirectFBDataBuffer *buffer = (IDirectFBDataBuffer*)private;
      buffer->Finish(buffer);
 }
 
-int sops_init_file(void *private)
+static int sops_init_file(void *private)
 {
      int fd = *(int*)private;
 
@@ -92,7 +90,7 @@ int sops_init_file(void *private)
      return 0;
 }
 
-int sops_read_file(void *private, size_t *nbytes, void *dataptr)
+static int sops_read_file(void *private, size_t *nbytes, void *dataptr)
 {
      int fd = *(int*)private;
      int n;
@@ -100,14 +98,14 @@ int sops_read_file(void *private, size_t *nbytes, void *dataptr)
      n = read(fd, dataptr, *nbytes);
      if (n < 0) {
          *nbytes = 0;
-	     return -1;
+          return -1;
      }
 
      *nbytes = n;
      return 0;
 }
 
-int sops_write_file(void *private, size_t *nbytes, void *dataptr)
+static int sops_write_file(void *private, size_t *nbytes, void *dataptr)
 {
      int fd = *(int*)private;
      int n;
@@ -115,28 +113,28 @@ int sops_write_file(void *private, size_t *nbytes, void *dataptr)
      n = write(fd, dataptr, *nbytes);
      if (n < 0) {
          *nbytes = 0;
-	     return -1;
+          return -1;
      }
 
      *nbytes = n;
      return 0;
 }
 
-void sops_finalize_file(void *private)
+static void sops_finalize_file(void *private)
 {
      int fd = *(int*)private;
      close(fd);
 }
 
 
-shjpeg_sops sops_databuffer = {
+static shjpeg_sops sops_databuffer = {
     .init     = sops_init_databuffer,
     .read     = sops_read_databuffer,
     .write    = sops_write_databuffer,
     .finalize = sops_finalize_databuffer,
 };
 
-shjpeg_sops sops_file = {
+static shjpeg_sops sops_file = {
     .init     = sops_init_file,
     .read     = sops_read_file,
     .write    = sops_write_file,
@@ -181,9 +179,6 @@ IDirectFBImageProvider_SH7722_JPEG_Destruct( IDirectFBImageProvider *thiz )
      IDirectFBImageProvider_SH7722_JPEG_data *data = thiz->priv;
 
      shjpeg_decode_shutdown( data->info );
-
-     data->buffer->Release( data->buffer );
-
 
      DIRECT_DEALLOCATE_INTERFACE( thiz );
 }
@@ -249,16 +244,13 @@ IDirectFBImageProvider_SH7722_JPEG_RenderTo( IDirectFBImageProvider *thiz,
      if (!dfb_rectangle_region_intersects( &rect, &clip ))
           return DFB_OK;
 
-     ret = dfb_surface_lock_buffer( dst_surface, CSBR_BACK, CSAID_GPU, CSAF_WRITE, &lock );
+     ret = CoreSurface_LockBuffer( dst_surface, CSBR_BACK, CSAID_GPU, CSAF_WRITE, &lock );
      if (ret)
           return ret;
 
 
      /* calculate physical address according to destination rect */
      unsigned long phys = lock.phys + DFB_BYTES_PER_LINE(dst_surface->config.format, rect.x) + rect.y * lock.pitch;
-
-     /* physical address of the c plane */
-     unsigned long cphys = 0;
 
      shjpeg_pixelformat pixelfmt;
 
@@ -274,12 +266,9 @@ IDirectFBImageProvider_SH7722_JPEG_RenderTo( IDirectFBImageProvider *thiz,
                break;
           case DSPF_NV12:
                pixelfmt = SHJPEG_PF_NV12;
-               cphys = lock.phys + lock.pitch * dst_surface->config.size.h 
-                         + DFB_BYTES_PER_LINE(dst_surface->config.format, rect.x) + (rect.y/2) * lock.pitch;
                break;
           case DSPF_NV16:
                pixelfmt = SHJPEG_PF_NV16;
-               cphys = phys + lock.pitch * dst_surface->config.size.h;
                break;
           case DSPF_A8:
                pixelfmt = SHJPEG_PF_GRAYSCALE;
@@ -289,11 +278,12 @@ IDirectFBImageProvider_SH7722_JPEG_RenderTo( IDirectFBImageProvider *thiz,
      
      }
 
+     if (ret != DFB_UNSUPPORTED) {
+          if (shjpeg_decode_run( data->info, pixelfmt, phys, rect.w, rect.h, lock.pitch) < 0)
+               ret = DFB_FAILURE;
+     }
 
-     if (shjpeg_decode_run( data->info, pixelfmt, phys, cphys, rect.w, rect.h, lock.pitch) < 0)
-          ret = DFB_FAILURE;
-
-     dfb_surface_unlock_buffer( dst_surface, &lock );
+     CoreSurface_UnlockBuffer( dst_surface, &lock );
 
      return ret;
 }
@@ -425,7 +415,7 @@ IDirectFBImageProvider_SH7722_JPEG_WriteBack( IDirectFBImageProvider *thiz,
      
      tmp_pitch = (jpeg_size.w + 3) & ~3;
      ret = dfb_surface_create_simple( data->core, tmp_pitch, jpeg_size.h,
-                                      DSPF_NV16, DSCAPS_VIDEOONLY,
+                                      DSPF_NV16, DFB_COLORSPACE_DEFAULT(DSPF_NV16), DSCAPS_VIDEOONLY,
                                       CSTF_NONE, 0, 0, &tmp_surface );
      if( ret ) {
           /* too bad, we proceed without */
@@ -436,7 +426,7 @@ IDirectFBImageProvider_SH7722_JPEG_WriteBack( IDirectFBImageProvider *thiz,
      }
      else {
           /* lock it to get the address */
-          ret = dfb_surface_lock_buffer( tmp_surface, CSBR_FRONT, CSAID_GPU, CSAF_READ | CSAF_WRITE, &tmp_lock );
+          ret = CoreSurface_LockBuffer( tmp_surface, CSBR_FRONT, CSAID_GPU, CSAF_READ | CSAF_WRITE, &tmp_lock );
           if (ret) {
                D_DEBUG_AT( SH7722_JPEG, "%s - failed to lock intermediate storage: %d\n",
                     __FUNCTION__, ret );
@@ -450,29 +440,29 @@ IDirectFBImageProvider_SH7722_JPEG_WriteBack( IDirectFBImageProvider *thiz,
           }
      }
 
-     ret = dfb_surface_lock_buffer( src_surface, CSBR_FRONT, CSAID_GPU, CSAF_READ, &lock );
+     ret = CoreSurface_LockBuffer( src_surface, CSBR_FRONT, CSAID_GPU, CSAF_READ, &lock );
      if ( ret == DFB_OK ) {
 
           /* backup callbacks and private data and setup for file io */
           shjpeg_sops *sops_tmp       = data->info->sops;
-          void        *private_tmp = data->info->private;
+          void        *private_tmp = data->info->priv_data;
 
           data->info->sops = &sops_file;
-          data->info->private = (void*) &fd;
+          data->info->priv_data = (void*) &fd;
 
           if (shjpeg_encode(data->info, pixelfmt, lock.phys, jpeg_size.w, jpeg_size.h, lock.pitch) < 0)
                ret = DFB_FAILURE;
 
           /* restore callbacks and private data */
           data->info->sops = sops_tmp;
-          data->info->private = private_tmp;
+          data->info->priv_data = private_tmp;
                                               
-          dfb_surface_unlock_buffer( src_surface, &lock );
+          CoreSurface_UnlockBuffer( src_surface, &lock );
      }
      
      if( tmp_surface ) {
           /* unlock and release the created surface */
-          dfb_surface_unlock_buffer( tmp_surface, &tmp_lock );
+          CoreSurface_UnlockBuffer( tmp_surface, &tmp_lock );
           dfb_surface_unref( tmp_surface );
      }
 
@@ -486,8 +476,6 @@ IDirectFBImageProvider_SH7722_JPEG_WriteBack( IDirectFBImageProvider *thiz,
 static DFBResult
 Probe( IDirectFBImageProvider_ProbeContext *ctx )
 {
-     SH7722DeviceData *sdev = dfb_gfxcard_get_device_data();
-
      /* Called with NULL when used for encoding. */
      if (!ctx)
           return DFB_OK;
@@ -519,8 +507,6 @@ Construct( IDirectFBImageProvider *thiz,
      data->core   = core;
 
      if (buffer) {
-          IDirectFBDataBuffer_File_data *file_data;
-
           ret = buffer->AddRef( buffer );
           if (ret) {
                DIRECT_DEALLOCATE_INTERFACE(thiz);
@@ -536,7 +522,7 @@ Construct( IDirectFBImageProvider *thiz,
 
           /* set callbacks to context */
           data->info->sops = &sops_databuffer;
-          data->info->private = (void*) buffer;
+          data->info->priv_data = (void*) buffer;
 
           if (shjpeg_decode_init( data->info ) < 0) {
                buffer->Release( buffer );

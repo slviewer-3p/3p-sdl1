@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
@@ -37,6 +41,9 @@
 
 
 #include <directfb.h>
+
+#include <core/CoreDFB.h>
+#include <core/CorePalette.h>
 
 #include <core/surface.h>
 #include <core/palette.h>
@@ -132,7 +139,6 @@ IDirectFBPalette_SetEntries( IDirectFBPalette *thiz,
                              unsigned int      num_entries,
                              unsigned int      offset )
 {
-     int          i;
      CorePalette *palette;
 
      DIRECT_INTERFACE_GET_DATA(IDirectFBPalette)
@@ -144,20 +150,7 @@ IDirectFBPalette_SetEntries( IDirectFBPalette *thiz,
      if (!entries  ||  offset + num_entries > palette->num_entries)
           return DFB_INVARG;
 
-     if (num_entries) {
-          direct_memcpy( palette->entries + offset, entries, num_entries * sizeof(DFBColor));
-
-          for (i=offset; i<offset+num_entries; i++) {
-               palette->entries_yuv[i].a = palette->entries[i].a;
-
-               RGB_TO_YCBCR( palette->entries[i].r, palette->entries[i].g, palette->entries[i].b,
-                             palette->entries_yuv[i].y, palette->entries_yuv[i].u, palette->entries_yuv[i].v );
-          }
-
-          dfb_palette_update( palette, offset, offset + num_entries - 1 );
-     }
-
-     return DFB_OK;
+     return CorePalette_SetEntries( palette, entries, num_entries, offset );
 }
 
 static DFBResult
@@ -222,20 +215,16 @@ IDirectFBPalette_CreateCopy( IDirectFBPalette  *thiz,
      if (!interface)
           return DFB_INVARG;
 
-     ret = dfb_palette_create( NULL,    /* FIXME */
-                               data->palette->num_entries, &palette );
+     ret = CoreDFB_CreatePalette( data->core, data->palette->num_entries, &palette );
      if (ret)
           return ret;
 
-     direct_memcpy( palette->entries, data->palette->entries,
-                    palette->num_entries * sizeof(DFBColor));
-
-     dfb_palette_update( palette, 0, palette->num_entries - 1 );
+     CorePalette_SetEntries( palette, data->palette->entries, palette->num_entries, 0 );
 
 
      DIRECT_ALLOCATE_INTERFACE( iface, IDirectFBPalette );
 
-     ret = IDirectFBPalette_Construct( iface, palette );
+     ret = IDirectFBPalette_Construct( iface, palette, data->core );
 
      dfb_palette_unref( palette );
 
@@ -251,7 +240,6 @@ IDirectFBPalette_SetEntriesYUV( IDirectFBPalette  *thiz,
                                 unsigned int       num_entries,
                                 unsigned int       offset )
 {
-     int          i;
      CorePalette *palette;
 
      DIRECT_INTERFACE_GET_DATA(IDirectFBPalette)
@@ -263,20 +251,7 @@ IDirectFBPalette_SetEntriesYUV( IDirectFBPalette  *thiz,
      if (!entries  ||  offset + num_entries > palette->num_entries)
           return DFB_INVARG;
 
-     if (num_entries) {
-          direct_memcpy( palette->entries_yuv + offset, entries, num_entries * sizeof(DFBColorYUV));
-
-          for (i=offset; i<offset+num_entries; i++) {
-               palette->entries[i].a = palette->entries_yuv[i].a;
-
-               YCBCR_TO_RGB( palette->entries_yuv[i].y, palette->entries_yuv[i].u, palette->entries_yuv[i].v,
-                             palette->entries[i].r, palette->entries[i].g, palette->entries[i].b );
-          }
-
-          dfb_palette_update( palette, offset, offset + num_entries - 1 );
-     }
-
-     return DFB_OK;
+     return CorePalette_SetEntriesYUV( palette, entries, num_entries, offset );
 }
 
 static DFBResult
@@ -331,7 +306,8 @@ IDirectFBPalette_FindBestMatchYUV( IDirectFBPalette *thiz,
 /******/
 
 DFBResult IDirectFBPalette_Construct( IDirectFBPalette *thiz,
-                                      CorePalette      *palette )
+                                      CorePalette      *palette,
+                                      CoreDFB          *core )
 {
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBPalette)
 
@@ -342,7 +318,7 @@ DFBResult IDirectFBPalette_Construct( IDirectFBPalette *thiz,
 
      data->ref     = 1;
      data->palette = palette;
-
+     data->core    = core;
 
      thiz->AddRef           = IDirectFBPalette_AddRef;
      thiz->Release          = IDirectFBPalette_Release;

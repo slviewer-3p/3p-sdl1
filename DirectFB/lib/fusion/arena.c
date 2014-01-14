@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,10 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
+//#define DIRECT_ENABLE_DEBUG
+
 #include <config.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -34,8 +40,6 @@
 
 #include <sys/param.h>
 #include <sys/types.h>
-
-#include <pthread.h>
 
 #include <direct/debug.h>
 #include <direct/list.h>
@@ -54,7 +58,7 @@
 #include "fusion_internal.h"
 
 
-#if FUSION_BUILD_MULTI
+#if FUSION_BUILD_MULTI || 1
 
 D_DEBUG_DOMAIN( Fusion_Arena, "Fusion/Arena", "Fusion Arena" );
 
@@ -100,8 +104,8 @@ fusion_arena_enter (FusionWorld     *world,
      D_MAGIC_ASSERT( world, FusionWorld );
 
      D_ASSERT( name != NULL );
-     D_ASSERT( initialize != NULL );
-     D_ASSERT( join != NULL );
+//     D_ASSERT( initialize != NULL );
+//     D_ASSERT( join != NULL );
      D_ASSERT( ret_arena != NULL );
 
      D_DEBUG_AT( Fusion_Arena, "%s( '%s' )\n", __FUNCTION__, name );
@@ -128,8 +132,6 @@ fusion_arena_enter (FusionWorld     *world,
      else {
           D_DEBUG ("Fusion/Arena: entering arena '%s' (joining)\n", name);
 
-          fusion_shm_attach_unattached( world );
-
           /* Call 'join' later. */
           func = join;
      }
@@ -141,7 +143,8 @@ fusion_arena_enter (FusionWorld     *world,
      *ret_arena = arena;
 
      /* Call 'initialize' or 'join'. */
-     error = func (arena, ctx);
+     if (func)
+          error = func (arena, ctx);
 
      /* Return the return value of the callback. */
      if (ret_error)
@@ -367,9 +370,13 @@ create_arena( FusionWorld *world,
      if (ret)
           goto error;
 
+     fusion_skirmish_add_permissions( &arena->lock, 0, FUSION_SKIRMISH_PERMIT_PREVAIL | FUSION_SKIRMISH_PERMIT_DISMISS );
+
      ret = fusion_ref_init( &arena->ref, buf, world );
      if (ret)
           goto error_ref;
+
+     fusion_ref_add_permissions( &arena->ref, 0, FUSION_REF_PERMIT_REF_UNREF_LOCAL | FUSION_REF_PERMIT_ZERO_LOCK_UNLOCK );
 
      /* Give it the requested name. */
      arena->name = SHSTRDUP( shared->main_pool, name );

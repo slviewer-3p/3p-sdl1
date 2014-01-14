@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -35,7 +37,6 @@
 #include <config.h>
 
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
 
 #include <directfb.h>
@@ -44,6 +45,7 @@
 #include <direct/interface.h>
 #include <direct/mem.h>
 #include <direct/messages.h>
+#include <direct/thread.h>
 #include <direct/util.h>
 
 #include <voodoo/play.h>
@@ -65,8 +67,9 @@ player_callback( void                    *ctx,
                  const char              *address,
                  unsigned int             ms_since_last_seen )
 {
-     D_INFO( "Voodoo/Play: <%4ums> [ %-30s ]   %s%s\n",
-             ms_since_last_seen, info->name, address, (info->flags & VPIF_LEVEL2) ? " *" : "" );
+     D_INFO( "Voodoo/Play: <%4ums> [ %-30s ]   %s%s   (vendor: %s, model: %s)\n",
+             ms_since_last_seen, info->name, address, (info->flags & VPIF_LEVEL2) ? " *" : "",
+             info->vendor, info->model );
 
      return DENUM_OK;
 }
@@ -104,7 +107,7 @@ main( int argc, char *argv[] )
      do {
           voodoo_player_broadcast( player );
 
-          usleep( 100000 );
+          direct_thread_sleep( 100000 );
 
           voodoo_player_enumerate( player, player_callback, NULL );
 
@@ -112,7 +115,7 @@ main( int argc, char *argv[] )
                for (i=1; i<argc; i++) {
                     char buf[100];
 
-                    if (voodoo_player_lookup( player, argv[i], buf, sizeof(buf) )) {
+                    if (voodoo_player_lookup( player, (const u8 *)argv[i], NULL, buf, sizeof(buf) )) {
                          D_ERROR( "Voodoo/Play: No '%s' found!\n", argv[i] );
                          continue;
                     }
@@ -121,7 +124,7 @@ main( int argc, char *argv[] )
                }
           }
 
-          sleep( 2 );
+          direct_thread_sleep( 2000000 );
      } while (m_run);
 
 

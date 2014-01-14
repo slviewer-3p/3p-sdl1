@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <directfb.h>
@@ -39,6 +43,8 @@
 #include <voodoo/client.h>
 #include <voodoo/interface.h>
 #include <voodoo/manager.h>
+
+#include <idirectfb_dispatcher.h>
 
 #include "idirectfbimageprovider_dispatcher.h"
 
@@ -65,6 +71,7 @@ typedef struct {
      int                     ref;      /* reference counter */
 
      IDirectFBImageProvider *real;
+     VoodooInstanceID        self;
 } IDirectFBImageProvider_Dispatcher_data;
 
 /**************************************************************************************************/
@@ -72,7 +79,11 @@ typedef struct {
 static void
 IDirectFBImageProvider_Dispatcher_Destruct( IDirectFBImageProvider *thiz )
 {
+     IDirectFBImageProvider_Dispatcher_data *data = thiz->priv;
+
      D_DEBUG( "%s (%p)\n", __FUNCTION__, thiz );
+
+     data->real->Release( data->real );
 
      DIRECT_DEALLOCATE_INTERFACE( thiz );
 }
@@ -149,6 +160,15 @@ IDirectFBImageProvider_Dispatcher_SetRenderCallback( IDirectFBImageProvider *thi
 /**************************************************************************************************/
 
 static DirectResult
+Dispatch_Release( IDirectFBImageProvider *thiz, IDirectFBImageProvider *real,
+                  VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DIRECT_INTERFACE_GET_DATA(IDirectFBImageProvider_Dispatcher)
+
+     return voodoo_manager_unregister_local( manager, data->self );
+}
+
+static DirectResult
 Dispatch_GetSurfaceDescription( IDirectFBImageProvider *thiz, IDirectFBImageProvider *real,
                                 VoodooManager *manager, VoodooRequestMessage *msg )
 {
@@ -163,7 +183,7 @@ Dispatch_GetSurfaceDescription( IDirectFBImageProvider *thiz, IDirectFBImageProv
 
      return voodoo_manager_respond( manager, true, msg->header.serial,
                                     DFB_OK, VOODOO_INSTANCE_NONE,
-                                    VMBT_DATA, sizeof(DFBSurfaceDescription), &desc,
+                                    VMBT_DFBSurfaceDescription( desc ),
                                     VMBT_NONE );
 }
 
@@ -221,6 +241,9 @@ Dispatch( void *dispatcher, void *real, VoodooManager *manager, VoodooRequestMes
               "Handling request for instance %u with method %u...\n", msg->instance, msg->method );
 
      switch (msg->method) {
+          case IDIRECTFBIMAGEPROVIDER_METHOD_ID_Release:
+               return Dispatch_Release( dispatcher, real, manager, msg );
+
           case IDIRECTFBIMAGEPROVIDER_METHOD_ID_GetSurfaceDescription:
                return Dispatch_GetSurfaceDescription( dispatcher, real, manager, msg );
 
@@ -255,7 +278,7 @@ Construct( IDirectFBImageProvider *thiz,
 
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBImageProvider_Dispatcher)
 
-     ret = voodoo_manager_register_local( manager, false, thiz, real, Dispatch, ret_instance );
+     ret = voodoo_manager_register_local( manager, super, thiz, real, Dispatch, ret_instance );
      if (ret) {
           DIRECT_DEALLOCATE_INTERFACE( thiz );
           return ret;
@@ -263,6 +286,7 @@ Construct( IDirectFBImageProvider *thiz,
 
      data->ref  = 1;
      data->real = real;
+     data->self = *ret_instance;
 
      thiz->AddRef                = IDirectFBImageProvider_Dispatcher_AddRef;
      thiz->Release               = IDirectFBImageProvider_Dispatcher_Release;

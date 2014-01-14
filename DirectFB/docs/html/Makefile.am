@@ -3,7 +3,10 @@ EXTRA_DIST = dfb_logo-alpha.png
 docs_headers = \
 	$(top_srcdir)/include/directfb.h \
 	$(top_srcdir)/include/directfb_keyboard.h \
-	$(top_srcdir)/include/directfbgl.h
+	$(top_srcdir)/include/directfbgl.h \
+	$(top_srcdir)/include/directfbgl2.h \
+	$(top_srcdir)/include/directfb_water.h \
+	$(top_srcdir)/include/directfb_windows.h
 
 all-local: stamp-docs
 

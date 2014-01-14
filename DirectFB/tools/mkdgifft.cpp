@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -36,6 +38,13 @@
 
 #include <config.h>
 
+#include <list>
+#include <map>
+#include <string>
+#include <vector>
+
+#include <directfb.h>
+
 extern "C" {
 #include <errno.h>
 #include <stdio.h>
@@ -47,7 +56,6 @@ extern "C" {
 
 #include <png.h>
 
-#include <directfb.h>
 #include <directfb_strings.h>
 
 #include <direct/debug.h>
@@ -60,11 +68,6 @@ extern "C" {
 
 #include <dgiff.h>
 }
-
-#include <list>
-#include <map>
-#include <string>
-#include <vector>
 
 
 #define MAX_ROW_WIDTH    2047
@@ -595,7 +598,7 @@ load_image (const char            *filename,
      if (!png_ptr)
           goto cleanup;
 
-     if (setjmp (png_ptr->jmpbuf)) {
+     if (setjmp (png_jmpbuf(png_ptr))) {
           if (desc->preallocated[0].data) {
                free (desc->preallocated[0].data);
                desc->preallocated[0].data = NULL;
@@ -680,7 +683,7 @@ load_image (const char            *filename,
 
      data  = (unsigned char*) malloc (height * pitch);
      if (!data) {
-          fprintf (stderr, "Failed to allocate %ld bytes.\n", height * pitch);
+          fprintf (stderr, "Failed to allocate %lu bytes.\n", (unsigned long)(height * pitch));
           goto cleanup;
      }
 
@@ -707,8 +710,7 @@ load_image (const char            *filename,
 
           dest = (unsigned char*) malloc (height * d_pitch);
           if (!dest) {
-               fprintf (stderr, "Failed to allocate %ld bytes.\n",
-                        height * d_pitch);
+               fprintf (stderr, "Failed to allocate %lu bytes.\n", (unsigned long)(height * d_pitch));
                goto cleanup;
           }
 
@@ -791,6 +793,7 @@ write_glyph( DGIFFGlyphInfo *glyph, const DFBSurfaceDescription &desc, void *dst
      switch (m_format) {
           case DSPF_ARGB:
                dfb_convert_to_argb( desc.pixelformat, desc.preallocated[0].data, desc.preallocated[0].pitch,
+                                    NULL, 0, NULL, 0,
                                     desc.height, (u32*) dst, pitch, desc.width, desc.height );
                break;
 

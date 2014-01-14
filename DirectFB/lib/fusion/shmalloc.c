@@ -1,14 +1,18 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
+
+   Fusion shmalloc is based on GNU malloc. Please see below.
 
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -26,10 +30,11 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <errno.h>
 
 #include <direct/build.h>
@@ -40,11 +45,12 @@
 #include <fusion/build.h>
 #include <fusion/shmalloc.h>
 
-#include <fusion/fusion_internal.h>
 #include <fusion/shm/shm_internal.h>
 
 
 #if FUSION_BUILD_MULTI
+
+#include <fusion/fusion_internal.h>
 
 /*************************** MULTI APPLICATION CORE ***************************/
 
@@ -533,7 +539,7 @@ fusion_dbg_shmalloc( FusionSHMPoolShared *pool,
      D_ASSERT( __size > 0 );
 
      if (pool->debug)
-          return direct_malloc( file, line, func, __size );
+          return direct_dbg_malloc( file, line, func, __size );
 
      return malloc( __size );
 }
@@ -549,7 +555,7 @@ fusion_dbg_shcalloc( FusionSHMPoolShared *pool,
      D_ASSERT( __size > 0 );
 
      if (pool->debug)
-          return direct_calloc( file, line, func, __nmemb, __size );
+          return direct_dbg_calloc( file, line, func, __nmemb, __size );
 
      return calloc( __nmemb, __size );
 }
@@ -565,7 +571,7 @@ fusion_dbg_shrealloc( FusionSHMPoolShared *pool,
      D_MAGIC_ASSERT( pool, FusionSHMPoolShared );
 
      if (pool->debug)
-          return direct_realloc( file, line, func, what, __ptr, __size );
+          return direct_dbg_realloc( file, line, func, what, __ptr, __size );
 
      return realloc( __ptr, __size );
 }
@@ -580,7 +586,7 @@ fusion_dbg_shfree( FusionSHMPoolShared *pool,
      D_ASSERT( __ptr != NULL );
 
      if (pool->debug)
-          direct_free( file, line, func, what, __ptr );
+          direct_dbg_free( file, line, func, what, __ptr );
      else
           free( __ptr );
 }
@@ -595,7 +601,7 @@ fusion_dbg_shstrdup( FusionSHMPoolShared *pool,
      D_ASSERT( string != NULL );
 
      if (pool->debug)
-          return direct_strdup( file, line, func, string );
+          return direct_dbg_strdup( file, line, func, string );
 
      return strdup( string );
 }

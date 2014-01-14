@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -73,7 +77,7 @@ voodoo_construct_requestor( VoodooManager     *manager,
 DirectResult
 voodoo_construct_dispatcher( VoodooManager     *manager,
                              const char        *name,
-                             void              *interface,
+                             void              *interface_ptr,
                              VoodooInstanceID   super,
                              void              *arg,
                              VoodooInstanceID  *ret_instance,
@@ -86,8 +90,7 @@ voodoo_construct_dispatcher( VoodooManager     *manager,
 
      D_ASSERT( manager != NULL );
      D_ASSERT( name != NULL );
-     D_ASSERT( interface != NULL );
-     D_ASSERT( super != VOODOO_INSTANCE_NONE );
+     D_ASSERT( interface_ptr != NULL );
      D_ASSERT( ret_instance != NULL );
 
      ret = DirectGetInterface( &funcs, name, "Dispatcher", NULL, NULL );
@@ -100,7 +103,7 @@ voodoo_construct_dispatcher( VoodooManager     *manager,
      if (ret)
           return ret;
 
-     ret = funcs->Construct( dispatcher, interface, manager, super, arg, &instance );
+     ret = funcs->Construct( dispatcher, interface_ptr, manager, super, arg, &instance );
      if (ret)
           return ret;
 

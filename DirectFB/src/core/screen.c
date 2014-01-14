@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,11 +28,15 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <directfb.h>
 
 #include <direct/debug.h>
+
+#include <misc/conf.h>
 
 #include <core/layers.h>
 #include <core/screen.h>
@@ -78,7 +84,7 @@ DFBResult
 dfb_screen_set_powermode( CoreScreen         *screen,
                           DFBScreenPowerMode  mode )
 {
-     ScreenFuncs *funcs;
+     const ScreenFuncs *funcs;
 
      D_ASSERT( screen != NULL );
      D_ASSERT( screen->funcs != NULL );
@@ -97,7 +103,7 @@ dfb_screen_set_powermode( CoreScreen         *screen,
 DFBResult
 dfb_screen_wait_vsync( CoreScreen *screen )
 {
-     ScreenFuncs *funcs;
+     const ScreenFuncs *funcs;
 
      D_ASSERT( screen != NULL );
      D_ASSERT( screen->funcs != NULL );
@@ -114,7 +120,7 @@ dfb_screen_wait_vsync( CoreScreen *screen )
 DFBResult
 dfb_screen_get_vsync_count( CoreScreen *screen, unsigned long *ret_count )
 {
-     ScreenFuncs *funcs;
+     const ScreenFuncs *funcs;
 
      D_ASSERT( screen != NULL );
      D_ASSERT( screen->funcs != NULL );
@@ -489,10 +495,10 @@ dfb_screen_get_layer_dimension( CoreScreen *screen,
                                 int        *ret_width,
                                 int        *ret_height )
 {
-     int               i;
-     DFBResult         ret = DFB_UNSUPPORTED;
-     CoreScreenShared *shared;
-     ScreenFuncs      *funcs;
+     int                i;
+     DFBResult          ret = DFB_UNSUPPORTED;
+     CoreScreenShared  *shared;
+     const ScreenFuncs *funcs;
 
      D_ASSERT( screen != NULL );
      D_ASSERT( screen->shared != NULL );
@@ -556,5 +562,72 @@ dfb_screen_get_layer_dimension( CoreScreen *screen,
                                       ret_width, ret_height );
 
      return ret;
+}
+
+DFBResult
+dfb_screen_get_frame_interval( CoreScreen *screen,
+                               long long  *ret_micros )
+{
+     CoreScreenShared *shared;
+     long long         interval = dfb_config->screen_frame_interval;
+
+     D_ASSERT( screen != NULL );
+     D_ASSERT( screen->shared != NULL );
+     D_ASSERT( screen->funcs != NULL );
+
+     shared = screen->shared;
+
+     // TODO: what to do with more than one encoder? different rates? layers on different mixers on encoders?
+
+     if (shared->description.encoders) {
+          const DFBScreenEncoderConfig *config = &shared->encoders[0].configuration;
+
+          if (config->flags & DSECONF_FREQUENCY) {
+               switch (config->frequency) {
+                    case DSEF_25HZ:
+                         interval = 1000000000LL/25000LL;
+                         break;
+
+                    case DSEF_29_97HZ:
+                         interval = 1000000000LL/29970LL;
+                         break;
+
+                    case DSEF_50HZ:
+                         interval = 1000000000LL/50000LL;
+                         break;
+
+                    case DSEF_59_94HZ:
+                         interval = 1000000000LL/59940LL;
+                         break;
+
+                    case DSEF_60HZ:
+                         interval = 1000000000LL/60000LL;
+                         break;
+
+                    case DSEF_75HZ:
+                         interval = 1000000000LL/75000LL;
+                         break;
+
+                    case DSEF_30HZ:
+                         interval = 1000000000LL/30000LL;
+                         break;
+
+                    case DSEF_24HZ:
+                         interval = 1000000000LL/24000LL;
+                         break;
+
+                    case DSEF_23_976HZ:
+                         interval = 1000000000LL/23976LL;
+                         break;
+
+                    default:
+                         break;
+               }
+          }
+     }
+
+     *ret_micros = interval;
+
+     return DFB_OK;
 }
 

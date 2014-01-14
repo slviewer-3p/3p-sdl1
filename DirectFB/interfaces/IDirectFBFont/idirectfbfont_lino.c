@@ -1,13 +1,15 @@
 /*
-   (c) Copyright 2001-2008  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
-              Ville Syrj‰l‰ <syrjala@sci.fi> and
+              Ville Syrj√§l√§ <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
 
    This library is free software; you can redistribute it and/or
@@ -25,6 +27,7 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
 
 #include <config.h>
 
@@ -406,7 +409,7 @@ render_glyph( CoreFont      *thiz,
 
           pthread_mutex_unlock ( &library_mutex );
 
-          return DFB_FAILURE;
+          return DFB_BUFFEREMPTY;
      }
      pthread_mutex_unlock ( &library_mutex );
 
@@ -457,6 +460,7 @@ render_glyph( CoreFont      *thiz,
                case false:
                     switch (surface->config.format) {
                          case DSPF_ARGB:
+                         case DSPF_ABGR:
                               if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
                                    for (i=0; i<info->width; i++)
                                         dst32[i] = src[i] * 0x01010101;
@@ -524,6 +528,7 @@ render_glyph( CoreFont      *thiz,
                case true:
                     switch (surface->config.format) {
                          case DSPF_ARGB:
+                         case DSPF_ABGR:
                               for (i=0; i<info->width; i++)
                                    dst32[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
                                                 0xFF : 0x00) << 24) | 0xFFFFFF;
@@ -639,7 +644,7 @@ get_glyph_info( CoreFont      *thiz,
 
           pthread_mutex_unlock ( &library_mutex );
 
-          return DFB_FAILURE;
+          return DFB_BUFFEREMPTY;
      }
 
      /*  if ((err = FT_Load_Glyph( face, index, load_flags ))) {
@@ -1214,7 +1219,7 @@ Construct( IDirectFBFont               *thiz,
      /*  face->generic.data = (void *)(unsigned long) load_flags;
        face->generic.finalizer = NULL;
   */
-     ret = dfb_font_create( core, &font );
+     ret = dfb_font_create( core, desc, ctx->filename, &font );
      if (ret) {
           pthread_mutex_lock ( &library_mutex );
           /* FT_Done_Face( face );  */
@@ -1227,6 +1232,7 @@ Construct( IDirectFBFont               *thiz,
      font->attributes = desc->attributes;
 
      D_ASSERT( font->pixel_format == DSPF_ARGB ||
+               font->pixel_format == DSPF_ABGR ||
                font->pixel_format == DSPF_AiRGB ||
                font->pixel_format == DSPF_ARGB4444 ||
                font->pixel_format == DSPF_ARGB2554 ||

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,10 +28,12 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __FUSION__PROPERTY_H__
 #define __FUSION__PROPERTY_H__
 
-#include <pthread.h>
+#include <direct/thread.h>
 
 #include <fusion/types.h>
 
@@ -56,8 +60,8 @@ typedef union {
      
      /* single app */
      struct {
-          pthread_mutex_t          lock;
-          pthread_cond_t           cond;
+          DirectMutex              lock;
+          DirectWaitQueue          cond;
           FusionPropertyState      state;
      } single;
 } FusionProperty;
@@ -65,8 +69,8 @@ typedef union {
 /*
  * Initializes the property
  */
-DirectResult fusion_property_init     (FusionProperty    *property,
-                                       const FusionWorld *world);
+DirectResult FUSION_API fusion_property_init     (FusionProperty    *property,
+                                                  const FusionWorld *world);
 
 /*
  * Lease the property causing others to wait before leasing or purchasing.
@@ -77,7 +81,7 @@ DirectResult fusion_property_init     (FusionProperty    *property,
  * Succeeds if property is available,
  * puts the property into 'leased' state.
  */
-DirectResult fusion_property_lease    (FusionProperty *property);
+DirectResult FUSION_API fusion_property_lease    (FusionProperty *property);
 
 /*
  * Purchase the property disallowing others to lease or purchase it.
@@ -88,14 +92,14 @@ DirectResult fusion_property_lease    (FusionProperty *property);
  * Succeeds if property is available,
  * puts the property into 'purchased' state and wakes up any waiting party.
  */
-DirectResult fusion_property_purchase (FusionProperty *property);
+DirectResult FUSION_API fusion_property_purchase (FusionProperty *property);
 
 /*
  * Cede the property allowing others to lease or purchase it.
  *
  * Puts the property into 'available' state and wakes up one waiting party.
  */
-DirectResult fusion_property_cede     (FusionProperty *property);
+DirectResult FUSION_API fusion_property_cede     (FusionProperty *property);
 
 /*
  * Kills the owner of the property.
@@ -103,12 +107,12 @@ DirectResult fusion_property_cede     (FusionProperty *property);
  * Tries to make a purchased property available again by killing
  * the process that purchased it.
  */
-DirectResult fusion_property_holdup   (FusionProperty *property);
+DirectResult FUSION_API fusion_property_holdup   (FusionProperty *property);
 
 /*
  * Destroys the property
  */
-DirectResult fusion_property_destroy  (FusionProperty *property);
+DirectResult FUSION_API fusion_property_destroy  (FusionProperty *property);
 
 #endif
 

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 /*
  * Example:
  * #define RGB_MASK 0x00ffffff
@@ -38,16 +42,16 @@
 
 static void Cop_OP_Aop_PFI(toK)( GenefxState *gfxs )
 {
-     int  l    = gfxs->length;
+     int  l    = gfxs->length+1;
      u32 *D    = gfxs->Aop[0];
      u32  Dkey = gfxs->Dkey;
      u32  Cop  = gfxs->Cop;
 
-     while (l--) {
+     while (--l) {
           if ((*D & RGB_MASK) == Dkey)
                *D = Cop;
 
-          D++;
+          ++D;
      }
 }
 
@@ -55,7 +59,7 @@ static void Cop_OP_Aop_PFI(toK)( GenefxState *gfxs )
 
 static void Bop_PFI_OP_Aop_PFI(Kto)( GenefxState *gfxs )
 {
-     int  l     = gfxs->length;
+     int  l     = gfxs->length+1;
      int  Sstep = gfxs->Bstep;
      int  Dstep = gfxs->Astep;
      u32 *S     = gfxs->Bop[0];
@@ -67,7 +71,7 @@ static void Bop_PFI_OP_Aop_PFI(Kto)( GenefxState *gfxs )
           D += (gfxs->length - 1) * gfxs->Astep;
      }
 
-     while (l--) {
+     while (--l) {
           u32 s = *S;
 
           if ((s & RGB_MASK) != Skey)
@@ -82,7 +86,7 @@ static void Bop_PFI_OP_Aop_PFI(Kto)( GenefxState *gfxs )
 
 static void Bop_PFI_OP_Aop_PFI(toK)( GenefxState *gfxs )
 {
-     int  l     = gfxs->length;
+     int  l     = gfxs->length+1;
      int  Sstep = gfxs->Bstep;
      int  Dstep = gfxs->Astep;
      u32 *S     = gfxs->Bop[0];
@@ -94,7 +98,7 @@ static void Bop_PFI_OP_Aop_PFI(toK)( GenefxState *gfxs )
           D += (gfxs->length - 1) * gfxs->Astep;
      }
 
-     while (l--) {
+     while (--l) {
           if ((*D & RGB_MASK) == Dkey)
                *D = *S;
 
@@ -107,7 +111,7 @@ static void Bop_PFI_OP_Aop_PFI(toK)( GenefxState *gfxs )
 
 static void Bop_PFI_OP_Aop_PFI(KtoK)( GenefxState *gfxs )
 {
-     int  l     = gfxs->length;
+     int  l     = gfxs->length+1;
      int  Sstep = gfxs->Bstep;
      int  Dstep = gfxs->Astep;
      u32 *S     = gfxs->Bop[0];
@@ -120,7 +124,7 @@ static void Bop_PFI_OP_Aop_PFI(KtoK)( GenefxState *gfxs )
           D += (gfxs->length - 1) * gfxs->Astep;
      }
 
-     while (l--) {
+     while (--l) {
           u32 s = *S;
 
           if ((s & RGB_MASK) != Skey && (*D & RGB_MASK) == Dkey)
@@ -135,7 +139,7 @@ static void Bop_PFI_OP_Aop_PFI(KtoK)( GenefxState *gfxs )
 
 static void Bop_PFI_OP_Aop_PFI(SKto)( GenefxState *gfxs )
 {
-     int  l     = gfxs->length;
+     int  l     = gfxs->length+1;
      int  i     = gfxs->Xphase;
      int  SperD = gfxs->SperD;
      u32 *S     = gfxs->Bop[0];
@@ -143,7 +147,7 @@ static void Bop_PFI_OP_Aop_PFI(SKto)( GenefxState *gfxs )
      int  Dstep = gfxs->Astep;
      u32  Skey  = gfxs->Skey;
 
-     while (l--) {
+     while (--l) {
           u32 s = S[i>>16];
 
           if ((s & RGB_MASK) != Skey)
@@ -158,7 +162,7 @@ static void Bop_PFI_OP_Aop_PFI(SKto)( GenefxState *gfxs )
 
 static void Bop_PFI_OP_Aop_PFI(StoK)( GenefxState *gfxs )
 {
-     int  l     = gfxs->length;
+     int  l     = gfxs->length+1;
      int  i     = gfxs->Xphase;
      int  SperD = gfxs->SperD;
      u32 *S     = gfxs->Bop[0];
@@ -166,7 +170,7 @@ static void Bop_PFI_OP_Aop_PFI(StoK)( GenefxState *gfxs )
      u32  Dkey  = gfxs->Dkey;
      int  Dstep = gfxs->Astep;
 
-     while (l--) {
+     while (--l) {
           if ((*D & RGB_MASK) == Dkey)
                *D = S[i>>16];
 
@@ -179,7 +183,7 @@ static void Bop_PFI_OP_Aop_PFI(StoK)( GenefxState *gfxs )
 
 static void Bop_PFI_OP_Aop_PFI(SKtoK)( GenefxState *gfxs )
 {
-     int  l     = gfxs->length;
+     int  l     = gfxs->length+1;
      int  i     = gfxs->Xphase;
      int  SperD = gfxs->SperD;
      u32 *S     = gfxs->Bop[0];
@@ -188,7 +192,7 @@ static void Bop_PFI_OP_Aop_PFI(SKtoK)( GenefxState *gfxs )
      u32  Dkey  = gfxs->Dkey;
      int  Dstep = gfxs->Astep;
 
-     while (l--) {
+     while (--l) {
           u32 s = S[i>>16];
 
           if ((s & RGB_MASK) != Skey && (*D & RGB_MASK) == Dkey)

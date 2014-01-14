@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,19 +28,21 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __VOODOO__CLIENT_H__
 #define __VOODOO__CLIENT_H__
 
 #include <voodoo/types.h>
 
 
-DirectResult   voodoo_client_create ( const char         *host,
-                                      int                 session,
-                                      VoodooClient      **ret_client );
+DirectResult  VOODOO_API  voodoo_client_create ( const char         *host,
+                                                 int                 session,
+                                                 VoodooClient      **ret_client );
 
-DirectResult   voodoo_client_destroy( VoodooClient       *client );
+DirectResult  VOODOO_API  voodoo_client_destroy( VoodooClient       *client );
 
 
-VoodooManager *voodoo_client_manager( const VoodooClient *client );
+VoodooManager VOODOO_API *voodoo_client_manager( const VoodooClient *client );
 
 #endif

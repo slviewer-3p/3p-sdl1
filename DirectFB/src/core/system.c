@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -207,16 +211,12 @@ static DFBResult
 dfb_system_core_leave( DFBSystemCore *data,
                        bool           emergency )
 {
-     DFBResult         ret;
-     DFBSystemCoreShared *shared;
+     DFBResult ret;
 
      D_DEBUG_AT( Core_System, "dfb_system_core_leave( %p, %semergency )\n", data, emergency ? "" : "no " );
 
      D_MAGIC_ASSERT( data, DFBSystemCore );
      D_MAGIC_ASSERT( data->shared, DFBSystemCoreShared );
-
-     shared = data->shared;
-
 
      ret = system_funcs->Leave( emergency );
 
@@ -227,7 +227,6 @@ dfb_system_core_leave( DFBSystemCore *data,
      system_field  = NULL;
      system_data   = NULL;
 
-
      D_MAGIC_CLEAR( data );
 
      return ret;
@@ -236,14 +235,10 @@ dfb_system_core_leave( DFBSystemCore *data,
 static DFBResult
 dfb_system_core_suspend( DFBSystemCore *data )
 {
-     DFBSystemCoreShared *shared;
-
      D_DEBUG_AT( Core_System, "dfb_system_core_suspend( %p )\n", data );
 
      D_MAGIC_ASSERT( data, DFBSystemCore );
      D_MAGIC_ASSERT( data->shared, DFBSystemCoreShared );
-
-     shared = data->shared;
 
      return system_funcs->Suspend();
 }
@@ -251,14 +246,10 @@ dfb_system_core_suspend( DFBSystemCore *data )
 static DFBResult
 dfb_system_core_resume( DFBSystemCore *data )
 {
-     DFBSystemCoreShared *shared;
-
      D_DEBUG_AT( Core_System, "dfb_system_core_resume( %p )\n", data );
 
      D_MAGIC_ASSERT( data, DFBSystemCore );
      D_MAGIC_ASSERT( data->shared, DFBSystemCoreShared );
-
-     shared = data->shared;
 
      return system_funcs->Resume();
 }
@@ -270,11 +261,21 @@ dfb_system_lookup( void )
 {
      DirectLink *l;
 
+     D_DEBUG_AT( Core_System, "%p()\n", __FUNCTION__ );
+
      direct_modules_explore_directory( &dfb_core_systems );
 
      direct_list_foreach( l, dfb_core_systems.entries ) {
           DirectModuleEntry     *module = (DirectModuleEntry*) l;
           const CoreSystemFuncs *funcs;
+
+          D_DEBUG_AT( Core_System, "module %p\n", module );
+          D_DEBUG_AT( Core_System, "  name    '%s'\n", module->name );
+          D_DEBUG_AT( Core_System, "  refs     %d\n", module->refs );
+          D_DEBUG_AT( Core_System, "  loaded   %d\n", module->loaded );
+          D_DEBUG_AT( Core_System, "  disabled %d\n", module->disabled );
+          D_DEBUG_AT( Core_System, "  dynamic  %d\n", module->dynamic );
+          D_DEBUG_AT( Core_System, "  file    '%s'\n", module->file );
 
           funcs = direct_module_ref( module );
           if (!funcs)
@@ -288,6 +289,8 @@ dfb_system_lookup( void )
 
                system_module = module;
                system_funcs  = funcs;
+
+               memset( &system_info, 0, sizeof(system_info) );
 
                funcs->GetSystemInfo( &system_info );
           }

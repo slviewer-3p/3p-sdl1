@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,58 +28,54 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
-
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <netdb.h>
-
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-
-#include <netinet/in.h>
-#include <netdb.h>
 
 #include <direct/debug.h>
 #include <direct/mem.h>
 #include <direct/log.h>
+#include <direct/print.h>
+#include <direct/thread.h>
 #include <direct/util.h>
 
 
-struct __D_DirectLog {
-     int             magic;
-
-     DirectLogType   type;
-
-     int             fd;
-
-     pthread_mutex_t lock;
-};
-
+/**********************************************************************************************************************/
 /**********************************************************************************************************************/
 
 /* Statically allocated to avoid endless loops between D_CALLOC() and D_DEBUG(), while the latter would only
  * call the allocation once, if there wouldn't be the loopback...
  */
-static DirectLog       fallback_log;
+static DirectLog  fallback_log;
+static DirectLog *default_log;
 
-static DirectLog      *default_log   = NULL;
-static pthread_once_t  init_fallback = PTHREAD_ONCE_INIT;
+void
+__D_log_init()
+{
+     DirectLog *fb = &fallback_log;
 
-/**********************************************************************************************************************/
+     fb->type = DLT_STDERR;
 
-static DirectResult init_stderr( DirectLog  *log );
+     direct_recursive_mutex_init( &fb->lock );
 
-static DirectResult init_file  ( DirectLog  *log,
-                                 const char *filename );
+     direct_log_init( fb, NULL );
 
-static DirectResult init_udp   ( DirectLog  *log,
-                                 const char *hostport );
+     D_MAGIC_SET( fb, DirectLog );
+}
+
+void
+__D_log_deinit()
+{
+     DirectLog *fb = &fallback_log;
+
+     direct_log_deinit( fb );
+
+     direct_mutex_deinit( &fb->lock );
+
+     D_MAGIC_CLEAR( fb );
+
+     default_log = NULL;
+}
 
 /**********************************************************************************************************************/
 
@@ -86,7 +84,7 @@ direct_log_create( DirectLogType   type,
                    const char     *param,
                    DirectLog     **ret_log )
 {
-     DirectResult  ret = DR_INVARG;
+     DirectResult  ret;
      DirectLog    *log;
 
      log = D_CALLOC( 1, sizeof(DirectLog) );
@@ -95,31 +93,22 @@ direct_log_create( DirectLogType   type,
 
      log->type = type;
 
-     switch (type) {
-          case DLT_STDERR:
-               ret = init_stderr( log );
-               break;
+     direct_recursive_mutex_init( &log->lock );
 
-          case DLT_FILE:
-               ret = init_file( log, param );
-               break;
-
-          case DLT_UDP:
-               ret = init_udp( log, param );
-               break;
-     }
-
-     if (ret)
+     ret = direct_log_init( log, param );
+     if (ret) {
+          direct_mutex_deinit( &log->lock );
           D_FREE( log );
-     else {
-          direct_util_recursive_pthread_mutex_init( &log->lock );
-
-          D_MAGIC_SET( log, DirectLog );
-
-          *ret_log = log;
+          return ret;
      }
 
-     return ret;
+     D_ASSERT( log->write != NULL );
+
+     D_MAGIC_SET( log, DirectLog );
+
+     *ret_log = log;
+
+     return DR_OK;
 }
 
 DirectResult
@@ -132,7 +121,9 @@ direct_log_destroy( DirectLog *log )
      if (log == default_log)
           default_log = NULL;
 
-     close( log->fd );
+     direct_log_deinit( log );
+
+     direct_mutex_deinit( &log->lock );
 
      D_MAGIC_CLEAR( log );
 
@@ -141,75 +132,129 @@ direct_log_destroy( DirectLog *log )
      return DR_OK;
 }
 
-__attribute__((no_instrument_function))
+__dfb_no_instrument_function__
 DirectResult
-direct_log_printf( DirectLog  *log,
-                   const char *format, ... )
+direct_log_write( DirectLog        *log,
+                  const char       *buffer,
+                  size_t            bytes )
 {
-     va_list args;
+     DirectResult ret;
 
      /*
       * Don't use D_MAGIC_ASSERT or any other
       * macros/functions that might cause an endless loop.
       */
 
-     va_start( args, format );
-
      /* Use the default log if passed log is invalid. */
-     if (!log || log->magic != D_MAGIC("DirectLog"))
+     if (!D_MAGIC_CHECK( log, DirectLog ))
           log = direct_log_default();
 
-     /* Write to stderr as a fallback if default is invalid, too. */
-     if (!log || log->magic != D_MAGIC("DirectLog")) {
-          vfprintf( stderr, format, args );
-          fflush( stderr );
-     }
-     else {
-          int  len;
-          char buf[512];
+     if (!D_MAGIC_CHECK( log, DirectLog ))
+          return DR_BUG;
 
-          len = vsnprintf( buf, sizeof(buf), format, args );
+//     direct_mutex_lock( &log->lock );
+     ret = log->write( log, buffer, bytes );
+//     direct_mutex_unlock( &log->lock );
 
-          pthread_mutex_lock( &log->lock );
+     direct_log_debug_delay( true );
 
-          write( log->fd, buf, len );
+     return ret;
+}
 
-          pthread_mutex_unlock( &log->lock );
-     }
+__dfb_no_instrument_function__
+DirectResult
+direct_log_printf( DirectLog  *log,
+                   const char *format, ... )
+{
+     DirectResult  ret = 0;
+     va_list       args;
+     int           len;
+     char          buf[2000];
+     char         *ptr = buf;
 
+     /*
+      * Don't use D_MAGIC_ASSERT or any other
+      * macros/functions that might cause an endless loop.
+      */
+
+     /* Use the default log if passed log is invalid. */
+     if (!D_MAGIC_CHECK( log, DirectLog ))
+          log = direct_log_default();
+
+     if (!D_MAGIC_CHECK( log, DirectLog ))
+          return DR_BUG;
+
+
+     va_start( args, format );
+     len = direct_vsnprintf( buf, sizeof(buf), format, args );
      va_end( args );
 
-     return DR_OK;
+     if (len < 0)
+          return DR_FAILURE;
+
+     if (len >= sizeof(buf)) {
+          ptr = direct_malloc( len+1 );
+          if (!ptr)
+               return DR_NOLOCALMEMORY;
+          
+          va_start( args, format );
+          len = direct_vsnprintf( ptr, len+1, format, args );
+          va_end( args );
+
+          if (len < 0) {
+               direct_free( ptr );
+               return DR_FAILURE;
+          }
+     }
+
+
+//     direct_mutex_lock( &log->lock );
+
+     ret = log->write( log, ptr, len );
+
+//     direct_mutex_unlock( &log->lock );
+
+     if (ptr != buf)
+          direct_free( ptr );
+
+     direct_log_debug_delay( true );
+
+     return ret;
 }
 
 DirectResult
 direct_log_set_default( DirectLog *log )
 {
-     D_MAGIC_ASSERT( log, DirectLog );
+     D_MAGIC_ASSERT_IF( log, DirectLog );
 
      default_log = log;
 
      return DR_OK;
 }
 
-__attribute__((no_instrument_function))
+__dfb_no_instrument_function__
 void
 direct_log_lock( DirectLog *log )
 {
-     D_MAGIC_ASSERT_IF( log, DirectLog );
-
-     if (!log)
-          log = direct_log_default();
-
      D_MAGIC_ASSERT( log, DirectLog );
 
-     pthread_mutex_lock( &log->lock );
+     direct_mutex_lock( &log->lock );
 }
 
-__attribute__((no_instrument_function))
+__dfb_no_instrument_function__
 void
 direct_log_unlock( DirectLog *log )
 {
+     D_MAGIC_ASSERT( log, DirectLog );
+
+     direct_mutex_unlock( &log->lock );
+}
+
+DirectResult
+direct_log_set_buffer( DirectLog *log,
+                       char      *buffer,
+                       size_t     bytes )
+{
      D_MAGIC_ASSERT_IF( log, DirectLog );
 
      if (!log)
@@ -217,182 +262,77 @@ direct_log_unlock( DirectLog *log )
 
      D_MAGIC_ASSERT( log, DirectLog );
 
-     pthread_mutex_unlock( &log->lock );
+     if (!log->set_buffer)
+          return DR_UNSUPPORTED;
+
+     return log->set_buffer( log, buffer, bytes );
 }
 
-__attribute__((no_instrument_function))
-static void
-init_fallback_log( void )
+DirectResult
+direct_log_flush( DirectLog *log,
+                  bool       sync )
 {
-     fallback_log.type = DLT_STDERR;
-     fallback_log.fd   = fileno( stderr );
+     /*
+      * Don't use D_MAGIC_ASSERT or any other
+      * macros/functions that might cause an endless loop.
+      */
 
-     direct_util_recursive_pthread_mutex_init( &fallback_log.lock );
+     /* Use the default log if passed log is invalid. */
+     if (!D_MAGIC_CHECK( log, DirectLog ))
+          log = direct_log_default();
 
-     D_MAGIC_SET( &fallback_log, DirectLog );
-}
+     if (!D_MAGIC_CHECK( log, DirectLog ))
+          return DR_BUG;
 
-__attribute__((no_instrument_function))
-DirectLog *
-direct_log_default( void )
-{
-     pthread_once( &init_fallback, init_fallback_log );
+     if (!log->flush)
+          return DR_UNSUPPORTED;
 
-     if (!default_log)
-          default_log = &fallback_log;
-
-     D_MAGIC_ASSERT( default_log, DirectLog );
-
-     return default_log;
+     return log->flush( log, sync );
 }
 
 /**********************************************************************************************************************/
 
-static DirectResult
-init_stderr( DirectLog *log )
+__dfb_no_instrument_function__
+DirectLog *
+direct_log_default( void )
 {
-     log->fd = dup( fileno( stderr ) );
-
-     return DR_OK;
+     return default_log ? default_log : &fallback_log;
 }
 
-static DirectResult
-init_file( DirectLog  *log,
-           const char *filename )
-{
-     DirectResult ret;
-     int          fd;
+/**********************************************************************************************************************/
 
-     fd = open( filename, O_WRONLY | O_CREAT | O_APPEND, 0664 );
-     if (fd < 0) {
-          ret = errno2result( errno );
-          D_PERROR( "Direct/Log: Could not open '%s' for writing!\n", filename );
-          return ret;
+__dfb_no_instrument_function__
+void
+direct_log_debug_delay( bool min )
+{
+     unsigned int us = min ? direct_config->log_delay_min_us : 0;
+
+     if (direct_config->log_delay_rand_us) {
+          unsigned int r = ((unsigned) rand()) % (unsigned) direct_config->log_delay_rand_us;
+
+          if (us < r)
+               us = r;
      }
 
-     log->fd = fd;
+     if (us)
+          direct_thread_sleep( us );
 
-     return DR_OK;
+
+     unsigned int loops = min ? direct_config->log_delay_min_loops : 0;
+
+     if (direct_config->log_delay_rand_loops) {
+          unsigned int r = ((unsigned) rand()) % (unsigned) direct_config->log_delay_rand_loops;
+
+          if (loops < r)
+               loops = r;
+     }
+
+     if (loops) {
+          volatile long val = 0;
+          unsigned int  loop;
+
+          for (loop=0; loop<loops; loop++)
+               val++;
+     }
 }
 
-static DirectResult
-parse_host_addr( const char       *hostport,
-                 struct addrinfo **ret_addr )
-{
-     int   i, ret;
-     
-     int   size = strlen( hostport ) + 1;
-     char  buf[size];
-     
-     char *hoststr = buf;
-     char *portstr = NULL;
-     char *end;
-
-     struct addrinfo hints;
-
-     memcpy( buf, hostport, size );
-
-     for (i=0; i<size; i++) {
-          if (buf[i] == ':') {
-               buf[i]  = 0;
-               portstr = &buf[i+1];
-
-               break;
-          }
-     }
-
-     if (!portstr) {
-          D_ERROR( "Direct/Log: Parse error in '%s' that should be '<host>:<port>'!\n", hostport );
-          return DR_INVARG;
-     }
-
-     strtoul( portstr, &end, 10 );
-     if (end && *end) {
-          D_ERROR( "Direct/Log: Parse error in port number '%s'!\n", portstr );
-          return DR_INVARG;
-     }
-     
-     memset( &hints, 0, sizeof(hints) );
-     hints.ai_socktype = SOCK_DGRAM;
-     hints.ai_family   = PF_UNSPEC;
-     
-     ret = getaddrinfo( hoststr, portstr, &hints, ret_addr );
-     if (ret) {
-          switch (ret) {
-               case EAI_FAMILY:
-                    D_ERROR( "Direct/Log: Unsupported address family!\n" );
-                    return DR_UNSUPPORTED;
-               
-               case EAI_SOCKTYPE:
-                    D_ERROR( "Direct/Log: Unsupported socket type!\n" );
-                    return DR_UNSUPPORTED;
-               
-               case EAI_NONAME:
-                    D_ERROR( "Direct/Log: Host not found!\n" );
-                    return DR_FAILURE;
-                    
-               case EAI_SERVICE:
-                    D_ERROR( "Direct/Log: Port %s is unreachable!\n", portstr );
-                    return DR_FAILURE;
-               
-#ifdef EAI_ADDRFAMILY
-               case EAI_ADDRFAMILY:
-#endif
-               case EAI_NODATA:
-                    D_ERROR( "Direct/Log: Host found, but has no address!\n" );
-                    return DR_FAILURE;
-                    
-               case EAI_MEMORY:
-                    return D_OOM();
-
-               case EAI_FAIL:
-                    D_ERROR( "Direct/Log: A non-recoverable name server error occurred!\n" );
-                    return DR_FAILURE;
-
-               case EAI_AGAIN:
-                    D_ERROR( "Direct/Log: Temporary error, try again!\n" );
-                    return DR_TEMPUNAVAIL;
-                    
-               default:
-                    D_ERROR( "Direct/Log: Unknown error occured!?\n" );
-                    return DR_FAILURE;
-          }
-     }
-
-     return DR_OK;
-}
-
-static DirectResult
-init_udp( DirectLog  *log,
-          const char *hostport )
-{
-     DirectResult     ret;
-     int              fd;
-     struct addrinfo *addr;
-     
-     ret = parse_host_addr( hostport, &addr );
-     if (ret)
-          return ret;
-
-     fd = socket( addr->ai_family, SOCK_DGRAM, 0 );
-     if (fd < 0) {
-          ret = errno2result( errno );
-          D_PERROR( "Direct/Log: Could not create a UDP socket!\n" );
-          freeaddrinfo( addr );
-          return ret;
-     }
-
-     ret = connect( fd, addr->ai_addr, addr->ai_addrlen );
-     freeaddrinfo( addr );
-     
-     if (ret) {
-          ret = errno2result( errno );
-          D_PERROR( "Direct/Log: Could not connect UDP socket to '%s'!\n", hostport );
-          close( fd );
-          return ret;
-     }
-
-     log->fd = fd;
-
-     return DR_OK;
-}

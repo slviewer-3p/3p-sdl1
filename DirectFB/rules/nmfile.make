@@ -1,11 +1,16 @@
 if BUILD_SHARED
 if ENABLE_TRACE
 
-LIBTONM = $(LTLIBRARIES:.la=-$(LT_RELEASE).so.$(LT_BINARY))
+NM ?= nm
+
+
+LIBS_TO_NMFILE ?= $(LTLIBRARIES)
+
+NMEDLIB = $(LIBS_TO_NMFILE:.la=-$(LT_RELEASE).so.$(LT_BINARY))
 
 install-data-local: install-libLTLIBRARIES
 	mkdir -p -- "$(DESTDIR)$(libdir)"
-	nm -n "$(DESTDIR)$(libdir)/$(LIBTONM)" > "$(DESTDIR)$(libdir)/nm-n.$(LIBTONM)"
+	$(NM) -nC "$(DESTDIR)$(libdir)/$(NMEDLIB)" > "$(DESTDIR)$(libdir)/nm-n.$(NMEDLIB)"
 
 endif
 endif

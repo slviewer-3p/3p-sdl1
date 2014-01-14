@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -211,13 +213,16 @@ blit_pixel( CardState *state, DFBColor src, DFBColor dst )
                     MODULATE( x.b, dst.b ^ 0xff );
                     break;
 
-               /* ??? */
+               /* Srgb *= min(Sa, 1-Da) */
                case DSBF_SRCALPHASAT:
-                    D_UNIMPLEMENTED();
+                    MODULATE( x.r, MIN( src.a, dst.a ^ 0xff ) );
+                    MODULATE( x.g, MIN( src.a, dst.a ^ 0xff ) );
+                    MODULATE( x.b, MIN( src.a, dst.a ^ 0xff ) );
                     break;
 
                default:
                     D_BUG( "unknown blend function %d", state->src_blend );
+                    break;
           }
 
           /* Apply the destination blend function. */
@@ -295,22 +300,25 @@ blit_pixel( CardState *state, DFBColor src, DFBColor dst )
                     MODULATE( dst.a, dst.a ^ 0xff ); //
                     break;
 
-               /* ??? */
+               /* Drgb *= min(Sa, 1-Da) */
                case DSBF_SRCALPHASAT:
-                    D_UNIMPLEMENTED();
+                    MODULATE( dst.r, MIN( src.a, dst.a ^ 0xff ) );
+                    MODULATE( dst.g, MIN( src.a, dst.a ^ 0xff ) );
+                    MODULATE( dst.b, MIN( src.a, dst.a ^ 0xff ) );
                     break;
 
                default:
                     D_BUG( "unknown blend function %d", state->dst_blend );
+                    break;
           }
 
           /*
            * Add blended destination values to the scratch.
            */
-          x.a += dst.a;
-          x.r += dst.r;
-          x.g += dst.g;
-          x.b += dst.b;
+          x.a = CLAMP( x.a + dst.a, 0x00, 0xff );
+          x.r = CLAMP( x.r + dst.r, 0x00, 0xff );
+          x.g = CLAMP( x.g + dst.g, 0x00, 0xff );
+          x.b = CLAMP( x.b + dst.b, 0x00, 0xff );
      }
 
      /* Better not use the conversion from premultiplied to non-premultiplied! */

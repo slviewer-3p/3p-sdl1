@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,10 +28,13 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __DFB__CORE__WM_H__
 #define __DFB__CORE__WM_H__
 
 #include <directfb.h>
+#include <directfb_windows.h>
 
 #include <direct/modules.h>
 
@@ -43,7 +48,7 @@ DECLARE_MODULE_DIRECTORY( dfb_core_wm_modules );
 /*
  * Increase this number when changes result in binary incompatibility!
  */
-#define DFB_CORE_WM_ABI_VERSION           9
+#define DFB_CORE_WM_ABI_VERSION          10
 
 #define DFB_CORE_WM_INFO_NAME_LENGTH     60
 #define DFB_CORE_WM_INFO_VENDOR_LENGTH   80
@@ -278,7 +283,8 @@ typedef struct {
      DFBResult (*UpdateWindow)      ( CoreWindow             *window,
                                       void                   *wm_data,
                                       void                   *window_data,
-                                      const DFBRegion        *region,
+                                      const DFBRegion        *left_region,
+                                      const DFBRegion        *right_region,
                                       DFBSurfaceFlipFlags     flags );
 
      DFBResult (*UpdateCursor)      ( CoreWindowStack        *stack,
@@ -288,7 +294,86 @@ typedef struct {
 } CoreWMFuncs;
 
 
-void dfb_wm_get_info( CoreWMInfo *info );
+
+typedef enum {
+     CORE_WM_WINDOW_ADD     = 1,
+     CORE_WM_WINDOW_REMOVE  = 2,
+     CORE_WM_WINDOW_CONFIG  = 3,
+     CORE_WM_WINDOW_STATE   = 4,
+     CORE_WM_WINDOW_RESTACK = 5,
+     CORE_WM_WINDOW_FOCUS   = 6,
+
+     _CORE_WM_NUM_CHANNELS
+} CoreWMChannels;
+
+typedef struct {
+     DFBWindowInfo        info;
+} CoreWM_WindowAdd;
+
+typedef struct {
+     DFBWindowID          window_id;
+} CoreWM_WindowRemove;
+
+typedef struct {
+     DFBWindowID          window_id;
+     DFBWindowConfig      config;
+     DFBWindowConfigFlags flags;
+} CoreWM_WindowConfig;
+
+typedef struct {
+     DFBWindowID          window_id;
+     DFBWindowState       state;
+} CoreWM_WindowState;
+
+typedef struct {
+     DFBWindowID          window_id;
+     unsigned int         index;
+} CoreWM_WindowRestack;
+
+typedef struct {
+     DFBWindowID          window_id;
+} CoreWM_WindowFocus;
+
+
+DFBResult dfb_wm_attach  ( CoreDFB            *core,
+                           int                 channel,
+                           ReactionFunc        func,
+                           void               *ctx,
+                           Reaction           *reaction );
+
+DFBResult dfb_wm_detach  ( CoreDFB            *core,
+                           Reaction           *reaction );
+
+DFBResult dfb_wm_dispatch( CoreDFB            *core,
+                           int                 channel,
+                           const void         *data,
+                           int                 size );
+
+
+DFBResult dfb_wm_dispatch_WindowAdd    ( CoreDFB              *core,
+                                         CoreWindow           *window );
+
+DFBResult dfb_wm_dispatch_WindowRemove ( CoreDFB              *core,
+                                         CoreWindow           *window );
+
+DFBResult dfb_wm_dispatch_WindowConfig ( CoreDFB              *core,
+                                         CoreWindow           *window,
+                                         DFBWindowConfigFlags  flags );
+
+DFBResult dfb_wm_dispatch_WindowState  ( CoreDFB              *core,
+                                         CoreWindow           *window );
+
+DFBResult dfb_wm_dispatch_WindowRestack( CoreDFB              *core,
+                                         CoreWindow           *window,
+                                         unsigned int          index );
+
+DFBResult dfb_wm_dispatch_WindowFocus  ( CoreDFB              *core,
+                                         CoreWindow           *window );
+
+
+
+void  dfb_wm_get_info( CoreWMInfo *info );
+void *dfb_wm_get_data( void );
 
 DFBResult dfb_wm_post_init          ( CoreDFB                *core );
 
@@ -380,7 +465,8 @@ DFBResult dfb_wm_update_stack       ( CoreWindowStack        *stack,
                                       DFBSurfaceFlipFlags     flags );
 
 DFBResult dfb_wm_update_window      ( CoreWindow             *window,
-                                      const DFBRegion        *region,
+                                      const DFBRegion        *left_region,
+                                      const DFBRegion        *right_region,
                                       DFBSurfaceFlipFlags     flags );
 
 DFBResult dfb_wm_update_cursor      ( CoreWindowStack        *stack,

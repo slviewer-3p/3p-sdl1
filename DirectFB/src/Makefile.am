@@ -16,6 +16,7 @@ SUBDIRS = \
 INCLUDES = \
 	-I$(top_builddir)/include	\
 	-I$(top_builddir)/lib		\
+	-I$(top_builddir)/src		\
 	-I$(top_srcdir)/include		\
 	-I$(top_srcdir)/lib		\
 	-I$(top_srcdir)/src
@@ -28,7 +29,8 @@ AM_CPPFLAGS = \
 internalincludedir = $(INTERNALINCLUDEDIR)
 
 internalinclude_HEADERS = \
-	idirectfb.h
+	idirectfb.h		\
+	init.h
 
 
 lib_LTLIBRARIES = libdirectfb.la
@@ -42,7 +44,10 @@ endif
 
 libdirectfb_la_SOURCES = 		\
 	$(NON_PURE_VOODOO_SOURCES)	\
-	directfb.c
+	directfb.c			\
+	directfb_result.c		\
+	dummy.cpp			\
+	init.c
 
 libdirectfb_la_LDFLAGS = \
 	-version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE)	\
@@ -59,6 +64,12 @@ NON_PURE_VOODOO_LIBS = \
 	windows/libdirectfb_windows.la
 endif
 
+if DIRECTFB_BUILD_ONE
+ONE_LIB = \
+	../lib/One/libone.la
+else
+ONE_LIB =
+endif
 
 if DIRECTFB_BUILD_VOODOO
 VOODOO_LIB = \
@@ -75,7 +86,22 @@ libdirectfb_la_LIBADD = \
 	gfx/libdirectfb_gfx.la		\
 	../lib/direct/libdirect.la	\
 	../lib/fusion/libfusion.la	\
+	$(ONE_LIB)			\
 	$(VOODOO_LIB)
+
+
+MKRESULT = $(top_srcdir)/tools/mkresult.sh
+
+directfb_result.c: $(top_srcdir)/include/dfb_types.h $(MKRESULT)
+	@echo '#include <config.h>'    		> $@
+	@echo                                   >> $@
+	@echo '#include <directfb.h>'    	>> $@
+	@echo                                   >> $@
+	@echo                                   >> $@
+
+	@$(MKRESULT) DFBResult DFB $< 	>> $@
+
+	@echo                                   >> $@
 
 
 #

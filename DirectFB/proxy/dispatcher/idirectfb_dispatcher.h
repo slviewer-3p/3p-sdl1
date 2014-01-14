@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __IDIRECTFB_DISPATCHER_H__
 #define __IDIRECTFB_DISPATCHER_H__
@@ -75,5 +79,36 @@ typedef struct {
      DFBInputDeviceID          device_id;
      DFBInputDeviceDescription desc;
 } IDirectFB_Dispatcher_EnumInputDevices_Item;
+
+
+#if 0
+#define VOODOO_PARSER_READ_DFBSurfaceDescription( p, desc ) \
+	do { \
+	     VOODOO_PARSER_GET_INT( p, (desc).flags ); \
+	     VOODOO_PARSER_GET_INT( p, (desc).caps ); \
+	     VOODOO_PARSER_GET_INT( p, (desc).width ); \
+	     VOODOO_PARSER_GET_INT( p, (desc).height ); \
+	     VOODOO_PARSER_GET_INT( p, (desc).pixelformat ); \
+	     VOODOO_PARSER_GET_UINT( p, (desc).resource_id ); \
+	     VOODOO_PARSER_GET_INT( p, (desc).hints ); \
+	} while (0)
+
+#define VMBT_DFBSurfaceDescription( desc ) \
+	VMBT_INT, (desc).flags, \
+	VMBT_INT, (desc).caps, \
+	VMBT_INT, (desc).width, \
+	VMBT_INT, (desc).height, \
+	VMBT_INT, (desc).pixelformat, \
+	VMBT_UINT, (desc).resource_id, \
+	VMBT_INT, (desc).hints
+#else
+#define VOODOO_PARSER_READ_DFBSurfaceDescription( p, desc ) \
+	do { \
+	     VOODOO_PARSER_READ_DATA( p, &(desc), sizeof(DFBSurfaceDescription) ); \
+	} while (0)
+
+#define VMBT_DFBSurfaceDescription( desc ) \
+	VMBT_DATA, sizeof(DFBSurfaceDescription), &(desc)
+#endif
 
 #endif

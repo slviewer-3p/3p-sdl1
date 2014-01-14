@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,10 +28,10 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __DIRECT__MODULES_H__
 #define __DIRECT__MODULES_H__
-
-#include <pthread.h>
 
 #include <direct/types.h>
 #include <direct/list.h>
@@ -56,8 +58,6 @@ struct __D_DirectModuleEntry {
 };
 
 struct __D_DirectModuleDir {
-     pthread_mutex_t    lock;
-
      const char        *path;
      unsigned int       abi_version;
 
@@ -71,25 +71,24 @@ struct __D_DirectModuleDir {
 
 #define DEFINE_MODULE_DIRECTORY(d,p,n)                 \
      DirectModuleDir d = {                             \
-          .lock        = PTHREAD_MUTEX_INITIALIZER,    \
-          .path        = p,                            \
-          .abi_version = n,                            \
-          .entries     = NULL,                         \
-          .loading     = NULL,                         \
+          /*.path        =*/ p,                            \
+          /*.abi_version =*/ n,                            \
+          /*.entries     =*/ NULL,                         \
+          /*.loading     =*/ NULL,                         \
      }
 
-int   direct_modules_explore_directory( DirectModuleDir *directory );
+int  DIRECT_API  direct_modules_explore_directory( DirectModuleDir *directory );
 
-void  direct_modules_register( DirectModuleDir *directory,
-                               unsigned int     abi_version,
-                               const char      *name,
-                               const void      *funcs );
+void DIRECT_API  direct_modules_register( DirectModuleDir *directory,
+                                          unsigned int     abi_version,
+                                          const char      *name,
+                                          const void      *funcs );
 
-void  direct_modules_unregister( DirectModuleDir *directory,
-                                 const char      *name );
+void DIRECT_API  direct_modules_unregister( DirectModuleDir *directory,
+                                            const char      *name );
 
-const void *direct_module_ref  ( DirectModuleEntry *module );
-void        direct_module_unref( DirectModuleEntry *module );
+const void DIRECT_API *direct_module_ref  ( DirectModuleEntry *module );
+void       DIRECT_API  direct_module_unref( DirectModuleEntry *module );
 
 #endif
 

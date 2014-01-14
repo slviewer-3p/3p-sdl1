@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -62,7 +66,11 @@ DIRECT_INTERFACE_IMPLEMENTATION( IDirectFBInputDevice, Dispatcher )
 static void
 IDirectFBInputDevice_Dispatcher_Destruct( IDirectFBInputDevice *thiz )
 {
+     IDirectFBInputDevice_Dispatcher_data *data = thiz->priv;
+
      D_DEBUG( "%s (%p)\n", __FUNCTION__, thiz );
+
+     data->real->Release( data->real );
 
      DIRECT_DEALLOCATE_INTERFACE( thiz );
 }
@@ -271,6 +279,15 @@ IDirectFBInputDevice_Dispatcher_GetXY( IDirectFBInputDevice *thiz,
 /**************************************************************************************************/
 
 static DirectResult
+Dispatch_Release( IDirectFBInputDevice *thiz, IDirectFBInputDevice *real,
+                  VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DIRECT_INTERFACE_GET_DATA(IDirectFBInputDevice_Dispatcher)
+
+     return voodoo_manager_unregister_local( manager, data->self );
+}
+
+static DirectResult
 Dispatch_GetID( IDirectFBInputDevice *thiz, IDirectFBInputDevice *real,
                 VoodooManager *manager, VoodooRequestMessage *msg )
 {
@@ -355,8 +372,8 @@ Dispatch_CreateEventBuffer( IDirectFBInputDevice *thiz, IDirectFBInputDevice *re
 
      ret = voodoo_construct_requestor( manager, "IDirectFBEventBuffer",
                                        instance, buffer, &requestor );
-     if (ret)
-          buffer->Release( buffer );
+
+     buffer->Release( buffer );
 
      return voodoo_manager_respond( manager, true, msg->header.serial,
                                     ret, VOODOO_INSTANCE_NONE,
@@ -511,6 +528,9 @@ Dispatch( void *dispatcher, void *real, VoodooManager *manager, VoodooRequestMes
               "Handling request for instance %u with method %u...\n", msg->instance, msg->method );
 
      switch (msg->method) {
+          case IDIRECTFBINPUTDEVICE_METHOD_ID_Release:
+               return Dispatch_Release( dispatcher, real, manager, msg );
+
           case IDIRECTFBINPUTDEVICE_METHOD_ID_GetID:
                return Dispatch_GetID( dispatcher, real, manager, msg );
 
@@ -582,7 +602,7 @@ Construct( IDirectFBInputDevice *thiz,     /* Dispatcher interface */
      D_ASSERT( ret_instance != NULL );
 
      /* Register the dispatcher, getting a new instance ID that refers to it. */
-     ret = voodoo_manager_register_local( manager, false, thiz, real, Dispatch, &instance );
+     ret = voodoo_manager_register_local( manager, super, thiz, real, Dispatch, &instance );
      if (ret) {
           DIRECT_DEALLOCATE_INTERFACE( thiz );
           return ret;

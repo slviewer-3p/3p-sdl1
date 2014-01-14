@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
@@ -34,7 +38,6 @@
 #include <errno.h>
 
 #include <fusion/shmalloc.h>
-#include <fusion/arena.h>
 #include <fusion/property.h>
 
 #include <directfb.h>
@@ -166,6 +169,7 @@ dfb_layer_resume( CoreLayer *layer )
 
 DFBResult
 dfb_layer_create_context( CoreLayer         *layer,
+                          bool               stack,
                           CoreLayerContext **ret_context )
 {
      DFBResult          ret;
@@ -194,7 +198,7 @@ dfb_layer_create_context( CoreLayer         *layer,
      }
 
      /* Initialize the new context. */
-     ret = dfb_layer_context_init( context, layer );
+     ret = dfb_layer_context_init( context, layer, stack );
      if (ret) {
           fusion_skirmish_dismiss( &shared->lock );
           return ret;
@@ -304,7 +308,7 @@ dfb_layer_get_primary_context( CoreLayer         *layer,
           fusion_skirmish_dismiss( &shared->lock );
 
           /* Create the primary (shared) context. */
-          ret = dfb_layer_create_context( layer, &primary );
+          ret = dfb_layer_create_context( layer, true, &primary );
           if (ret)
                return ret;
 

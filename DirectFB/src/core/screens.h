@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __DFB__CORE__SCREENS_H__
 #define __DFB__CORE__SCREENS_H__
@@ -240,7 +244,7 @@ typedef struct {
  */
 CoreScreen *dfb_screens_register( CoreGraphicsDevice *device,
                                   void               *driver_data,
-                                  ScreenFuncs        *funcs );
+                                  const ScreenFuncs  *funcs );
 
 /*
  * Replace functions of the primary screen implementation by passing
@@ -269,6 +273,11 @@ void dfb_screens_enumerate( CoreScreenCallback  callback,
                             void               *ctx );
 
 /*
+ * Returns the number of screens.
+ */
+unsigned int dfb_screens_num( void );
+
+/*
  * Returns the screen with the specified ID.
  */
 CoreScreen *dfb_screens_at( DFBScreenID screen_id );
@@ -276,8 +285,13 @@ CoreScreen *dfb_screens_at( DFBScreenID screen_id );
 CoreScreen *dfb_screens_at_translated( DFBScreenID screen_id );
 
 /*
+ * Return the ID of the specified screen.
+ */
+DFBScreenID dfb_screen_id( const CoreScreen *screen );
+
+/*
  * Return the (translated) ID of the specified screen.
  */
-DFBScreenID dfb_screen_id_translated( CoreScreen *screen );
+DFBScreenID dfb_screen_id_translated( const CoreScreen *screen );
 
 #endif

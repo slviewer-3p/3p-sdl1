@@ -1,8 +1,8 @@
 ## Makefile.am for DirectFB/src/gfx/generic
 
 INCLUDES = \
-	-I$(top_builddir)/lib		\
 	-I$(top_builddir)/include	\
+	-I$(top_builddir)/lib		\
 	-I$(top_srcdir)/include		\
 	-I$(top_srcdir)/lib		\
 	-I$(top_srcdir)/src
@@ -23,11 +23,18 @@ GENERIC_C = generic_dummy.c
 endif
 
 libdirectfb_generic_la_SOURCES = \
+	GenefxEngine.cpp		\
 	duffs_device.h			\
 	$(GENERIC_C)			\
 	generic.h			\
 	generic_mmx.h			\
 	generic_64.h			\
+	generic_fill_rectangle.c	\
+	generic_draw_line.c		\
+	generic_blit.c			\
+	generic_stretch_blit.c		\
+	generic_texture_triangles.c	\
+	generic_util.c			\
 	stretch_hvx_N.h			\
 	stretch_hvx_16.h		\
 	stretch_hvx_32.h		\
@@ -40,8 +47,10 @@ libdirectfb_generic_la_SOURCES = \
 	stretch_up_down_88.h		\
 	stretch_up_down_table.h		\
 	template_acc_16.h		\
+	template_acc_24.h		\
 	template_acc_32.h		\
 	template_colorkey_16.h		\
+	template_colorkey_24.h		\
 	template_colorkey_32.h
 
 

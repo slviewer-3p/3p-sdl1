@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <directfb.h>
@@ -35,7 +39,10 @@
 #include <direct/memcpy.h>
 #include <direct/messages.h>
 
+#include <fusion/conf.h>
 #include <fusion/shmalloc.h>
+
+#include <core/CoreScreen.h>
 
 #include <core/core.h>
 #include <core/core_parts.h>
@@ -106,7 +113,7 @@ dfb_screen_core_initialize( CoreDFB             *core,
           char                  buf[24];
           CoreScreenShared     *sshared;
           CoreScreen           *screen = screens[i];
-          ScreenFuncs          *funcs  = screen->funcs;
+          const ScreenFuncs    *funcs  = screen->funcs;
           DFBScreenDescription  desc   = { .caps = DSCCAPS_NONE };
 
           /* Allocate shared data. */
@@ -118,7 +125,7 @@ dfb_screen_core_initialize( CoreDFB             *core,
           snprintf( buf, sizeof(buf), "Screen %d", i );
 
           /* Initialize the lock. */
-          if (fusion_skirmish_init( &sshared->lock, buf, dfb_core_world(core) )) {
+          if (fusion_skirmish_init2( &sshared->lock, buf, dfb_core_world(core), fusion_config->secure_fusion )) {
                SHFREE( pool, sshared );
                return DFB_FUSION;
           }
@@ -249,6 +256,10 @@ dfb_screen_core_initialize( CoreDFB             *core,
           screen->shared = sshared;
           screen->core   = core;
 
+          CoreScreen_Init_Dispatch( core, screen, &sshared->call );
+
+          fusion_call_add_permissions( &sshared->call, 0, FUSION_CALL_PERMIT_EXECUTE );
+
           /* Add the screen to the sshared list. */
           core_screens->screens[ core_screens->num++ ] = sshared;
      }
@@ -319,9 +330,9 @@ dfb_screen_core_shutdown( DFBScreenCore *data,
 
      /* Begin with the most recently added screen. */
      for (i=num_screens-1; i>=0; i--) {
-          CoreScreen       *screen = screens[i];
-          ScreenFuncs      *funcs  = screen->funcs;
-          CoreScreenShared *shared = screen->shared;
+          CoreScreen        *screen = screens[i];
+          const ScreenFuncs *funcs  = screen->funcs;
+          CoreScreenShared  *shared = screen->shared;
 
           /* Shut the screen down. */
           if (funcs->ShutdownScreen)
@@ -330,6 +341,8 @@ dfb_screen_core_shutdown( DFBScreenCore *data,
                                           shared->screen_data ) )
                     D_ERROR("DirectFB/Core/screens: "
                              "Failed to shutdown screen %d!\n", shared->screen_id);
+
+          CoreScreen_Deinit_Dispatch( &shared->call );
 
           /* Deinitialize the lock. */
           fusion_skirmish_destroy( &shared->lock );
@@ -371,16 +384,12 @@ static DFBResult
 dfb_screen_core_leave( DFBScreenCore *data,
                        bool           emergency )
 {
-     int                  i;
-     DFBScreenCoreShared *shared;
+     int i;
 
      D_DEBUG_AT( Core_Screen, "dfb_screen_core_leave( %p, %semergency )\n", data, emergency ? "" : "no " );
 
      D_MAGIC_ASSERT( data, DFBScreenCore );
      D_MAGIC_ASSERT( data->shared, DFBScreenCoreShared );
-
-     shared = data->shared;
-
 
      /* Deinitialize all local stuff only. */
      for (i=0; i<num_screens; i++) {
@@ -393,7 +402,6 @@ dfb_screen_core_leave( DFBScreenCore *data,
      core_screens = NULL;
      num_screens  = 0;
 
-
      D_MAGIC_CLEAR( data );
 
      return DFB_OK;
@@ -402,15 +410,12 @@ dfb_screen_core_leave( DFBScreenCore *data,
 static DFBResult
 dfb_screen_core_suspend( DFBScreenCore *data )
 {
-     int                  i;
-     DFBScreenCoreShared *shared;
+     int i;
 
      D_DEBUG_AT( Core_Screen, "dfb_screen_core_suspend( %p )\n", data );
 
      D_MAGIC_ASSERT( data, DFBScreenCore );
      D_MAGIC_ASSERT( data->shared, DFBScreenCoreShared );
-
-     shared = data->shared;
 
      for (i=num_screens-1; i>=0; i--)
           dfb_screen_suspend( screens[i] );
@@ -421,15 +426,12 @@ dfb_screen_core_suspend( DFBScreenCore *data )
 static DFBResult
 dfb_screen_core_resume( DFBScreenCore *data )
 {
-     int                  i;
-     DFBScreenCoreShared *shared;
+     int i;
 
      D_DEBUG_AT( Core_Screen, "dfb_screen_core_resume( %p )\n", data );
 
      D_MAGIC_ASSERT( data, DFBScreenCore );
      D_MAGIC_ASSERT( data->shared, DFBScreenCoreShared );
-
-     shared = data->shared;
 
      for (i=0; i<num_screens; i++)
           dfb_screen_resume( screens[i] );
@@ -442,7 +444,7 @@ dfb_screen_core_resume( DFBScreenCore *data )
 CoreScreen *
 dfb_screens_register( CoreGraphicsDevice *device,
                       void               *driver_data,
-                      ScreenFuncs        *funcs )
+                      const ScreenFuncs  *funcs )
 {
      CoreScreen *screen;
 
@@ -544,6 +546,12 @@ dfb_screens_enumerate( CoreScreenCallback  callback,
      }
 }
 
+unsigned int
+dfb_screens_num()
+{
+     return num_screens;
+}
+
 CoreScreen *
 dfb_screens_at( DFBScreenID screen_id )
 {
@@ -575,7 +583,20 @@ dfb_screens_at_translated( DFBScreenID screen_id )
 }
 
 DFBScreenID
-dfb_screen_id_translated( CoreScreen *screen )
+dfb_screen_id( const CoreScreen *screen )
+{
+     CoreScreenShared *shared;
+     
+     D_ASSERT( screen != NULL );
+     D_ASSERT( screen->shared != NULL );
+     
+     shared = screen->shared;
+     
+     return shared->screen_id;
+}
+
+DFBScreenID
+dfb_screen_id_translated( const CoreScreen *screen )
 {
      CoreScreenShared *shared;
      CoreScreen       *primary;

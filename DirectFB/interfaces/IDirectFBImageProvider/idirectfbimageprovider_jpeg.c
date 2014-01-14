@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
@@ -41,11 +45,9 @@
 
 #include <media/idirectfbimageprovider.h>
 
-#include <core/coredefs.h>
-#include <core/coretypes.h>
-
 #include <core/layers.h>
-#include <core/surface.h>
+
+#include <core/CoreSurface.h>
 
 #include <misc/gfx_util.h>
 #include <misc/util.h>
@@ -84,6 +86,8 @@ typedef struct {
      u32                 *image;        /*  decoded image data    */
      int                  image_width;  /*  width of image data   */
      int                  image_height; /*  height of image data  */
+
+     DIRenderFlags        flags;        /*  selected idct method  */
 } IDirectFBImageProvider_JPEG_data;
 
 
@@ -94,12 +98,15 @@ IDirectFBImageProvider_JPEG_RenderTo( IDirectFBImageProvider *thiz,
 
 static DFBResult
 IDirectFBImageProvider_JPEG_GetSurfaceDescription( IDirectFBImageProvider *thiz,
-                                                   DFBSurfaceDescription  *dsc);
+                                                   DFBSurfaceDescription  *dsc );
 
 static DFBResult
 IDirectFBImageProvider_JPEG_GetImageDescription( IDirectFBImageProvider *thiz,
                                                  DFBImageDescription    *dsc );
 
+static DFBResult
+IDirectFBImageProvider_JPEG_SetRenderFlags( IDirectFBImageProvider *thiz,
+                                            DIRenderFlags flags );
 
 #define JPEG_PROG_BUF_SIZE    0x10000
 
@@ -143,7 +150,7 @@ buffer_fill_input_buffer (j_decompress_ptr cinfo)
      else {
           ret = buffer->GetData( buffer, JPEG_PROG_BUF_SIZE, src->data, &nbytes );
      }
-     
+
      if (ret || nbytes <= 0) {
           /* Insert a fake EOI marker */
           src->data[0] = (JOCTET) 0xFF;
@@ -178,6 +185,7 @@ buffer_skip_input_data (j_decompress_ptr cinfo, long num_bytes)
 static void
 buffer_term_source (j_decompress_ptr cinfo)
 {
+     D_UNUSED_P( cinfo );
 }
 
 static void
@@ -264,6 +272,30 @@ copy_line_nv16( u16 *yy, u16 *cbcr, const u8 *src_ycbcr, int width )
      }
 }
 
+static inline void
+copy_line_uyvy( u32 *uyvy, const u8 *src_ycbcr, int width )
+{
+     int x;
+
+     for (x=0; x<width/2; x++) {
+#ifdef WORDS_BIGENDIAN
+          uyvy[x] = (src_ycbcr[1] << 24) | (src_ycbcr[0] << 16) | (src_ycbcr[5] << 8) | src_ycbcr[3];
+#else
+          uyvy[x] = (src_ycbcr[3] << 24) | (src_ycbcr[5] << 16) | (src_ycbcr[0] << 8) | src_ycbcr[1];
+#endif
+
+          src_ycbcr += 6;
+     }
+
+     if (width & 1) {
+#ifdef WORDS_BIGENDIAN
+          uyvy[x] = (src_ycbcr[1] << 24) | (src_ycbcr[0] << 16) | (src_ycbcr[1] << 8) | src_ycbcr[0];
+#else
+          uyvy[x] = (src_ycbcr[0] << 24) | (src_ycbcr[1] << 16) | (src_ycbcr[0] << 8) | src_ycbcr[1];
+#endif
+     }
+}
+
 
 static void
 IDirectFBImageProvider_JPEG_Destruct( IDirectFBImageProvider *thiz )
@@ -278,9 +310,21 @@ IDirectFBImageProvider_JPEG_Destruct( IDirectFBImageProvider *thiz )
 static DFBResult
 Probe( IDirectFBImageProvider_ProbeContext *ctx )
 {
+     /* Look of the Jpeg SOI marker */
      if (ctx->header[0] == 0xff && ctx->header[1] == 0xd8) {
+          /* Look for JFIF or Exif strings, also could look at header[3:2] for APP0(0xFFE0),
+           * APP1(0xFFE1) or even other APPx markers.
+           */
           if (strncmp ((char*) ctx->header + 6, "JFIF", 4) == 0 ||
-              strncmp ((char*) ctx->header + 6, "Exif", 4) == 0)
+              strncmp ((char*) ctx->header + 6, "Exif", 4) == 0 ||
+              strncmp ((char*) ctx->header + 6, "VVL", 3) == 0 ||
+              strncmp ((char*) ctx->header + 6, "WANG", 4) == 0)
+               return DFB_OK;
+
+          /* Else look for Quantization table marker or Define Huffman table marker,
+           * useful for EXIF thumbnails that have no APPx markers.
+           */
+          if (ctx->header[2] == 0xff && (ctx->header[3] == 0xdb || ctx->header[3] == 0xc4))
                return DFB_OK;
 
           if (ctx->filename && strchr (ctx->filename, '.' ) &&
@@ -298,7 +342,7 @@ Construct( IDirectFBImageProvider *thiz,
 {
      struct jpeg_decompress_struct cinfo;
      struct my_error_mgr jerr;
-     
+
      IDirectFBDataBuffer *buffer;
      CoreDFB             *core;
      va_list              tag;
@@ -332,21 +376,39 @@ Construct( IDirectFBImageProvider *thiz,
      jpeg_buffer_src(&cinfo, buffer, 1);
      jpeg_read_header(&cinfo, TRUE);
      jpeg_start_decompress(&cinfo);
-     
+
      data->width = cinfo.output_width;
      data->height = cinfo.output_height;
-     
+
+     data->flags = DIRENDER_NONE;
+
      jpeg_abort_decompress(&cinfo);
      jpeg_destroy_decompress(&cinfo);
+
+     if ( (cinfo.output_width == 0) || (cinfo.output_height == 0)) {
+          buffer->Release( buffer );
+          DIRECT_DEALLOCATE_INTERFACE( thiz );
+          return DFB_FAILURE;
+     }
 
      data->base.Destruct = IDirectFBImageProvider_JPEG_Destruct;
 
      thiz->RenderTo = IDirectFBImageProvider_JPEG_RenderTo;
      thiz->GetImageDescription =IDirectFBImageProvider_JPEG_GetImageDescription;
+     thiz->SetRenderFlags = IDirectFBImageProvider_JPEG_SetRenderFlags;
      thiz->GetSurfaceDescription =
      IDirectFBImageProvider_JPEG_GetSurfaceDescription;
 
      return DFB_OK;
+}
+
+static int
+wrap_setjmp( struct my_error_mgr *jerr )
+{
+     if (setjmp( jerr->setjmp_buffer ))
+          return 1;
+     else
+          return 0;
 }
 
 static DFBResult
@@ -383,7 +445,7 @@ IDirectFBImageProvider_JPEG_RenderTo( IDirectFBImageProvider *thiz,
      if (dest_rect) {
           if (dest_rect->w < 1 || dest_rect->h < 1)
                return DFB_INVARG;
-          
+
           rect = *dest_rect;
           rect.x += dst_data->area.wanted.x;
           rect.y += dst_data->area.wanted.y;
@@ -420,10 +482,10 @@ IDirectFBImageProvider_JPEG_RenderTo( IDirectFBImageProvider *thiz,
           cinfo.err = jpeg_std_error(&jerr.pub);
           jerr.pub.error_exit = jpeglib_panic;
 
-          if (setjmp(jerr.setjmp_buffer)) {
+          if (wrap_setjmp( &jerr )) {
                D_ERROR( "ImageProvider/JPEG: Error during decoding!\n" );
 
-               jpeg_destroy_decompress(&cinfo);
+               jpeg_destroy_decompress( &cinfo );
 
                if (data->image) {
                     dfb_scale_linear_32( data->image, data->image_width, data->image_height,
@@ -445,9 +507,9 @@ IDirectFBImageProvider_JPEG_RenderTo( IDirectFBImageProvider *thiz,
                return DFB_FAILURE;
           }
 
-          jpeg_create_decompress(&cinfo);
-          jpeg_buffer_src(&cinfo, data->base.buffer, 0);
-          jpeg_read_header(&cinfo, TRUE);
+          jpeg_create_decompress( &cinfo );
+          jpeg_buffer_src( &cinfo, data->base.buffer, 0 );
+          jpeg_read_header( &cinfo, TRUE );
 
 #if JPEG_LIB_VERSION >= 70
           cinfo.scale_num = 8;
@@ -456,28 +518,33 @@ IDirectFBImageProvider_JPEG_RenderTo( IDirectFBImageProvider *thiz,
           cinfo.scale_num = 1;
           cinfo.scale_denom = 1;
 #endif
-          jpeg_calc_output_dimensions(&cinfo);
+          jpeg_calc_output_dimensions( &cinfo );
 
-          if (cinfo.output_width == rect.w && cinfo.output_height == rect.h) {
+          if (cinfo.output_width == (unsigned)rect.w && cinfo.output_height == (unsigned)rect.h) {
                direct = true;
           }
           else if (rect.x == 0 && rect.y == 0) {
 #if JPEG_LIB_VERSION >= 70
-               cinfo.scale_num = 16;
-               while (cinfo.scale_num > 1) {
-                    jpeg_calc_output_dimensions (&cinfo);
-                    if (cinfo.output_width <= rect.w
-                        || cinfo.output_height <= rect.h)
-                         break;
-                    --cinfo.scale_num;
+               /*  The supported scaling ratios in libjpeg 7 and 8
+                *  are N/8 with all N from 1 to 16.
+                */
+               cinfo.scale_num = 1;
+               jpeg_calc_output_dimensions( &cinfo );
+               while (cinfo.scale_num < 16
+                      && cinfo.output_width < (unsigned)rect.w
+                      && cinfo.output_height < (unsigned)rect.h) {
+                    ++cinfo.scale_num;
+                    jpeg_calc_output_dimensions( &cinfo );
                }
-               jpeg_calc_output_dimensions (&cinfo);
 #else
+               /*  The supported scaling ratios in libjpeg 6
+                *  are 1/1, 1/2, 1/4, and 1/8.
+                */
                while (cinfo.scale_denom < 8
-                      && ((cinfo.output_width >> 1) >= rect.w)
-                      && ((cinfo.output_height >> 1) >= rect.h)) {
+                      && ((cinfo.output_width >> 1) >= (unsigned)rect.w)
+                      && ((cinfo.output_height >> 1) >= (unsigned)rect.h)) {
                     cinfo.scale_denom <<= 1;
-                    jpeg_calc_output_dimensions (&cinfo);
+                    jpeg_calc_output_dimensions( &cinfo );
                }
 #endif
           }
@@ -496,21 +563,36 @@ IDirectFBImageProvider_JPEG_RenderTo( IDirectFBImageProvider *thiz,
                     }
                     D_INFO( "JPEG: Going through RGB color space! (%dx%d -> %dx%d @%d,%d)\n",
                             cinfo.output_width, cinfo.output_height, rect.w, rect.h, rect.x, rect.y );
-               
+                    cinfo.out_color_space = JCS_RGB;
+                    break;
+
+               case DSPF_UYVY:
+                    if (direct && !rect.x && !rect.y) {
+                         cinfo.out_color_space = JCS_YCbCr;
+                         break;
+                    }
+                    D_INFO( "JPEG: Going through RGB color space! (%dx%d -> %dx%d @%d,%d)\n",
+                            cinfo.output_width, cinfo.output_height, rect.w, rect.h, rect.x, rect.y );
+                    cinfo.out_color_space = JCS_RGB;
+                    break;
+
                default:
                     cinfo.out_color_space = JCS_RGB;
                     break;
           }
 
-          jpeg_start_decompress(&cinfo);
+          if (data->flags & DIRENDER_FAST)
+               cinfo.dct_method = JDCT_IFAST;
+
+          jpeg_start_decompress( &cinfo );
 
           data->image_width = cinfo.output_width;
           data->image_height = cinfo.output_height;
 
           row_stride = cinfo.output_width * 3;
 
-          buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr) &cinfo,
-                                              JPOOL_IMAGE, row_stride, 1);
+          buffer = (*cinfo.mem->alloc_sarray)( (j_common_ptr) &cinfo,
+                                               JPOOL_IMAGE, row_stride, 1 );
 
           data->image = D_CALLOC( data->image_height, data->image_width * 4 );
           if (!data->image) {
@@ -520,14 +602,26 @@ IDirectFBImageProvider_JPEG_RenderTo( IDirectFBImageProvider *thiz,
           row_ptr = data->image;
 
           while (cinfo.output_scanline < cinfo.output_height && cb_result == DIRCR_OK) {
-               jpeg_read_scanlines(&cinfo, buffer, 1);
+               jpeg_read_scanlines( &cinfo, buffer, 1 );
 
                switch (dst_surface->config.format) {
                     case DSPF_NV16:
+                    case DSPF_UYVY:
                          if (direct) {
-                              copy_line_nv16( lock.addr, lock.addr + uv_offset, *buffer, rect.w );
+                              switch (dst_surface->config.format) {
+                                   case DSPF_NV16:
+                                        copy_line_nv16( lock.addr, (u16*)lock.addr + uv_offset, *buffer, rect.w );
+                                        break;
 
-                              lock.addr += lock.pitch;
+                                   case DSPF_UYVY:
+                                        copy_line_uyvy( lock.addr, *buffer, rect.w );
+                                        break;
+
+                                   default:
+                                        break;
+                              }
+
+                              lock.addr = (u8*)lock.addr + lock.pitch;
 
                               if (data->base.render_callback) {
                                    DFBRectangle r = { 0, y, data->image_width, 1 };
@@ -569,14 +663,14 @@ IDirectFBImageProvider_JPEG_RenderTo( IDirectFBImageProvider *thiz,
           }
 
           if (cb_result != DIRCR_OK) {
-               jpeg_abort_decompress(&cinfo);
+               jpeg_abort_decompress( &cinfo );
                D_FREE( data->image );
                data->image = NULL;
           }
           else {
-               jpeg_finish_decompress(&cinfo);
+               jpeg_finish_decompress( &cinfo );
           }
-          jpeg_destroy_decompress(&cinfo);
+          jpeg_destroy_decompress( &cinfo );
      }
      else {
           dfb_scale_linear_32( data->image, data->image_width, data->image_height,
@@ -587,11 +681,11 @@ IDirectFBImageProvider_JPEG_RenderTo( IDirectFBImageProvider *thiz,
                                            data->base.render_callback_context );
           }
      }
-     
+
      dfb_surface_unlock_buffer( dst_surface, &lock );
 
      if (cb_result != DIRCR_OK)
-         return DFB_INTERRUPTED;
+          return DFB_INTERRUPTED;
 
      return DFB_OK;
 }
@@ -601,11 +695,24 @@ IDirectFBImageProvider_JPEG_GetSurfaceDescription( IDirectFBImageProvider *thiz,
                                                    DFBSurfaceDescription  *dsc )
 {
      DIRECT_INTERFACE_GET_DATA(IDirectFBImageProvider_JPEG)
-     
+
+     if (!dsc)
+          return DFB_INVARG;
+
      dsc->flags  = DSDESC_WIDTH |  DSDESC_HEIGHT | DSDESC_PIXELFORMAT;
      dsc->height = data->height;
      dsc->width  = data->width;
      dsc->pixelformat = dfb_primary_layer_pixelformat();
+
+     return DFB_OK;
+}
+static DFBResult
+IDirectFBImageProvider_JPEG_SetRenderFlags( IDirectFBImageProvider *thiz,
+                                                   DIRenderFlags flags )
+{
+     DIRECT_INTERFACE_GET_DATA(IDirectFBImageProvider_JPEG)
+
+     data->flags = flags;
 
      return DFB_OK;
 }

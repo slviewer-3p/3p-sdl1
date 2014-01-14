@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 //#define DIRECT_ENABLE_DEBUG
 
 #include <config.h>
@@ -39,6 +43,7 @@
 #include <fusion/shmalloc.h>
 
 #include <core/surface_pool.h>
+#include <core/system.h>
 
 #include <GL/glx.h>
 #include <GL/glxext.h>
@@ -126,6 +131,9 @@ InitLocal( glxPoolLocalData *local,
 
           GLX_BLUE_SIZE,
           8,
+
+          GLX_DEPTH_SIZE,
+          16,
 
           GLX_X_VISUAL_TYPE,
           GLX_TRUE_COLOR,
@@ -236,6 +244,8 @@ GetLocalPixmap( glxPoolLocalData       *local,
      CoreSurface       *surface;
      CoreSurfaceBuffer *buffer;
 
+     (void)buffer;
+
      surface = allocation->surface;
      D_MAGIC_ASSERT( surface, CoreSurface );
 
@@ -340,7 +350,7 @@ DestroyPixmap( glxPoolLocalData *local,
 
      glXWaitX();
 
-     glDeleteTextures( 1, &pixmap->buffer.texture );
+//FIXME: crashes without proper context     glDeleteTextures( 1, &pixmap->buffer.texture );
 
      XFreeGC( local->display, pixmap->gc );
 
@@ -391,7 +401,8 @@ glxInitPool( CoreDFB                    *core,
      D_ASSERT( ret_desc != NULL );
 
      ret_desc->caps              = CSPCAPS_NONE;
-     ret_desc->access[CSAID_GPU] = CSAF_READ | CSAF_WRITE;
+     if (dfb_system_get_accelerator() != 51)
+          ret_desc->access[CSAID_GPU] = CSAF_READ | CSAF_WRITE;
      ret_desc->types             = CSTF_LAYER | CSTF_WINDOW | CSTF_CURSOR | CSTF_FONT | CSTF_SHARED | CSTF_EXTERNAL;
      ret_desc->priority          = CSPP_DEFAULT;
 
@@ -491,6 +502,9 @@ glxAllocateBuffer( CoreSurfacePool       *pool,
 
      alloc->depth  = DFB_COLOR_BITS_PER_PIXEL( buffer->format ) + DFB_ALPHA_BITS_PER_PIXEL( buffer->format );
 
+     if (surface->type & CSTF_LAYER)
+          alloc->depth = 24;
+
      /*
       * Create a pixmap
       */
@@ -537,7 +551,6 @@ glxDeallocateBuffer( CoreSurfacePool       *pool,
 
      D_MAGIC_ASSERT( pool, CoreSurfacePool );
      D_MAGIC_ASSERT( local, glxPoolLocalData );
-     D_MAGIC_ASSERT( buffer, CoreSurfaceBuffer );
      D_MAGIC_ASSERT( alloc, glxAllocationData );
 
      CORE_SURFACE_ALLOCATION_ASSERT( allocation );
@@ -779,6 +792,8 @@ glxWrite( CoreSurfacePool       *pool,
      XImage            *image;
      glxPoolLocalData  *local = pool_local;
      glxAllocationData *alloc = alloc_data;
+
+     (void)surface;
 
      D_DEBUG_AT( GLX_Surfaces, "%s( %p )\n", __FUNCTION__, allocation );
 

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __CORE__STATE_H__
 #define __CORE__STATE_H__
@@ -49,6 +53,8 @@
 
 
 typedef enum {
+     SMF_NONE              = 0x00000000,
+
      SMF_DRAWING_FLAGS     = 0x00000001,
      SMF_BLITTING_FLAGS    = 0x00000002,
      SMF_CLIP              = 0x00000004,
@@ -65,13 +71,27 @@ typedef enum {
 
      SMF_INDEX_TRANSLATION = 0x00001000,
      SMF_COLORKEY          = 0x00002000,
+     SMF_WRITE_MASK_BITS   = 0x00004000,
+     SMF_SRC_COLORMATRIX   = 0x00008000,
 
      SMF_RENDER_OPTIONS    = 0x00010000,
      SMF_MATRIX            = 0x00020000,
 
-     SMF_SOURCE2           = 0x00100000,
+     SMF_SRC_COLORKEY_EXTENDED = 0x00040000,
+     SMF_DST_COLORKEY_EXTENDED = 0x00080000,
 
-     SMF_ALL               = 0x00133FFF
+     SMF_SOURCE2           = 0x00100000,
+     SMF_SRC_CONVOLUTION   = 0x00200000,
+
+     SMF_ROP_CODE          = 0x01000000,
+     SMF_ROP_FG_COLOR      = 0x02000000,
+     SMF_ROP_BG_COLOR      = 0x04000000,
+     SMF_ROP_PATTERN       = 0x08000000,
+
+     SMF_FROM              = 0x10000000,
+     SMF_TO                = 0x20000000,
+
+     SMF_ALL               = 0x3F3FFFFF
 } StateModificationFlags;
 
 typedef enum {
@@ -87,10 +107,12 @@ typedef enum {
      CSF_SOURCE2              = 0x00000100,  /* source2 is set using dfb_state_set_source2() */
      CSF_SOURCE2_LOCKED       = 0x00000200,  /* source2 surface is locked */
 
+     CSF_DESTINATION_LOCKED   = 0x00001000,  /* destination surface is locked */
+
      CSF_DRAWING              = 0x00010000,  /* something has been rendered with this state,
                                                 this is cleared by flushing the state, e.g. upon flip */
 
-     CSF_ALL                  = 0x0001033B
+     CSF_ALL                  = 0x0001133B
 } CardStateFlags;
 
 struct _CardState {
@@ -143,7 +165,9 @@ struct _CardState {
      /* from/to buffers */
 
      CoreSurfaceBufferRole    from;          /* usually CSBR_FRONT */
+     DFBSurfaceStereoEye      from_eye;      /* usually DSSE_LEFT */
      CoreSurfaceBufferRole    to;            /* usually CSBR_BACK */
+     DFBSurfaceStereoEye      to_eye;        /* usually DSSE_LEFT */
 
      /* read/write locks during operation */
      
@@ -176,6 +200,31 @@ struct _CardState {
 
      DFBColor                 colors[DFB_COLOR_IDS_MAX];         /* colors for drawing or modulation */
      unsigned int             color_indices[DFB_COLOR_IDS_MAX];  /* indices to colors in palette */
+
+     u64                      write_mask_bits;    /* write mask bits */
+
+
+
+     DFBSurfaceRopCode        rop_code;
+     DFBColor                 rop_fg_color;
+     DFBColor                 rop_bg_color;
+     u32                      rop_pattern[32];
+     DFBSurfacePatternMode    rop_pattern_mode;
+
+     DFBColorKeyExtended      src_colorkey_extended;
+     DFBColorKeyExtended      dst_colorkey_extended;
+
+     s32                      src_colormatrix[12];     /* transformation matrix for DSBLIT_SRC_COLORMATRIX (fixed 16.16) */
+
+     DFBConvolutionFilter     src_convolution;
+
+     void                    *gfxcard_data; /* gfx driver specific state data */
+
+
+     u32                      source_flip_count;
+     bool                     source_flip_count_used;
+
+     void                    *client;
 };
 
 int  dfb_state_init( CardState *state, CoreDFB *core );
@@ -183,10 +232,14 @@ void dfb_state_destroy( CardState *state );
 
 DFBResult dfb_state_set_destination( CardState *state, CoreSurface *destination );
 DFBResult dfb_state_set_source( CardState *state, CoreSurface *source );
+DFBResult dfb_state_set_source_2( CardState *state, CoreSurface *source, u32 flip_count );
 DFBResult dfb_state_set_source_mask( CardState *state, CoreSurface *source_mask );
 DFBResult dfb_state_set_source2( CardState *state, CoreSurface *source2 );
 
 void dfb_state_update( CardState *state, bool update_source );
+
+void dfb_state_update_destination( CardState *state );
+void dfb_state_update_sources( CardState *state, CardStateFlags flags );
 
 DFBResult dfb_state_set_index_translation( CardState *state,
                                            const int *indices,
@@ -194,6 +247,16 @@ DFBResult dfb_state_set_index_translation( CardState *state,
 
 void dfb_state_set_matrix( CardState *state,
                            const s32 *matrix );
+
+void dfb_state_set_rop_pattern( CardState             *state,
+                                const u32             *pattern,
+                                DFBSurfacePatternMode  pattern_mode );
+
+void dfb_state_set_src_colormatrix( CardState *state,
+                                    const s32 *matrix );
+
+void dfb_state_set_src_convolution( CardState                  *state,
+                                    const DFBConvolutionFilter *filter );
 
 static inline void
 dfb_state_get_serial( const CardState *state, CoreGraphicsSerial *ret_serial )
@@ -270,7 +333,7 @@ do {                                                        \
                                                             \
      if ((value) != (state)->member) {                      \
           (state)->member    = (value);                     \
-          (state)->modified |= SMF_##flag;                  \
+          (state)->modified = (StateModificationFlags)((state)->modified | SMF_##flag);                  \
      }                                                      \
 } while (0)
 
@@ -307,6 +370,48 @@ do {                                                        \
                                                                           RENDER_OPTIONS, \
                                                                           state, opts )
 
+#define dfb_state_set_write_mask_bits(state,bits) _dfb_state_set_checked( write_mask_bits, \
+                                                                          WRITE_MASK_BITS, \
+                                                                          state, bits )
+
+#define dfb_state_set_rop_code(state,code)        _dfb_state_set_checked( rop_code, \
+                                                                          ROP_CODE, \
+                                                                          state, code )
+
+#define dfb_state_set_rop_pattern_mode(state,mode) _dfb_state_set_checked( rop_pattern_mode, \
+                                                                           ROP_PATTERN_MODE, \
+                                                                           state, mode )
+
+static inline void dfb_state_set_from( CardState             *state,
+                                       CoreSurfaceBufferRole  role,
+                                       DFBSurfaceStereoEye    eye )
+{
+     D_MAGIC_ASSERT( state, CardState );
+     D_ASSERT( role == CSBR_FRONT || role == CSBR_BACK || role == CSBR_IDLE );
+     D_ASSERT( eye == DSSE_LEFT || eye == DSSE_RIGHT );
+
+     if (state->from != role || state->from_eye != eye) {
+          state->from     = role;
+          state->from_eye = eye;
+          state->modified = (StateModificationFlags)( state->modified | SMF_SOURCE | SMF_SOURCE2 | SMF_SOURCE_MASK | SMF_FROM );
+     }
+}
+
+static inline void dfb_state_set_to( CardState             *state,
+                                     CoreSurfaceBufferRole  role,
+                                     DFBSurfaceStereoEye    eye )
+{
+     D_MAGIC_ASSERT( state, CardState );
+     D_ASSERT( role == CSBR_FRONT || role == CSBR_BACK || role == CSBR_IDLE );
+     D_ASSERT( eye == DSSE_LEFT || eye == DSSE_RIGHT );
+
+     if (state->to != role || state->to_eye != eye) {
+          state->to       = role;
+          state->to_eye   = eye;
+          state->modified = (StateModificationFlags)( state->modified | SMF_DESTINATION | SMF_TO );
+     }
+}
+
 static inline void dfb_state_set_clip( CardState *state, const DFBRegion *clip )
 {
      D_MAGIC_ASSERT( state, CardState );
@@ -329,6 +434,28 @@ static inline void dfb_state_set_color( CardState *state, const DFBColor *color 
      }
 }
 
+static inline void dfb_state_set_rop_fg_color( CardState *state, const DFBColor *rop_fg_color )
+{
+     D_MAGIC_ASSERT( state, CardState );
+     D_ASSERT( rop_fg_color != NULL );
+
+     if (! DFB_COLOR_EQUAL( state->rop_fg_color, *rop_fg_color )) {
+          state->rop_fg_color = *rop_fg_color;
+          state->modified     = (StateModificationFlags)( state->modified | SMF_ROP_FG_COLOR );
+     }
+}
+
+static inline void dfb_state_set_rop_bg_color( CardState *state, const DFBColor *rop_bg_color )
+{
+     D_MAGIC_ASSERT( state, CardState );
+     D_ASSERT( rop_bg_color != NULL );
+
+     if (! DFB_COLOR_EQUAL( state->rop_bg_color, *rop_bg_color )) {
+          state->rop_bg_color = *rop_bg_color;
+          state->modified     = (StateModificationFlags)( state->modified | SMF_ROP_BG_COLOR );
+     }
+}
+
 static inline void dfb_state_set_colorkey( CardState *state, const DFBColorKey *key )
 {
      D_MAGIC_ASSERT( state, CardState );
@@ -336,7 +463,7 @@ static inline void dfb_state_set_colorkey( CardState *state, const DFBColorKey *
 
      if (! DFB_COLORKEY_EQUAL( state->colorkey, *key )) {
           state->colorkey = *key;
-          state->modified = (StateModificationFlags)( state->modified | SMF_COLOR );
+          state->modified = (StateModificationFlags)( state->modified | SMF_COLORKEY );
      }
 }
 
@@ -356,6 +483,34 @@ static inline void dfb_state_set_source_mask_vals( CardState           *state,
      }
 }
 
+static inline void dfb_state_set_src_colorkey_extended( CardState *state, const DFBColorKeyExtended *key )
+{
+     D_MAGIC_ASSERT( state, CardState );
+     D_ASSERT( key != NULL );
+
+     if (state->src_colorkey_extended.polarity != key->polarity ||
+         ! DFB_COLOR_EQUAL( state->src_colorkey_extended.lower, key->lower ) ||
+         ! DFB_COLOR_EQUAL( state->src_colorkey_extended.upper, key->upper ))
+     {
+          state->src_colorkey_extended = *key;
+          state->modified              = (StateModificationFlags)( state->modified | SMF_SRC_COLORKEY_EXTENDED );
+     }
+}
+
+static inline void dfb_state_set_dst_colorkey_extended( CardState *state, const DFBColorKeyExtended *key )
+{
+     D_MAGIC_ASSERT( state, CardState );
+     D_ASSERT( key != NULL );
+
+     if (state->dst_colorkey_extended.polarity != key->polarity ||
+         ! DFB_COLOR_EQUAL( state->dst_colorkey_extended.lower, key->lower ) ||
+         ! DFB_COLOR_EQUAL( state->dst_colorkey_extended.upper, key->upper ))
+     {
+          state->dst_colorkey_extended = *key;
+          state->modified              = (StateModificationFlags)( state->modified | SMF_DST_COLORKEY_EXTENDED );
+     }
+}
+
 /*
  * Multifunctional color configuration function.
  *
@@ -367,6 +522,9 @@ static inline void dfb_state_set_source_mask_vals( CardState           *state,
 void dfb_state_set_color_or_index( CardState      *state,
                                    const DFBColor *color,
                                    int             index );
+
+DFBResult dfb_state_get_acceleration_mask( CardState           *state,
+                                           DFBAccelerationMask *ret_accel );
 
 #endif
 

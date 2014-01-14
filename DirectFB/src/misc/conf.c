@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,12 +28,14 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
-#include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 
 #include <directfb.h>
 #include <directfb_util.h>
@@ -50,11 +54,9 @@
 #include <voodoo/conf.h>
 #endif
 
-#include <core/coretypes.h>
+#if !DIRECTFB_BUILD_PURE_VOODOO
 #include <core/surface.h>
-#include <core/layers.h>
-
-#include <gfx/convert.h>
+#endif
 
 #include <misc/conf.h>
 
@@ -62,14 +64,17 @@ D_DEBUG_DOMAIN( DirectFB_Config, "DirectFB/Config", "Runtime configuration optio
 
 DFBConfig *dfb_config = NULL;
 
-static const char *config_usage =
+/* C99 States that a string cannot be longer than 4095 chars so we have to split the usage up */
+
+static char *config_usage;
+static const char *config_usage_strings[]  = {
      "DirectFB version " DIRECTFB_VERSION "\n"
      "\n"
      " --dfb-help                      Output DirectFB usage information and exit\n"
      " --dfb:<option>[,<option>]...    Pass options to DirectFB (see below)\n"
      "\n"
      "DirectFB options:\n"
-     "\n"
+     "\n",
      "  system=<system>                Specify the system (FBDev, SDL, etc.)\n"
      "  fbdev=<device>                 Open <device> instead of /dev/fb0\n"
      "  busid=<id>                     Specify the bus location of the graphics card (default 1:0:0)\n"
@@ -77,12 +82,26 @@ static const char *config_usage =
      "  scaled=<width>x<height>        Scale the window to this size for 'force-windowed' apps\n"
      "  depth=<pixeldepth>             Set the default pixel depth\n"
      "  pixelformat=<pixelformat>      Set the default pixel format\n"
+     "  primary-id=<surface-id>        Set ID of primary surface to use\n"
      "  surface-shmpool-size=<kb>      Set the size of the shared memory pool used\n"
      "                                 for shared system memory surfaces.\n"
+     "  system-surface-base-alignment=<byte alignment>\n"
+     "                                 If GPU supports system memory, sets the byte alignment for\n"
+     "                                 system memory based surface's base address (value must be a\n"
+     "                                 positive power of two that is four or greater), or zero for\n"
+     "                                 no alignment. Aligning the base address (along with the\n"
+     "                                 pitch) allows the data to travel more efficiently through\n"
+     "                                 the CPU and memory bus to increase performance, and meet GPU\n"
+     "                                 requirements (if any). Default is 0 (no alignment).\n"
+     "  system-surface-pitch-alignment=<byte alignment>\n"
+     "                                 If GPU supports system memory, sets the pitch alignment for\n"
+     "                                 system memory based surface's pitch (value must be a positive\n"
+     "                                 power of two), or zero for no alignment. Default is 0.\n"
      "  session=<num>                  Select multi app world (zero based, -1 = new)\n"
-     "  remote=<host>[:<session>]      Select remote session to connect to\n"
+     "  remote=<host>[:<port>]         Set remote host and port to connect to\n"
      "  primary-layer=<id>             Select an alternative primary layer\n"
      "  primary-only                   Tell application only about the primary layer\n"
+     "  resource-id=<id>               Use resource id for surfaces if not specified by application\n"
      "  [no-]banner                    Show DirectFB Banner on startup\n"
      "  [no-]surface-sentinel          Enable surface sentinels at the end of chunks in video memory\n"
      "  force-windowed                 Primary surface always is a window\n"
@@ -91,8 +110,15 @@ static const char *config_usage =
      "  [no-]software                  Enable/disable software fallbacks\n"
      "  [no-]software-warn             Show warnings when doing/dropping software operations\n"
      "  [no-]software-trace            Show every stage of the software rendering pipeline\n"
+     "  [no-]always-indirect           Use purely indirect Flux calls (for secure master)\n"
+     "  [no-]always-flush-callbuffer   Flush call buffer upon commit, effectively disabling it\n"
+     "  [no-]layers-fps=[<ms>]         Print FPS of layers being updated, optional interval (default 1000)\n"
+     "  [no-]gfxcard-stats=[<ms>]      Print GPU usage statistics periodically (default 1000)\n"
+     "  screen-frame-interval=<us>     Set default value for screen refresh interval if not encoder defined (default 16666)\n"
+     "  max-frame-advance=<us>         Set default value for maximum time ahead for rendering frames (default 100000)\n"
+     "  max-render-tasks=<num>         Set maximum number of rendering tasks per Renderer (gfx context) before blocking client\n"
      "  [no-]dma                       Enable DMA acceleration\n"
-     "  [no-]sync                      Do `sync()' (default=no)\n"
+     "  [no-]sync                      Do `sync()' (default=no)\n",
 #ifdef USE_MMX
      "  [no-]mmx                       Enable mmx support\n"
 #endif
@@ -101,6 +127,7 @@ static const char *config_usage =
      "  font-format=<pixelformat>      Set the preferred font format\n"
      "  [no-]font-premult              Enable/disable premultiplied glyph images in ARGB format\n"
      "  [no-]deinit-check              Enable deinit check at exit\n"
+     "  [no-]core-sighandler           Enable/disable core signal handler (for emergency shutdowns)\n"
      "  block-all-signals              Block all signals\n"
      "  [no-]vt-switch                 Allocate/switch to a new VT\n"
      "  vt-num=<num>                   Use given VT instead of current/new one\n"
@@ -115,11 +142,16 @@ static const char *config_usage =
      "  [no-]capslock-meta             Map the CapsLock key to Meta\n"
      "  linux-input-ir-only            Ignore all non-IR Linux Input devices\n"
      "  [no-]linux-input-grab          Grab Linux Input devices?\n"
+     "  [no-]linux-input-force         Force using linux-input with all system modules\n"
      "  [no-]cursor                    Never create a cursor or handle it\n"
      "  [no-]cursor-automation         Automated cursor show/hide for windowed primary surfaces\n"
      "  [no-]cursor-updates            Never show a cursor, but still handle it\n"
+     "  [no-]cursor-videoonly          Make the cursor a video only surface\n"
+     "  cursor-resource-id=<id>        Specify a resource id for the cursor surface\n"
      "  wm=<wm>                        Window manager module ('default' or 'unique')\n"
      "  init-layer=<id>                Initialize layer with ID (following layer- options apply)\n"
+     "  [no-]layers-clear              Clear layer surface buffers after creation\n"
+     "  [no-]surface-clear             Clear all surface buffers after creation\n"
      "  layer-size=<width>x<height>    Set the pixel resolution\n"
      "  layer-format=<pixelformat>     Set the pixel format\n"
      "  layer-depth=<pixeldepth>       Set the pixel depth\n"
@@ -132,12 +164,18 @@ static const char *config_usage =
      "  layer-src-key=AARRGGBB         Enable color keying (hex)\n"
      "  layer-palette-<index>=AARRGGBB Set palette entry at index (hex)\n"
      "  layer-rotate=<degree>          Set the layer rotation for double buffer mode (0,90,180,270)\n"
+     "  image-format=<pixelformat>     Set the pixel format for loading images\n"
+     "  [no-]wm-fullscreen-updates     Force fullscreen updates in window manager\n"
      "  [no-]smooth-upscale            Enable/disable smooth upscaling per default\n"
      "  [no-]smooth-downscale          Enable/disable smooth downscaling per default\n"
      "  [no-]translucent-windows       Allow translucent windows\n"
      "  [no-]decorations               Enable window decorations (if supported by wm)\n"
      "  [no-]startstop                 Issue StartDrawing/StopDrawing to driver\n"
      "  [no-]autoflip-window           Auto flip non-flipping windowed primary surfaces\n"
+     "  [no-]discard-repeat-events     Discard repeat events (option per application)\n"
+     "  [no-]gfx-emit-early            Early emit GFX commands to prevent being IDLE\n"
+     "  [no-]flip-notify               Use FlipNotify for remote display\n"
+     "  flip-notify-max-latency=<ms>   Set maximum FlipNotify latency (ms from Flip to Notify, default 200)\n"
      "  videoram-limit=<amount>        Limit amount of Video RAM in kb\n"
      "  agpmem-limit=<amount>          Limit amount of AGP memory in kb\n"
      "  screenshot-dir=<directory>     Dump screen content on <Print> key presses\n"
@@ -146,7 +184,12 @@ static const char *config_usage =
      "  mmio-phys=<hexaddress>         Physical start of MMIO area (devmem system)\n"
      "  mmio-length=<bytes>            Length of MMIO area (devmem system)\n"
      "  accelerator=<id>               Accelerator ID selecting graphics driver (devmem system)\n"
-     "\n"
+     "  font-resource-id=<id>          Resource ID to use for font cache row surfaces\n"
+     "  resource-manager=<impl>        Use this resource manager implementation\n"
+     "  [no-]task-manager              Use experimental task manager (default: no)\n"
+     "  software-cores=<num>           Set number of threads to use for software rendering\n"
+     "\n",
+     "  x11-borderless[=<x>.<y>]       Disable X11 window borders, optionally position window\n"
      "  [no-]matrox-sgram              Use Matrox SGRAM features\n"
      "  [no-]matrox-crtc2              Experimental Matrox CRTC2 support\n"
      "  matrox-tv-standard=(pal|ntsc|pal-60)\n"
@@ -168,7 +211,8 @@ static const char *config_usage =
      "\n"
      "  max-font-rows=<number>         Maximum number of glyph cache rows (total for all fonts)\n"
      "  max-font-row-width=<pixels>    Maximum width of glyph cache row surface\n"
-     "\n"
+     "  graphics-state-call-limit=<n>  Set FusionCall quota for graphics state object (default 5000)\n"
+     "\n",
      " Window surface swapping policy:\n"
      "  window-surface-policy=(auto|videohigh|videolow|systemonly|videoonly)\n"
      "     auto:       DirectFB decides depending on hardware.\n"
@@ -189,7 +233,7 @@ static const char *config_usage =
      " Force synchronization of vertical retrace:\n"
      "  vsync-after:   Wait for the vertical retrace after flipping.\n"
      "  vsync-none:    disable polling for vertical retrace.\n"
-     "\n";
+     "\n"};
 
 /**********************************************************************************************************************/
 
@@ -206,12 +250,12 @@ dfb_config_parse_pixelformat( const char *format )
      size_t length = strlen(format);
 
      for (i=0; dfb_pixelformat_names[i].format != DSPF_UNKNOWN; i++) {
-          if (!strcasecmp( format, dfb_pixelformat_names[i].name ))
+          if (!direct_strcasecmp( format, dfb_pixelformat_names[i].name ))
                return dfb_pixelformat_names[i].format;
      }
 
      for (i=0; dfb_pixelformat_names[i].format != DSPF_UNKNOWN; i++) {
-          if (!strncasecmp( format, dfb_pixelformat_names[i].name, length ))
+          if (!direct_strncasecmp( format, dfb_pixelformat_names[i].name, length ))
                return dfb_pixelformat_names[i].format;
      }
 
@@ -223,15 +267,27 @@ dfb_config_parse_pixelformat( const char *format )
 static void
 print_config_usage( void )
 {
-     fprintf( stderr, "%s%s%s", config_usage, fusion_config_usage, direct_config_usage );
+    int i;
+
+    for (i=0; i<D_ARRAY_SIZE(config_usage_strings); ++i)
+        fprintf(stderr,"%s",(config_usage_strings[i]));
+
+    fprintf( stderr, "%s%s", fusion_config_usage, direct_config_usage );
 }
 
 static DFBResult
 parse_args( const char *args )
 {
-     char *buf = alloca( strlen(args) + 1 );
+     int   len = strlen(args);
+     char *buf, *tmp;
 
-     strcpy( buf, args );
+     tmp = D_MALLOC( len + 1 );
+     if (!tmp)
+          return D_OOM();
+
+     buf = tmp;
+
+     direct_memcpy( buf, args, len + 1 );
 
      while (buf && buf[0]) {
           DFBResult  ret;
@@ -262,11 +318,14 @@ parse_args( const char *args )
                     D_ERROR( "DirectFB/Config: Unknown option '%s'!\n", buf );
                     break;
                default:
+                    D_FREE( tmp );
                     return ret;
           }
 
           buf = next;
      }
+
+     D_FREE( tmp );
 
      return DFB_OK;
 }
@@ -282,7 +341,7 @@ static void config_values_parse( FusionVector *vector, const char *arg )
           return;
      }
 
-     while ((r = strtok_r( s, ",", &p ))) {
+     while ((r = direct_strtok_r( s, ",", &p ))) {
           direct_trim( &r );
 
           r = D_STRDUP( r );
@@ -365,12 +424,25 @@ static void config_cleanup( void )
  */
 static void config_allocate( void )
 {
-     int i;
+    int i, usage_length = 0;
 
      if (dfb_config)
           return;
 
      dfb_config = (DFBConfig*) calloc( 1, sizeof(DFBConfig) );
+
+
+     for (i=0; i<D_ARRAY_SIZE(config_usage_strings); ++i)
+         usage_length += strlen(config_usage_strings[i]);
+
+     config_usage = (char*) malloc( usage_length );
+
+     for (i=0; i<D_ARRAY_SIZE(config_usage_strings); ++i)
+     {
+         usage_length = strlen(config_usage_strings[i]);
+         strncpy(config_usage,config_usage_strings[i],usage_length);
+         config_usage += usage_length;
+     }
 
      for (i=0; i<D_ARRAY_SIZE(dfb_config->layers); i++) {
           dfb_config->layers[i].src_key_index          = -1;
@@ -383,14 +455,10 @@ static void config_allocate( void )
           dfb_config->layers[i].background.mode        = DLBM_COLOR;
      }
 
-     dfb_config->layers[0].init               = true;
-     dfb_config->layers[0].background.color.a = 0xff;
-     dfb_config->layers[0].background.color.r = 0xc0;
-     dfb_config->layers[0].background.color.g = 0xb0;
-     dfb_config->layers[0].background.color.b = 0x90;
-     dfb_config->layers[0].stacking           = (1 << DWSC_UPPER)  |
-                                                (1 << DWSC_MIDDLE) |
-                                                (1 << DWSC_LOWER);
+     dfb_config->layers[0].init           = true;
+     dfb_config->layers[0].stacking       = (1 << DWSC_UPPER)  |
+                                            (1 << DWSC_MIDDLE) |
+                                            (1 << DWSC_LOWER);
 
 
      dfb_config->pci.bus                  = 1;
@@ -411,6 +479,7 @@ static void config_allocate( void )
      dfb_config->mouse_gpm_source         = false;
      dfb_config->mouse_source             = D_STRDUP( DEV_NAME );
      dfb_config->linux_input_grab         = false;
+     dfb_config->linux_input_force        = false;
      dfb_config->window_policy            = -1;
      dfb_config->buffer_mode              = -1;
      dfb_config->wm                       = D_STRDUP( "default" );
@@ -421,15 +490,24 @@ static void config_allocate( void )
      dfb_config->matrox_tv_std            = DSETV_PAL;
      dfb_config->i8xx_overlay_pipe_b      = false;
      dfb_config->surface_shmpool_size     = 64 * 1024 * 1024;
+     dfb_config->system_surface_align_base  = 0;
+     dfb_config->system_surface_align_pitch = 0;
      dfb_config->keep_accumulators        = 1024;
      dfb_config->font_format              = DSPF_A8;
      dfb_config->cursor_automation        = true;
+     dfb_config->layers_clear             = true;
+     dfb_config->wm_fullscreen_updates    = false;
 
-     /* default to fbdev */
-     dfb_config->system = D_STRDUP( "FBDev" );
+     /* default to x11 if DISPLAY is set, or drm/fbdev if permitted */
+     if (getenv( "DISPLAY" ))
+          dfb_config->system = D_STRDUP( "x11" );
+     else if (!access( "/dev/dri/card0", O_RDWR ))
+          dfb_config->system = D_STRDUP( "drmkms" );
+     else if (!access( "/dev/fb0", O_RDWR ))
+          dfb_config->system = D_STRDUP( "fbdev" );
 
      /* default to no-vt-switch if we don't have root privileges */
-     if (geteuid())
+     if (direct_geteuid())
           dfb_config->vt_switch = false;
 
      fusion_vector_init( &dfb_config->linux_input_devices, 2, NULL );
@@ -438,6 +516,16 @@ static void config_allocate( void )
 
      dfb_config->max_font_rows      = 99;
      dfb_config->max_font_row_width = 2048;
+
+     dfb_config->core_sighandler    = true;
+
+     dfb_config->flip_notify_max_latency = 200;
+     dfb_config->screen_frame_interval   = 16666;
+
+     dfb_config->graphics_state_call_limit = 5000;
+
+     dfb_config->max_render_tasks          = 10;
+     dfb_config->max_frame_advance         = 100000;
 }
 
 const char *dfb_config_usage( void )
@@ -484,7 +572,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
           if (value) {
                int bus, dev, func;
 
-               if (sscanf( value, "%d:%d:%d", &bus, &dev, &func ) != 3) {
+               if (direct_sscanf( value, "%d:%d:%d", &bus, &dev, &func ) != 3) {
                     D_ERROR( "DirectFB/Config 'busid': Could not parse busid!\n");
                     return DFB_INVARG;
                }
@@ -509,7 +597,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
           if (value) {
                int width, height;
 
-               if (sscanf( value, "%dx%d", &width, &height ) < 2) {
+               if (direct_sscanf( value, "%dx%d", &width, &height ) < 2) {
                     D_ERROR("DirectFB/Config 'scaled': Could not parse size!\n");
                     return DFB_INVARG;
                }
@@ -522,11 +610,27 @@ DFBResult dfb_config_set( const char *name, const char *value )
                return DFB_INVARG;
           }
      } else
+     if (strcmp (name, "primary-id" ) == 0) {
+          if (value) {
+               unsigned int id;
+
+               if (sscanf( value, "%u", &id ) < 1) {
+                    D_ERROR("DirectFB/Config '%s': Could not parse id!\n", name);
+                    return DFB_INVARG;
+               }
+
+               dfb_config->primary_id = id;
+          }
+          else {
+               D_ERROR("DirectFB/Config '%s': No id specified!\n", name);
+               return DFB_INVARG;
+          }
+     } else
      if (strcmp (name, "primary-layer" ) == 0) {
           if (value) {
                int id;
 
-               if (sscanf( value, "%d", &id ) < 1) {
+               if (direct_sscanf( value, "%d", &id ) < 1) {
                     D_ERROR("DirectFB/Config 'primary-layer': Could not parse id!\n");
                     return DFB_INVARG;
                }
@@ -540,6 +644,22 @@ DFBResult dfb_config_set( const char *name, const char *value )
      } else
      if (strcmp (name, "primary-only" ) == 0) {
           dfb_config->primary_only = true;
+     } else
+     if (strcmp (name, "resource-id" ) == 0) {
+          if (value) {
+               unsigned long long resource_id;
+
+               if (direct_sscanf( value, "%llu", &resource_id ) < 1) {
+                    D_ERROR("DirectFB/Config '%s': Could not parse id!\n", name);
+                    return DFB_INVARG;
+               }
+
+               dfb_config->resource_id = resource_id;
+          }
+          else {
+               D_ERROR("DirectFB/Config '%s': No id specified!\n", name);
+               return DFB_INVARG;
+          }
      } else
      if (strcmp (name, "font-format" ) == 0) {
           if (value) {
@@ -568,7 +688,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
           if (value) {
                int size_kb;
 
-               if (sscanf( value, "%d", &size_kb ) < 1) {
+               if (direct_sscanf( value, "%d", &size_kb ) < 1) {
                     D_ERROR( "DirectFB/Config '%s': Could not parse value!\n", name);
                     return DFB_INVARG;
                }
@@ -580,11 +700,62 @@ DFBResult dfb_config_set( const char *name, const char *value )
                return DFB_INVARG;
           }
      } else
+     if (strcmp( name, "system-surface-base-alignment" ) == 0) {
+          if (value) {
+               char *error;
+               unsigned long base_align;
+
+               base_align = strtoul( value, &error, 10 );
+
+               if (*error) {
+                    D_ERROR( "DirectFB/Config '%s': Error in decimal value '%s'!\n", name, error );
+                    return DFB_INVARG;
+               }
+
+               /* If non-zero, value must be a positive power of two that is four or greater. */
+               if (base_align && (base_align < 4 || (base_align & (base_align-1)) != 0)) {
+                   D_ERROR( "DirectFB/Config '%s': If non-zero, value must be a positive power-of-two "
+                            "that is four or greater!\n", name );
+                   return DFB_INVARG;
+               }
+
+               dfb_config->system_surface_align_base = base_align;
+          }
+          else {
+               D_ERROR( "DirectFB/Config '%s': No value specified!\n", name );
+               return DFB_INVARG;
+          }
+     } else
+     if (strcmp( name, "system-surface-pitch-alignment" ) == 0) {
+          if (value) {
+               char *error;
+               unsigned long pitch_align;
+
+               pitch_align = strtoul( value, &error, 10 );
+
+               if (*error) {
+                    D_ERROR( "DirectFB/Config '%s': Error in decimal value '%s'!\n", name, error );
+                    return DFB_INVARG;
+               }
+
+               /* If non-zero, value must be a positive power of two. */
+               if (pitch_align && (pitch_align == 1 || (pitch_align & (pitch_align-1)) != 0)) {
+                   D_ERROR( "DirectFB/Config '%s': If non-zero, value must be a positive power-of-two!\n", name );
+                   return DFB_INVARG;
+               }
+
+               dfb_config->system_surface_align_pitch = pitch_align;
+          }
+          else {
+               D_ERROR( "DirectFB/Config '%s': No value specified!\n", name );
+               return DFB_INVARG;
+          }
+     } else
      if (strcmp (name, "session" ) == 0) {
           if (value) {
                int session;
 
-               if (sscanf( value, "%d", &session ) < 1) {
+               if (direct_sscanf( value, "%d", &session ) < 1) {
                     D_ERROR("DirectFB/Config 'session': Could not parse value!\n");
                     return DFB_INVARG;
                }
@@ -598,31 +769,48 @@ DFBResult dfb_config_set( const char *name, const char *value )
      } else
      if (strcmp (name, "remote" ) == 0) {
           if (value) {
-               char host[128];
-               int  session = 0;
+               char *colon;
 
-               if (sscanf( value, "%127s:%d", host, &session ) < 1) {
-                    D_ERROR("DirectFB/Config 'remote': "
-                            "Could not parse value (format is <host>[:<session>])!\n");
-                    return DFB_INVARG;
+               colon = strchr( value, ':' );
+               if (colon) {
+                    int len  = (long) colon - (long) value;
+                    int port = 0;
+
+                    if (direct_sscanf( colon + 1, "%d", &port ) < 1) {
+                         D_ERROR("DirectFB/Config 'remote': "
+                                 "Could not parse value (format is <host>[:<port>])!\n");
+                         return DFB_INVARG;
+                    }
+
+                    if (dfb_config->remote.host)
+                         D_FREE( dfb_config->remote.host );
+
+                    dfb_config->remote.host = D_MALLOC( len+1 );
+                    dfb_config->remote.port = port;
+
+                    direct_snputs( dfb_config->remote.host, value, len+1 );
                }
+               else {
+                    if (dfb_config->remote.host)
+                         D_FREE( dfb_config->remote.host );
 
+                    dfb_config->remote.host = D_STRDUP( value );
+                    dfb_config->remote.port = 0;
+               }
+          }
+          else {
                if (dfb_config->remote.host)
                     D_FREE( dfb_config->remote.host );
 
-               dfb_config->remote.host    = D_STRDUP( host );
-               dfb_config->remote.session = session;
-          }
-          else {
-               dfb_config->remote.host    = D_STRDUP( "" );
-               dfb_config->remote.session = 0;
+               dfb_config->remote.host = D_STRDUP( "" );
+               dfb_config->remote.port = 0;
           }
      } else
      if (strcmp (name, "videoram-limit" ) == 0) {
           if (value) {
                int limit;
 
-               if (sscanf( value, "%d", &limit ) < 1) {
+               if (direct_sscanf( value, "%d", &limit ) < 1) {
                     D_ERROR("DirectFB/Config 'videoram-limit': Could not parse value!\n");
                     return DFB_INVARG;
                }
@@ -641,7 +829,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
           if (value) {
                int limit;
 
-               if (sscanf( value, "%d", &limit ) < 1) {
+               if (direct_sscanf( value, "%d", &limit ) < 1) {
                     D_ERROR("DirectFB/Config '%s': Could not parse value!\n", name);
                     return DFB_INVARG;
                }
@@ -695,6 +883,12 @@ DFBResult dfb_config_set( const char *name, const char *value )
      if (strcmp (name, "no-software-trace" ) == 0) {
           dfb_config->software_trace = false;
      } else
+     if (strcmp (name, "always-indirect" ) == 0) {
+          dfb_config->call_nodirect = FCEF_NODIRECT;
+     } else
+     if (strcmp (name, "no-always-indirect" ) == 0) {
+          dfb_config->call_nodirect = FCEF_NONE;
+     } else
      if (strcmp (name, "warn" ) == 0 || strcmp (name, "no-warn" ) == 0) {
           /* Enable/disable all at once by default. */
           DFBConfigWarnFlags flags = DMT_ALL;
@@ -710,7 +904,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
                     flags = DCWF_CREATE_SURFACE;
 
                     if (opt)
-                         sscanf( opt, "%dx%d",
+                         direct_sscanf( opt, "%dx%d",
                                  &dfb_config->warn.create_surface.min_size.w,
                                  &dfb_config->warn.create_surface.min_size.h );
                } else
@@ -721,7 +915,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
                     flags = DCWF_ALLOCATE_BUFFER;
 
                     if (opt)
-                         sscanf( opt, "%dx%d",
+                         direct_sscanf( opt, "%dx%d",
                                  &dfb_config->warn.allocate_buffer.min_size.w,
                                  &dfb_config->warn.allocate_buffer.min_size.h );
                }
@@ -753,7 +947,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
           if (value) {
                int mode;
 
-               if (sscanf( value, "%d", &mode ) < 1 || mode < 0 || mode > 8) {
+               if (direct_sscanf( value, "%d", &mode ) < 1 || mode < 0 || mode > 8) {
                     D_ERROR( "DirectFB/Config 'agp': "
                              "invalid agp mode '%s'!\n", value );
                     return DFB_INVARG;
@@ -778,7 +972,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
           if (value) {
                int limit;
 
-               if (sscanf( value, "%d", &limit ) < 1) {
+               if (direct_sscanf( value, "%d", &limit ) < 1) {
                     D_ERROR( "DirectFB/Config 'agpmem-limit': "
                              "Could not parse value!\n" );
                     return DFB_INVARG;
@@ -803,6 +997,12 @@ DFBResult dfb_config_set( const char *name, const char *value )
      if (strcmp (name, "block-all-signals" ) == 0) {
           dfb_config->block_all_signals = true;
      } else
+     if (strcmp (name, "core-sighandler" ) == 0) {
+          dfb_config->core_sighandler = true;
+     } else
+     if (strcmp (name, "no-core-sighandler" ) == 0) {
+          dfb_config->core_sighandler = false;
+     } else
      if (strcmp (name, "deinit-check" ) == 0) {
           dfb_config->deinit_check = true;
      } else
@@ -821,6 +1021,12 @@ DFBResult dfb_config_set( const char *name, const char *value )
      if (strcmp (name, "no-cursor-automation" ) == 0) {
           dfb_config->cursor_automation = false;
      } else
+     if (strcmp (name, "wm-fullscreen-updates" ) == 0) {
+          dfb_config->wm_fullscreen_updates = true;
+     } else
+     if (strcmp (name, "no-wm-fullscreen-updates" ) == 0) {
+          dfb_config->wm_fullscreen_updates = false;
+     } else
      if (strcmp (name, "cursor-updates" ) == 0) {
           dfb_config->no_cursor_updates = false;
      } else
@@ -830,11 +1036,23 @@ DFBResult dfb_config_set( const char *name, const char *value )
      if (strcmp (name, "linux-input-ir-only" ) == 0) {
           dfb_config->linux_input_ir_only = true;
      } else
+     if (strcmp (name, "linux-input-touch-abs" ) == 0) {
+          dfb_config->linux_input_touch_abs = true;
+     } else
+     if (strcmp (name, "no-linux-input-touch-abs" ) == 0) {
+          dfb_config->linux_input_touch_abs = false;
+     } else
      if (strcmp (name, "linux-input-grab" ) == 0) {
           dfb_config->linux_input_grab = true;
      } else
      if (strcmp (name, "no-linux-input-grab" ) == 0) {
           dfb_config->linux_input_grab = false;
+     } else
+     if (strcmp (name, "linux-input-force" ) == 0) {
+          dfb_config->linux_input_force = true;
+     } else
+     if (strcmp (name, "no-linux-input-force" ) == 0) {
+          dfb_config->linux_input_force = false;
      } else
      if (strcmp (name, "motion-compression" ) == 0) {
           dfb_config->mouse_motion_compression = true;
@@ -907,6 +1125,43 @@ DFBResult dfb_config_set( const char *name, const char *value )
      if (strcmp (name, "no-autoflip-window" ) == 0) {
           dfb_config->autoflip_window = false;
      } else
+     if (strcmp (name, "gfx-emit-early" ) == 0) {
+          dfb_config->gfx_emit_early = true;
+     } else
+     if (strcmp (name, "no-gfx-emit-early" ) == 0) {
+          dfb_config->gfx_emit_early = false;
+     } else
+     if (strcmp (name, "flip-notify" ) == 0) {
+          dfb_config->flip_notify = true;
+     } else
+     if (strcmp (name, "no-flip-notify" ) == 0) {
+          dfb_config->flip_notify = false;
+     } else
+     if (strcmp (name, "flip-notify-max-latency" ) == 0) {
+          if (value) {
+               char *error;
+               unsigned long latency;
+
+               latency = strtoul( value, &error, 10 );
+
+               if (*error) {
+                    D_ERROR( "DirectFB/Config '%s': Error in value '%s'!\n", name, error );
+                    return DFB_INVARG;
+               }
+
+               dfb_config->flip_notify_max_latency = latency;
+          }
+          else {
+               D_ERROR( "DirectFB/Config '%s': No value specified!\n", name );
+               return DFB_INVARG;
+          }
+     } else
+     if (strcmp (name, "discard-repeat-events" ) == 0) {
+          dfb_config->discard_repeat_events = true;
+     } else
+     if (strcmp (name, "no-discard-repeat-events" ) == 0) {
+          dfb_config->discard_repeat_events = false;
+     } else
      if (strcmp (name, "vsync-none" ) == 0) {
           dfb_config->pollvsync_none = true;
      } else
@@ -923,7 +1178,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
           if (value) {
                int vt_num;
 
-               if (sscanf( value, "%d", &vt_num ) < 1) {
+               if (direct_sscanf( value, "%d", &vt_num ) < 1) {
                     D_ERROR("DirectFB/Config 'vt-num': Could not parse value!\n");
                     return DFB_INVARG;
                }
@@ -947,6 +1202,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
      if (strcmp (name, "no-graphics-vt" ) == 0) {
           dfb_config->kd_graphics = false;
      } else
+#if !DIRECTFB_BUILD_PURE_VOODOO
      if (strcmp (name, "window-surface-policy" ) == 0) {
           if (value) {
                if (strcmp( value, "auto" ) == 0) {
@@ -976,11 +1232,12 @@ DFBResult dfb_config_set( const char *name, const char *value )
                return DFB_INVARG;
           }
      } else
+#endif
      if (strcmp (name, "init-layer" ) == 0) {
           if (value) {
                int id;
 
-               if (sscanf( value, "%d", &id ) < 1) {
+               if (direct_sscanf( value, "%d", &id ) < 1) {
                     D_ERROR("DirectFB/Config '%s': Could not parse id!\n", name);
                     return DFB_INVARG;
                }
@@ -1003,7 +1260,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
           if (value) {
                int id;
 
-               if (sscanf( value, "%d", &id ) < 1) {
+               if (direct_sscanf( value, "%d", &id ) < 1) {
                     D_ERROR("DirectFB/Config '%s': Could not parse id!\n", name);
                     return DFB_INVARG;
                }
@@ -1026,7 +1283,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
           if (value) {
                int width, height;
 
-               if (sscanf( value, "%dx%d", &width, &height ) < 2) {
+               if (direct_sscanf( value, "%dx%d", &width, &height ) < 2) {
                     D_ERROR("DirectFB/Config '%s': Could not parse width and height!\n", name);
                     return DFB_INVARG;
                }
@@ -1052,7 +1309,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
           if (value) {
                int depth;
 
-               if (sscanf( value, "%d", &depth ) < 1) {
+               if (direct_sscanf( value, "%d", &depth ) < 1) {
                     D_ERROR("DirectFB/Config '%s': Could not parse value!\n", name);
                     return DFB_INVARG;
                }
@@ -1264,7 +1521,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
 
                conf->stacking = 0;
 
-               while ((r = strtok_r( s, ",", &p ))) {
+               while ((r = direct_strtok_r( s, ",", &p ))) {
                     direct_trim( &r );
 
                     if (!strcmp( r, "lower" ))
@@ -1341,7 +1598,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
           if (value) {
                int rotate;
 
-               if (sscanf( value, "%d", &rotate ) < 1) {
+               if (direct_sscanf( value, "%d", &rotate ) < 1) {
                     D_ERROR("DirectFB/Config '%s': Could not parse value!\n", name);
                     return DFB_INVARG;
                }
@@ -1355,6 +1612,73 @@ DFBResult dfb_config_set( const char *name, const char *value )
           }
           else {
                D_ERROR("DirectFB/Config '%s': No value specified!\n", name);
+               return DFB_INVARG;
+          }
+     } else
+     if (strcmp (name, "image-format" ) == 0) {
+          if (value) {
+               DFBSurfacePixelFormat format;
+
+               format = dfb_config_parse_pixelformat( value );
+               if (format == DSPF_UNKNOWN) {
+                    D_ERROR("DirectFB/Config '%s': Could not parse format!\n", name);
+                    return DFB_INVARG;
+               }
+
+               dfb_config->image_format = format;
+          }
+          else {
+               D_ERROR("DirectFB/Config '%s': No format specified!\n", name);
+               return DFB_INVARG;
+          }
+     } else
+     if (strcmp (name, "layers-clear" ) == 0) {
+          dfb_config->layers_clear = true;
+     } else
+     if (strcmp (name, "no-layers-clear" ) == 0) {
+          dfb_config->layers_clear = false;
+     } else
+     if (strcmp (name, "surface-clear" ) == 0) {
+          dfb_config->surface_clear = true;
+     } else
+     if (strcmp (name, "no-surface-clear" ) == 0) {
+          dfb_config->surface_clear = false;
+     } else
+     if (strcmp (name, "input-hub" ) == 0) {
+          if (value) {
+               char *error;
+               unsigned long qid;
+
+               qid = strtoul( value, &error, 10 );
+
+               if (*error) {
+                    D_ERROR( "DirectFB/Config '%s': Error in value '%s'!\n", name, error );
+                    return DFB_INVARG;
+               }
+
+               dfb_config->input_hub_qid = qid;
+          }
+          else {
+               D_ERROR( "DirectFB/Config '%s': No value specified!\n", name );
+               return DFB_INVARG;
+          }
+     } else
+     if (strcmp (name, "input-hub-service" ) == 0) {
+          if (value) {
+               char *error;
+               unsigned long qid;
+
+               qid = strtoul( value, &error, 10 );
+
+               if (*error) {
+                    D_ERROR( "DirectFB/Config '%s': Error in value '%s'!\n", name, error );
+                    return DFB_INVARG;
+               }
+
+               dfb_config->input_hub_service_qid = qid;
+          }
+          else {
+               D_ERROR( "DirectFB/Config '%s': No value specified!\n", name );
                return DFB_INVARG;
           }
      } else
@@ -1453,6 +1777,25 @@ DFBResult dfb_config_set( const char *name, const char *value )
                return DFB_INVARG;
           }
      } else
+     if (strcmp (name, "font-resource-id" ) == 0) {
+          if (value) {
+               char *error;
+               unsigned long resource_id;
+
+               resource_id = strtoul( value, &error, 10 );
+
+               if (*error) {
+                    D_ERROR( "DirectFB/Config '%s': Error in value '%s'!\n", name, error );
+                    return DFB_INVARG;
+               }
+
+               dfb_config->font_resource_id = resource_id;
+          }
+          else {
+               D_ERROR( "DirectFB/Config '%s': No value specified!\n", name );
+               return DFB_INVARG;
+          }
+     } else
      if (strcmp (name, "max-font-rows" ) == 0) {
           if (value) {
                char *error;
@@ -1485,6 +1828,128 @@ DFBResult dfb_config_set( const char *name, const char *value )
                }
 
                dfb_config->max_font_row_width = width;
+          }
+          else {
+               D_ERROR( "DirectFB/Config '%s': No value specified!\n", name );
+               return DFB_INVARG;
+          }
+     } else
+     if (strcmp (name, "graphics-state-call-limit" ) == 0) {
+          if (value) {
+               char *error;
+               unsigned long limit;
+
+               limit = strtoul( value, &error, 10 );
+
+               if (*error) {
+                    D_ERROR( "DirectFB/Config '%s': Error in value '%s'!\n", name, error );
+                    return DFB_INVARG;
+               }
+
+               dfb_config->graphics_state_call_limit = limit;
+          }
+          else {
+               D_ERROR( "DirectFB/Config '%s': No value specified!\n", name );
+               return DFB_INVARG;
+          }
+     } else
+     if (strcmp (name, "always-flush-callbuffer" ) == 0) {
+          dfb_config->always_flush_callbuffer = true;
+     } else
+     if (strcmp (name, "no-always-flush-callbuffer" ) == 0) {
+          dfb_config->always_flush_callbuffer = false;
+     } else
+     if (strcmp (name, "layers-fps" ) == 0) {
+          if (value) {
+               char *error;
+               unsigned long interval;
+
+               interval = strtoul( value, &error, 10 );
+
+               if (*error) {
+                    D_ERROR( "DirectFB/Config '%s': Error in value '%s'!\n", name, error );
+                    return DFB_INVARG;
+               }
+
+               dfb_config->layers_fps = interval;
+          }
+          else
+               dfb_config->layers_fps = 1000;
+     } else
+     if (strcmp (name, "no-layers-fps" ) == 0) {
+          dfb_config->layers_fps = 0;
+     } else
+     if (strcmp (name, "gfxcard-stats" ) == 0) {
+          if (value) {
+               char *error;
+               unsigned long interval;
+
+               interval = strtoul( value, &error, 10 );
+
+               if (*error) {
+                    D_ERROR( "DirectFB/Config '%s': Error in value '%s'!\n", name, error );
+                    return DFB_INVARG;
+               }
+
+               dfb_config->gfxcard_stats = interval;
+          }
+          else
+               dfb_config->gfxcard_stats = 1000;
+     } else
+     if (strcmp (name, "no-gfxcard-stats" ) == 0) {
+          dfb_config->gfxcard_stats = 0;
+     } else
+     if (strcmp (name, "screen-frame-interval" ) == 0) {
+          if (value) {
+               char *error;
+               long long interval;
+
+               interval = strtoll( value, &error, 10 );
+
+               if (*error) {
+                    D_ERROR( "DirectFB/Config '%s': Error in value '%s'!\n", name, error );
+                    return DFB_INVARG;
+               }
+
+               dfb_config->screen_frame_interval = interval;
+          }
+          else {
+               D_ERROR( "DirectFB/Config '%s': No value specified!\n", name );
+               return DFB_INVARG;
+          }
+     } else
+     if (strcmp (name, "max-frame-advance" ) == 0) {
+          if (value) {
+               char *error;
+               long long advance;
+
+               advance = strtoll( value, &error, 10 );
+
+               if (*error) {
+                    D_ERROR( "DirectFB/Config '%s': Error in value '%s'!\n", name, error );
+                    return DFB_INVARG;
+               }
+
+               dfb_config->max_frame_advance = advance;
+          }
+          else {
+               D_ERROR( "DirectFB/Config '%s': No value specified!\n", name );
+               return DFB_INVARG;
+          }
+     } else
+     if (strcmp (name, "max-render-tasks" ) == 0) {
+          if (value) {
+               char *error;
+               unsigned int max;
+
+               max = strtoll( value, &error, 10 );
+
+               if (*error) {
+                    D_ERROR( "DirectFB/Config '%s': Error in value '%s'!\n", name, error );
+                    return DFB_INVARG;
+               }
+
+               dfb_config->max_render_tasks = max;
           }
           else {
                D_ERROR( "DirectFB/Config '%s': No value specified!\n", name );
@@ -1535,6 +2000,14 @@ DFBResult dfb_config_set( const char *name, const char *value )
                return DFB_INVARG;
           }
      } else
+     if (strcmp (name, "x11-borderless" ) == 0) {
+          dfb_config->x11_borderless = true;
+
+          if (value && direct_sscanf( value, "%d.%d", &dfb_config->x11_position.x, &dfb_config->x11_position.y ) < 2) {
+               D_ERROR("DirectFB/Config '%s': Could not parse x and y!\n", name);
+               return DFB_INVARG;
+          }
+     } else
      if (strcmp (name, "matrox-sgram" ) == 0) {
           dfb_config->matrox_sgram = true;
      } else
@@ -1561,6 +2034,45 @@ DFBResult dfb_config_set( const char *name, const char *value )
      } else
      if (strcmp (name, "no-capslock-meta" ) == 0) {
           dfb_config->capslock_meta = false;
+     } else
+     if (strcmp (name, "task-manager" ) == 0) {
+          dfb_config->task_manager = true;
+     } else
+     if (strcmp (name, "no-task-manager" ) == 0) {
+          dfb_config->task_manager = false;
+     } else
+     if (strcmp (name, "software-cores" ) == 0) {
+          if (value) {
+               int cores;
+
+               if (direct_sscanf( value, "%d", &cores ) < 1) {
+                    D_ERROR("DirectFB/Config '%s': Could not parse value!\n", name);
+                    return DFB_INVARG;
+               }
+
+               if (cores < 1) {
+                    D_ERROR("DirectFB/Config '%s': Invalid value specified!\n", name);
+                    return DFB_INVARG;
+               }
+
+               dfb_config->software_cores = cores;
+          }
+          else {
+               D_ERROR("DirectFB/Config '%s': No value specified!\n", name);
+               return DFB_INVARG;
+          }
+     } else
+     if (strcmp (name, "resource-manager" ) == 0) {
+          if (value) {
+               if (dfb_config->resource_manager)
+                    D_FREE( dfb_config->resource_manager );
+
+               dfb_config->resource_manager = D_STRDUP( value );
+          }
+          else {
+               D_ERROR( "DirectFB/Config '%s': No implementation specified!\n", name );
+               return DFB_INVARG;
+          }
      } else
      if (strcmp (name, "h3600-device" ) == 0) {
           if (value) {
@@ -1646,7 +2158,7 @@ DFBResult dfb_config_set( const char *name, const char *value )
           if (value) {
                int rev;
 
-               if (sscanf( value, "%d", &rev ) < 1) {
+               if (direct_sscanf( value, "%d", &rev ) < 1) {
                     D_ERROR("DirectFB/Config 'unichrome-revision': Could not parse revision!\n");
                     return DFB_INVARG;
                }
@@ -1661,11 +2173,14 @@ DFBResult dfb_config_set( const char *name, const char *value )
      if (strcmp (name, "i8xx_overlay_pipe_b") == 0) {
           dfb_config->i8xx_overlay_pipe_b = true;
      } else
+     if (strcmp (name, "window-cursor-invisible") == 0) {
+          dfb_config->default_cursor_flags = DWCF_INVISIBLE;
+     } else
      if (strcmp (name, "max-axis-rate" ) == 0) {
           if (value) {
                unsigned int rate;
 
-               if (sscanf( value, "%u", &rate ) < 1) {
+               if (direct_sscanf( value, "%u", &rate ) < 1) {
                     D_ERROR("DirectFB/Config '%s': Could not parse value!\n", name);
                     return DFB_INVARG;
                }
@@ -1689,6 +2204,31 @@ DFBResult dfb_config_set( const char *name, const char *value )
                return DFB_INVARG;
           }
      } else
+     if (strcmp (name, "cursor-videoonly" ) == 0) {
+          dfb_config->cursor_videoonly = true;
+     } else
+     if (strcmp (name, "no-cursor-videoonly" ) == 0) {
+          dfb_config->cursor_videoonly = false;
+     } else
+     if (strcmp (name, "cursor-resource-id" ) == 0) {
+          if (value) {
+               unsigned long long cursor_resource_id;
+
+               if (direct_sscanf( value, "%llu", &cursor_resource_id ) < 1) {
+                    D_ERROR("DirectFB/Config '%s': Could not parse id!\n", name);
+                    return DFB_INVARG;
+               }
+
+               dfb_config->cursor_resource_id = cursor_resource_id;
+          }
+          else {
+               D_ERROR("DirectFB/Config '%s': No id specified!\n", name);
+               return DFB_INVARG;
+          }
+     } else
+     if (strcmp (name, "single-window" ) == 0) {
+          dfb_config->single_window = true;
+     } else
      if (
 #if DIRECTFB_BUILD_VOODOO
          voodoo_config_set( name, value ) &&
@@ -1703,14 +2243,24 @@ DFBResult dfb_config_init( int *argc, char *(*argv[]) )
 {
      DFBResult ret;
      int i;
-     char *home = getenv( "HOME" );
+#ifndef WIN32
+     char *home = direct_getenv( "HOME" );
+#endif
      char *prog = NULL;
      char *session;
      char *dfbargs;
+#ifndef WIN32
      char  cmdbuf[1024];
+#endif
 
-     if (dfb_config)
+     if (dfb_config) {
+          /* Check again for session environment setting. */
+          session = direct_getenv( "DIRECTFB_SESSION" );
+          if (session)
+               dfb_config_set( "session", session );
+
           return DFB_OK;
+     }
 
      config_allocate();
 
@@ -1719,17 +2269,19 @@ DFBResult dfb_config_init( int *argc, char *(*argv[]) )
      if (ret  &&  ret != DFB_IO)
           return ret;
 
+#ifndef WIN32
      /* Read user settings. */
      if (home) {
           int  len = strlen(home) + strlen("/.directfbrc") + 1;
           char buf[len];
 
-          snprintf( buf, len, "%s/.directfbrc", home );
+          direct_snprintf( buf, len, "%s/.directfbrc", home );
 
           ret = dfb_config_read( buf );
           if (ret  &&  ret != DFB_IO)
                return ret;
      }
+#endif
 
      /* Get application name. */
      if (argc && *argc && argv && *argv) {
@@ -1740,6 +2292,7 @@ DFBResult dfb_config_init( int *argc, char *(*argv[]) )
           else
                prog = (*argv)[0];
      }
+#ifndef WIN32
      else {
           /* if we didn't receive argc/argv we try the proc system */
           FILE *f;
@@ -1760,6 +2313,7 @@ DFBResult dfb_config_init( int *argc, char *(*argv[]) )
                fclose( f );
           }
      }
+#endif
 
      /* Strip lt- prefix. */
      if (prog) {
@@ -1767,12 +2321,13 @@ DFBResult dfb_config_init( int *argc, char *(*argv[]) )
             prog += 3;
      }
 
+#ifndef WIN32
      /* Read global application settings. */
      if (prog && prog[0]) {
           int  len = strlen( SYSCONFDIR"/directfbrc." ) + strlen(prog) + 1;
           char buf[len];
 
-          snprintf( buf, len, SYSCONFDIR"/directfbrc.%s", prog );
+          direct_snprintf( buf, len, SYSCONFDIR"/directfbrc.%s", prog );
 
           ret = dfb_config_read( buf );
           if (ret  &&  ret != DFB_IO)
@@ -1784,15 +2339,16 @@ DFBResult dfb_config_init( int *argc, char *(*argv[]) )
           int  len = strlen(home) + strlen("/.directfbrc.") + strlen(prog) + 1;
           char buf[len];
 
-          snprintf( buf, len, "%s/.directfbrc.%s", home, prog );
+          direct_snprintf( buf, len, "%s/.directfbrc.%s", home, prog );
 
           ret = dfb_config_read( buf );
           if (ret  &&  ret != DFB_IO)
                return ret;
      }
+#endif
 
      /* Read settings from environment variable. */
-     dfbargs = getenv( "DFBARGS" );
+     dfbargs = direct_getenv( "DFBARGS" );
      if (dfbargs) {
           ret = parse_args( dfbargs );
           if (ret)
@@ -1800,7 +2356,7 @@ DFBResult dfb_config_init( int *argc, char *(*argv[]) )
      }
 
      /* Active session is used if present, only command line can override. */
-     session = getenv( "DIRECTFB_SESSION" );
+     session = direct_getenv( "DIRECTFB_SESSION" );
      if (session)
           dfb_config_set( "session", session );
 
@@ -1841,6 +2397,7 @@ DFBResult dfb_config_init( int *argc, char *(*argv[]) )
                }
           }
      }
+#ifndef WIN32
      else if (prog) {
           /* we have prog, so we try again the proc filesystem */
           FILE *f;
@@ -1868,6 +2425,7 @@ DFBResult dfb_config_init( int *argc, char *(*argv[]) )
                fclose( f );
           }
      }
+#endif
 
      if (!dfb_config->vt_switch)
           dfb_config->kd_graphics = true;
@@ -1896,6 +2454,7 @@ DFBResult dfb_config_read( const char *filename )
           D_DEBUG_AT( DirectFB_Config, "Parsing config file '%s'.\n", filename );
      }
 
+#ifndef WIN32
      /* store/restore the cwd (needed for the "include" command */
      slash = strrchr( filename, '/' );
      if( slash ) {
@@ -1916,10 +2475,12 @@ DFBResult dfb_config_read( const char *filename )
           char nwd[strlen(filename)];
           strcpy( nwd, filename );
           nwd[slash-filename] = 0;
-          chdir( nwd );
-
-          D_DEBUG_AT( DirectFB_Config, "changing configuration lookup directory to '%s'.\n", nwd );
+          if (chdir( nwd ))
+               D_WARN( "config: failed to change directory to %s.\n", nwd );
+          else
+               D_DEBUG_AT( DirectFB_Config, "changing configuration lookup directory to '%s'.\n", nwd );
      }
+#endif
 
      while (fgets( line, 400, f )) {
           char *name = line;
@@ -1956,11 +2517,17 @@ DFBResult dfb_config_read( const char *filename )
 
      fclose( f );
 
+#ifndef WIN32
      /* restore original cwd */
      if( cwd ) {
-          chdir( cwd );
+          if (chdir( cwd ))
+               D_WARN( "config: failed to change directory to %s.\n", cwd );
+          else
+               D_DEBUG_AT( DirectFB_Config, "changing directtory back to '%s'.\n", cwd );
+
           free( cwd );
      }
+#endif
 
      return ret;
 }

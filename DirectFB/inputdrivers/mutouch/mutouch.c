@@ -172,20 +172,24 @@ static inline void __mdelay(unsigned int msec)
 
 static inline void MuTSendPacket(int file, char *packet, unsigned char len)
 {
+     int res;
      unsigned char tmp_packet[MuT_PACKET_SIZE];
 
      direct_memcpy (&tmp_packet[1], packet, len);
      *tmp_packet = MuT_LEAD_BYTE;
      tmp_packet[len + 1] = MuT_TRAIL_BYTE;
-     write (file, tmp_packet, len + 2);
+     res = write (file, tmp_packet, len + 2);
+     (void)res;
 }
 
 static inline void MuTReadPacket(int file, unsigned char *packet)
 {
      int n = 0;
+     int res;
 
      while ( n < MuT_REPORT_SIZE ) {
-          read( file, &packet[n], 1 );
+          res = read( file, &packet[n], 1 );
+          (void)res;
           if ( (packet[0] & MuT_PANEL_SYNC_MASK) != 0) {
                n++;
           }
@@ -573,8 +577,12 @@ static DFBResult driver_open_device(CoreInputDevice *device,
               "Microtouch");
 
      info->prefered_id     = DIDID_MOUSE;
-     info->desc.type        = DIDTF_MOUSE;
-     info->desc.caps        = DICAPS_AXES | DICAPS_BUTTONS;
+     info->desc.type       = DIDTF_MOUSE;
+#ifndef DIRECTFB_DISABLE_DEPRECATED
+     info->desc.caps       = DICAPS_AXES | DICAPS_BUTTONS;
+#else
+     info->desc.caps       = DIDCAPS_AXES | DIDCAPS_BUTTONS;
+#endif
      info->desc.max_axis   = DIAI_Y;
      info->desc.max_button = DIBI_LEFT;
 

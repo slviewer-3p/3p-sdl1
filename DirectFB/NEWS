@@ -1,127 +1,460 @@
-1.4.9
+1.7.1
 -----
 
-Major Voodoo improvements in this release!
+API
+- Add 4k display resolution.
+- Add alternative UHDTV mode.
 
-Configure Options
-- Add "--enable-pure-voodoo" to build a client only library.
-- Add "--without-setsockopt" to disable usage of setsockopt() call.
-- Generate directfb_build.h with Voodoo options.
-- When Voodoo is enabled, add library dependency to pkg-config file and pass runtime options to libvoodoo.
-
-Runtime Options
-- Add "[no-]server-fork" choosing between fork() and thread based connection handling.
-- Add "player-name=<name>", "player-vendor=<name>", "player-model=<name>", "player-uuid=<name>" to set Voodoo Player information.
-- Add "proxy-memory-max=<kB>" to set maximum amount of memory per connection.
-- Add "proxy-surface-max=<kB>" to set maximum amount of memory per surface.
-- Add "proxy-layer-mask" to limit the set of layers to be used by clients.
-- Add "proxy-stacking-mask" to limit the stacking classes to be used clients.
-- Add "proxy-resource-id" to make all surfaces system only except those with the specified resource ID.
-
-Voodoo
-- Reuse connections when same server is used.
-- Lookup remote player if no host has been specified.
-- Implement multi response adding voodoo_manager_next_response() call.
-- Add flush parameter to voodoo_manager_respond() to allow efficient transmission of multi response.
-- Add voodoo_manager_unregister_local() which should have been there since the beginning *sigh*
-- Add voodoo_manager_check_allocation() looking at VmRSS if "proxy-memory-max" option is used.
-
-Implementation
-- Add implementation for IDirectFBDisplayLayer::GetWindow() and GetWindowByResourceID().
-- Add implementation for IDirectFBWindow::EnableEvents(), GetProperty() and SendEvent().
-- Add implementation for IDirectFBSurface::Read().
-- Add Release calls to IDirectFBSurface and IDirectFBWindow.
-- Cache pixel format in IDirectFBSurface::GetPixelFormat().
-
-Voodoo Play
-- Introduce discovery and transport implementation, stay tuned...
-
-
-1.4.8
------
-
-This release adds font rotation, advanced cursor APIs and surface buffer displacement in FBDev pool
-along with some fixes and other enhancements.
-
-API | IDirectFBDisplayLayer
-- Add GetWindowByResourceID().
-
-API | IDirectFBFont
-- Add DFDESC_ROTATION to DFBFontDescriptionFlags.
-- Add rotation to DFBFontDescription.
-- Add DFB_DEGREES and DFB_RADIANS convenience macros.
-- Add GetLineSpacingVector() and GetGlyphExtentsXY().
-
-API | IDirectFBInputDevice
-- Extend custom key definitions from 100 to 255.
-
-API | IDirectFBWindow
-- Add SendEvent() to send a window event via a window.
-- Add DFBWindowCursorFlags (per window) with the following definitions:
-      DWCF_RELATIVE   receive relative coordinates instead of absolute
-      DWCF_EXPLICIT   if window has focus it's also the pointer window
-      DWCF_UNCLIPPED  pointer is not clipped against stack boundaries
-      DWCF_TRAPPED    pointer is clipped against the window boundaries
-      DWCF_FIXED      pointer does not move at all, but still may send relative motion
-      DWCF_INVISIBLE  cursor opacity is zero when this window is pointer window
-- Add DWEF_RELATIVE to DFBWindowEventFlags to indicate x/y are relative coordinates.
-- Add SetCursorFlags() to set the per window DFBWindowCursorFlags.
-- Add SetCursorResolution() to define per window coordinate space,
-  e.g. SetCursorResolution( 100, 300 ) will always send 50,150 in the middle of the window.
-- Add SetCursorPosition() to warp the pointer relative to the
-  window based on the per window coordinate space if set.
-- Add DWET_UPDATE for sending update events (upon Flip).
+API | C++
+- Add convenience classes like DFBRectangle to new header file <directfb++.h>, fix dynamic cast with NULL pointer
 
 Options
-- Add max-axis-rate to limit the amount of input axis events.
+- Add 'nm-for-trace' option that must be used to run 'nm' at trace dump (as done before). Add D_ARGS env as input to libdirect's config_init (constructor).
+- Add 'shutdown-info' to enable object/interface dump at shutdown time (as done before).
 
-Fonts
-- Try to mmap the font file before loading all of its contents via data buffer.
+Core
+- Check for allocation identity when locking in pools without CSAF_SHARED. Add CSANF_DEALLOCATED.
+- Push master identity for locking the layer buffers, needed for allocation choosing.
+- Fix identity when handling allocations in DisplayTask.
+- Remove lots of buffer references in allocation code where not needed
+- fix YV16 conversion to various formats
+- modify conversion APIs to be able to support planar formats
 
-Windows
-- Add CWCF_CURSOR_FLAGS and CWCF_CURSOR_RESOLUTION to CoreWindowConfigFlags.
-- Add cursor_flags and cursor_resolution to CoreWindowConfig.
-- Add dfb_wm_set_cursor_position() called by IDirectFBWindow::SetCursorPosition().
-- Add SetCursorPosition() to WMFuncs.
-- Add wm_set_cursor_position() to wm module header and set it for SetCursorPosition().
-- Remove setting of cx and cy from dfb_window_post_event(), instead this is done
-  in window manager modules now.
+libdirect
+- Include interfaces and memory allocations when dumping stacks upon signal 30.
+- [1.7] Fix direct_messages_info() to handle too long lines.
+- Fix for double close of a single file descriptor.
+- Fix illegal fclose of a file pointer opened by popen.
+- Fix over length lines for D_ERROR() messages
+- Switch to using SIGPIPE for dumping stacks etc. (seems SIGPWR is not working in all cases)
+- Move C++ definitions to separate header file.
 
-Default WM
-- Fix wm_window_lookup to return DFB_IDNOTFOUND when window with specified ID wasn't found.
-- Set cx and cy of window events.
-- Add unimplemented wm_set_cursor_position() to default window manager module.
-- Send DWET_UPDATE events when the application does a Flip on the window surface.
+libfusion
+- always initialize reactor_globals and arenas_lock locks as globals
+- initialize a shared/global skirmish for the object pool
+- Fix fusion_object_get() which returned DR_OK even if lookup failed
 
-LinoType Font
-- Add new font module using LinoType library.
+FFMPEG
+- Add FFMPEG based image provider which will decode MPEG2 and AVC still images.
 
-FBDev System
-- Add MuckOut implementation for surfaces in fbdev pool using surface manager displace.
+TIFF
+- New image provider by Haithem, thanks!
+
+DRMKMS
+- refactoring, cleanups, fix flipping in multihead mode (multiple crtcs with one DirectFB layer each)
+- set CSCAPS_DISPLAY_TASKS and CSCAPS_NOTIFY_DISPLAY
+- use vblank handler to synchronize flipping on planes
+- fix deadlock while flipping
+- simplyfy locking, fix for task manager
+- Use DRM_IOCTL_GEM_FLINK to map buffers in slaves. Currently using a hack to initialise a local kms_bo!
+
+dfbdump
+- Print object identity instead of creator.
 
 
-1.4.7
+1.7.0
+-----
+Major new feature:
+
+- task-manager (must be enabled explicitly)
+
+  The task manager allows to automatically distribute rendering tasks over
+  multiple cpu and/or gpu cores. There is an implementation for the generic
+  (software) driver which can be configured with by setting software-cores=<n>
+  and task-manager options in the directfbrc.
+
+Merged Projects:
+- DirectFB-extra (missing bits)
+- SaWMan
+- FusionDale
+- FusionSound
+- DiVine
+- ++dfb
+
+New APIs
+- Add IDirectFBSurface::DumpRaw() to dump raw pixel data of a surface to a file
+- Add IDirectFBSurface::GetFrameTime() to receive the timestamp for the next frame to be rendered
+- Add IDirectFBSurface::SetFrameTimeConfig() to configure GetFrameTime()
+- Add IDirectFBVideoProvider::SetDestination() to change the destination surface and/or destination rectangle during playback
+
+New System Module
+- drm/kms
+
+New ImageProviders
+- WebP
+- tiff
+
+Tons of bugfixes and performance improvements...
+
+1.6.0
 -----
 
-    directfb-csource: fix colour replacement for transparent pixels
-    Query GLX_RED_SIZE, GLX_GREEN_SIZE, GLX_BLUE_SIZE, GLX_ALPHA_SIZE and add their values instead of querying GLX_BUFFER_SIZE. (Although the GLX specification says
-    image providers: refactoring exercise step 2
-    image providers: refactoring exercise step 1
-    fonts: set default max-font-rows to 99
-    surface pool: Fix namespace of surface_pool_get_local.
-    fonts: One more assertion fix, check on row != NULL, just removed cache member (unused).
-    - provide libshjpeg patch until merged upstream
-    - rewrote sh772x driver to use libshbeu - reintroduced jpeg provider, uses libshjpeg
-    dummy: Added new dummy system module, e.g. for using DirectFB offscreen only.
-    layers: Use surface_caps and surface_accessor if specified in DFBDisplayLayerDescription.
-    layers: Added surface_caps and surface_accessor to DFBDisplayLayerDescription.
-    test: Fixed warning in fusion_skirmish test.
-    voodoo: Fixed warning by adding cast to VOODOO_PARSER_GET_ODATA.
-    configure: Don't append '-std=gnu99' to CXXFLAGS.
-    generic: Fixed warnings about unused functions (via attribute).
-    fonts: Avoid too many surface switches during one string rendering.
-    fonts: Fixed wrong state member being used for blitting flags...
-    fonts: Fix assertion because of missing cache assignment.
+New APIs
+- DWOP_STEREO_SIDE_BY_SIDE_HALF to have stereo output without changing buffers
+- Increase number of preallocated entries in DFBSurfaceDescription to 3
+- Add IDirectFBInputDevice::SetConfiguration() with DFBInputDeviceConfiguration featuring sensitivity setting
+- Add IDirectFBFont::GetDescription() to retrieve the font description with which the font had been created
+- Add IDirectFBWindow::SetGeometry() to set src and dst geometry in one call
+- Add supported HDMI signaling modes (all_framing) to DFBScreenEncoderDescription
+- Add DSOR_960_540 to DFBScreenOutputResolution
+- Add IDirectFBSurface::GetID() to retrieve the object id of the CoreSurface
+- Add IDirectFBSurface::AllowAccess() to allow other process identified by an executable name access to the surface in secure fusion mode
+- Add "primary-id" option for CreateSurface(PRIMARY)
+- Add IDirectFB::GetSurface(ID)
+- Add DFBSurfaceEventType with DSEVT_DESTROYED and DSEVT_UPDATE
+- Add DFBSurfaceEvent with type, surface_id and update region for left and right buffer
+- Add IDirectFBSurface::CreateEventBuffer, AttachEventBuffer and DetachEventBuffer
+- Add DSOR_1440_540 to DFBScreenOutputResolution
+- Add IDirectFBSurface::MakeClient() and FrameAck()
+- Fixed DFBInputDeviceCapabilities naming, there was a naming clash with DFBImageCapabilities enum
+- Add IDirectFBSurface::GetColorSpace()
+- Add IDirectFBImageProvider::SetRenderFlags()
+- Add DSCAPS_GL to indicate surface data is stored in memory that can be accessed by a GL accelerator
+- Add DFBDisplayAspectRatio in caps and config of encoders
+- Add DFB_ASPECT_RATIO_eAuto, DFB_ASPECT_RATIO_e4x3, DFB_ASPECT_RATIO_e16x9
+- Add DSECAPS_ASPECT_RATIO to DFBScreenEncoderCapabilities
+- Add all_aspect_ratio in DFBScreenEncoderDescription
+- Add aspect_ratio in DFBScreenEncoderConfig
+- Add DSPF_LUT4 and DSPF_ALUT8, only definitions for now
+
+Secure Fusion
+- In secure mode all skirmishs are gone
+- Performance improvements over non-secure mode
+
+Compositor Support
+- New APIs allow compositor application to get access to surfaces and updates of other applications
+
+Mesa incl multi app (experimental)
+- New system module with OpenGL based acceleration
+
+Android (highly experimental)
+- New system module allowing DirectFB apps to run on Android
+
+...many other changes, must read ChangeLog.
+
+
+1.5.3
+-----
+
+IDirectFB
+- Implement primary surface creation with DSCAPS_STEREO in fullscreen and windowed mode.
+
+IDirectFBFont
+- Add DFFA_STYLE_BOLD for loading bold face from a file.
+
+IDirectFBScreen
+- Add DSECAPS_FRAMING to indicate support for different stereo output modes.
+
+IDirectFBScreen
+- Add full resolution side-by-side to DFBScreenEncoderPictureFraming and rework naming.
+
+IDirectFBSurface
+- Move _Layer/_Window implementation of Get/SetStereoEye() to generic IDirectFBSurface, add missing generic FlipStereo().
+
+Runtime Options
+- Add 'x11-borderless=[x.y]' to disable X11 window borders and optionally position window
+
+Graphics
+- Add BatchFill driver function to reduce overhead.
+- Add BatchBlit driver function to reduce overhead.
+
+Core
+- Fix crash when dfb_wm_update_cursor() is called with 'no-cursor' option.
+- In region_buffer_lock() fix surface accessor argument for right buffer lock.
+- In dfb_layer_region_flip_update() redirect to dfb_layer_region_flip_update_stereo() automatically.
+- In dfb_window_create() add DSCAPS_STEREO when DWCAPS_STEREO is used.
+
+X11
+- Add stereo display support via side-by-side output, implement 'x11-borderless' option.
+
+FreeType2
+- Add support for DFFA_VERTICAL_LAYOUT and DFFA_STYLE_ITALIC.
+
+dfbtest_stereo_window
+- Add simple test for stereo depth of windows.
+
+
+1.5.2
+-----
+
+Core
+- Add _GetID() functions for all core objects.
+- Add permissions for catcher in throw function, e.g. to ref_up/catch, call, attach to reactor...
+- Set object owner to catcher in throw function of surface, window and palette objects for now,
+  but only if the owner has not been set yet. This is enough for the time being.
+- Check object owner in lookup functions and fail if owner is set, but does not match.
+- Turn CoreGraphicsState into a FusionObject to handle reference counting and to get rid of
+  the custom creation/throw/catch code etc.
+- Add CoreGraphicsStateClient_Deinit().
+- Add CoreLayer::GetPrimaryContext().
+- Add CoreLayerRegion::GetSurface() to add surface permissions to region owner.
+- Add CoreSurface::GetPalette() to add palette permissions to surface owner.
+- Add CoreWindow::GetSurface() to add surface permissions to window owner.
+- Add special code for parent and top level window in DFBWindowDescription passing of
+  CoreLayerContext::CreateWindow(). The windows are passed as object arguments to go
+  through the object ownership checks on dispatcher side when looked up by id.
+- Remove LockBuffer and UnlockBuffer from CoreSurface interface and use dfb_surface_lock_buffer()
+  at all locations again.
+- Add CoreSurface::PreLockBuffer(), PreReadBuffer() and PreWriteBuffer() doing all work that
+  needs to write to shared memory, e.g. allocating a buffer, syncing allocations, syncing with
+  accelerator, and then returning the index of the allocation to be used. Call these new functions
+  from dfb_surface_buffer_lock/read/write() and then call into surface pool implementation locally.
+- Add special code for parent window and keys in CoreWindowConfig passing of CoreWindow::SetConfig().
+  The window is passed as object argument to go through the object ownership checks on dispatcher
+  side when looked up by id. Separately pass the keys as another argument to have it copied and set
+  the pointer in a copy of the config on the dispatcher side.
+- Add attach/detach permission for everyone to input devices.
+- Fix ref up/down for input devices changing from global to local counting.
+- Add ref up/down permission for everyone to input devices.
+- Add execute permission for everyone to layer call.
+- Remove preallocated surface pool for now, instead create a normal surface and copy the data
+  from preallocated area to new surface buffers. This also reenables acceleration for preallocated
+  surfaces which had been broken since DirectFB 1.2. In future versions there will be proper
+  support for preallocated surfaces again.
+- Refactor local and shared surface pools and only use local pool in single app and only shared
+  pool in multi app build.
+- The local surface pool has been heavily simplified to just do the malloc/free instead of the
+  FusionCall code etc.
+- The shared surface pool has been reimplemented to create a file in tmpfs per surface buffer
+  allocation that is writable by slaves, since all Fusion SHM Pools are read only now! This
+  avoids security holes as no heap information is writable and allows for more fine grained
+  permission management per surface buffer. The tmpfs files are currently mapped/unmapped on
+  Lock/Unlock.
+- Add CSPCAPS_READ and CSPCAPS_WRITE being set automatically when the surface pool provides
+  a Read and Write function.
+
+Fusion
+- Use new security mechanism in linux-fusion 8.5.0
+- Add generic fusion_entry_add_permissions() with plain bit mask.
+- Add per entity type functions, e.g. fusion_call_add_permissions() with specific bit mask.
+- Map shared shared root page read only in slaves.
+- Remove writable flag in shared memory pools (all read only in secure mode). This change
+  is needed as the heap information was writable and therefore not secure enough. Writable
+  shared memory will only exist outside of shared memory pools, e.g. a separate file per
+  surface buffer allocation.
+- Enforce shared memory permissions on file system level, using 0640 instead of 0660, so the
+  master may be run as a different user, but with the slaves being in the same group, see also
+  the shmfile-group option to control which group is being used.
+- Add a field to FusionObject to store the owner's FusionID. At the moment this stays zero
+  until it is set.
+- For now, all skirmishs have default permission to allow lock/unlock for all other Fusionees.
+
+Flux
+- Generate TypeName_GetID( ptr ) instead of ptr->object.id.
+
+
+1.5.1
+-----
+
+API | IDirectFBSurface
+- Add extended source/destination color keying, no SW implementation so far.
+- Add DSBLIT_SRC_COLORKEY_EXTENDED and DSBLIT_DST_COLORKEY_EXTENDED.
+- Add DFBColorKeyPolarity with DEFAULT and OTHER.
+- Add DFBColorKeyExtended with polarity and lower/upper color.
+- Add IDirectFBSurface::SetSrcColorKeyExtended() and SetDstColorKeyExtended().
+
+API | IDirectFBSurface
+- Add special monochrome rendering function for characters: DrawMonoGlyphs(). No SW implementation yet.
+
+API | IDirectFBSurface
+- Add DSBLIT_SRC_COLORMATRIX and SetSrcColorMatrix(). No SW implementation yet.
+
+API | IDirectFBSurface
+- Add DSBLIT_SRC_CONVOLUTION, SetSrcConvolution() and DFBConvolutionFilter with a 3x3 kernel, scale and bias. No SW implementation yet.
+
+API | IDirectFBSurface
+- Add RGBAF88871 pixel format support (F is flashing bit, e.g. for ARIB CC)
+
+Fusion
+- Fix assertion in single app fusion_call_destroy().
+
+
+1.5.0
+-----
+
+API extensions for stereoscopic viewing
+- Add DLCAPS_LR_MONO and DLCAPS_STEREO.
+- Add DLOP_LR_MONO and DLOP_STEREO.
+- Add DSCAPS_STEREO (both left & right buffers are allocated).
+- Add DWCAPS_LR_MONO and DWCAPS_STEREO.
+- Add DLSO_FIXED_LIMIT and DWSO_FIXED_LIMIT.
+- Add DSECONF_FRAMING.
+- Add DFBScreenEncoderPictureFraming (MONO, STEREO_PACKED/HORIZ/VERT and STEREO_SEQUENTIAL for HDMI 1.4).
+- Add framing to DFBScreenEncoderConfig.
+- Add IDirectFBDisplayLayer::GetStereoDepth() and SetStereoDepth().
+- Add DFBSurfaceStereoEye (LEFT and RIGHT).
+- Add IDirectFBSurface::GetStereoEye() and SetStereoEye().
+- Add IDirectFBSurface::FlipStereo().
+- Add IDirectFBWindow::GetStereoDepth() and SetStereoDepth().
+
+Color Space extension
+- Add DFBSurfaceColorSpace (RGB, BT601, BT601_FULLRANGE and BT709).
+- Add DSDESC_COLORSPACE.
+- Add DFB_COLOR_IS_RGB and DFB_COLOR_IS_YUV.
+- Add DFB_COLORSPACE_IS_COMPATIBLE and DFB_COLORSPACE_DEFAULT.
+- Add colorspace to DFBSurfaceDescription.
+- Add colorspace to DFBWindowDescription.
+- Add DLCONF_COLORSPACE.
+- Add colorspace to DFBDisplayLayerConfig.
+- Add dfb_colorspace_name().
+- Add colorspace argument to dfb_surface_create_simple().
+
+IDirectFBFont
+- Add GetUnderline() to get the position and thickness of the underline.
+- Add DFFA_STYLE_ITALIC to load italic style from same file.
+- Add DFFA_VERTICAL_LAYOUT to load vertical layout.
+
+IDirectFBSurface
+- Add DSRO_WRITE_MASK_BITS and SetWriteMaskBits().
+- Add SetRop() with DFBSurfaceRopCode, DFBSurfacePatternMode, fg/bg color and pattern bits
+- Add DSPF_ABGR
+
+DirectFBGL2
+- Add new interfaces for better OpenGL integration.
+
+API
+- Add DFBBox (x1, y1, x2, y2), a rectangle including the top left but not the bottom right endpoint.
+- Add lots of macros for geometry, types, etc.
+- Add lots of utility functions, make some inline.
+- Add DFXL_FILLQUADRANGLE (only internally used so far).
+- Add DFBSurfaceID.
+- Add DFB_MASK_BYTE0-3 macros, e.g. for SetWriteMaskBits()
+
+Water
+- Initial checkin of Water API and simple test implementation.
+
+IDirectFBWindows
+- Add extension introducing DFBWindowsWatcher registering, also proxy code.
+  DFBWindowsWatcher is a function pointer table that can be filled by a client
+  application to receive all information about the window stack, windows, configs,
+  states, focus changes etc...
+
+libdirect
+- Lots of abstractions added for threads, mutexes, wait queues, files and many more...
+- Add fastlz based compression/decompression.
+
+Fusion
+- Defer calls from kernel (destructors) to a separate thread.
+- Implement fusion_reactor_attach/dispatch_channel() for single app mode.
+- Introduce fusion_call_execute3() with variable return data.
+  A new call handler type gets return pointer and size to return blocks
+  of data to the caller, instead of the single int value.
+- Add reference passing via throw and catch.
+  A Fusionee having a local reference may call fusion_ref_throw() with
+  another Fusionee's ID as catcher argument. That Fusionee may then
+  call fusion_ref_catch() which will remove that local reference of the
+  thrower. The catcher has to get a local reference itself beforehand,
+  otherwise the reference is just being removed.
+
+Secure Fusion
+- New run time option 'secure-fusion' to select new secure fusion mode
+- Mount shared memory pools read only in slaves.
+- Use FusionCall v3 for IPC calls instead of modifying shared memory directly
+- Flux generates code for replacing all direct core calls by interfaces, more details in Secure Fusion documentation
+
+Voodoo
+- Introduce VoodooLink for abstraction of transport, implemented for Win32 and Unix.
+- Add VoodooPlayAddressType, VoodooPlayAddress, VOODOO_PLAY_INET_ADDR and voodoo_play_from_inet_addr().
+- Add "play-broadcast" option to force a certain address to be used for discovery.
+- Single IO thread instead of two, VoodooLink with SendReceive/WakeUp methods.
+- Rework Voodoo code using C++, with old C API as wrapper.
+- Add a lower level packet layer with transparent compression support.
+- New runtime option 'compression-min', when non-zero compress packets with minimum size (default zero, no compression).
+- New runtime option 'link-raw' to initiate a connection with old base layer.
+- Improved performance using thread local output buffer (async bench 4x speed).
+- Compatibility with old and new base protocol, auto compression etc.
+- Improve raw connection code, big speedup.
+- Major cleanup, optimizations, bug fixes...
+- Introduce VoodooDispatcher with thread based implementation
+- Add 'link-packet' option to force packet mode link.
+- Major improvements, fixes for disconnect, resource cleanup, ref counting...
+  With these changes you can run a single process dfbproxy and connect with multiple
+  clients, spawning multiple threads in the server.
+- Add voodoo_link_init_local() for Unix Domain sockets.
+
+Proxy
+- Implement asynchronous flipping control, e.g. to avoid input lags
+- Major improvements, fixes for ref counting, cleanup... IDirectFBDisplayLayer::SetBackgroundMode/Image...
+- Add resource-id to be used for surfaces if not specified by application (client config).
+
+Software Renderer
+- Optimize fast path ARGB SrcOver and add fast path ARGB SrcOver premultiply.
+- Implement TextureTriangles() and split code into a few files.
+- Implement Blit() with matrix via gTextureTriangle() for now.
+- Use Genefx_TextureTrianglesAffine() for BatchBlit() with matrix.
+- DrawString() with matrix is working with ARGB font format now.
+- Add software affine transform for StretchBlit
+- Implement colorkeyed texture mapping, adding Sop_PFI_TEX_Kto_Dacc.
+- Implement clipping in TextureTriangle, add TileBlit with matrix, more accuracy, fixes
+
+Input
+- When Shift is pressed in CapsLock state send small letters.
+
+Mesa
+- Add Mesa/DRM system module and GLES2 graphics acceleration
+- Add IDirectFBGL2 and IDirectFBGL2Context implementation.
+
+GLES2
+- Added experimental fragment shader for source colorkeying.
+- Fix color keying by using Andi's shader from gl driver.
+- other shader fixes
+- fix clipping
+- fix off-by-one error in DrawRectangle()
+- Enable GLES 2.0 acceleration with PVR2D/EGL
+
+VDPAU
+- New X11/VDPAU based system module derived from original X11 module.
+- Add VDPAU accelerated rendering module (graphics driver).
+- Multi application core support (using FusionCall2), major cleanup.
+
+PVR2D
+- Preliminary PVR2D system module, using PVR2DMemAlloc.
+- Add graphics driver using PVR2DBlt API
+
+VNC
+- Almost reimplement VNC system module
+
+PSP
+- Initial PSP support added
+
+X11
+- Lower X11 surface pool priority as it is currently not writable for slaves.
+- Add CSCAPS_PREFER_SHM for testing SecureFusion, otherwise local pool is used, breaking across processes
+- Add missing detach from shm images, only master for now.
+
+JPEG
+- correctly setup iDCT scale factors for libjpeg version >= 7
+
+MNG
+- Add libmng based video provider.
+
+dfbproxy
+- Add few more super interfaces
+
+dfbfx
+- Add DSBF_SRCALPHASAT implementation, clamp sum of blending.
+
+voodooplay
+- Print vendor and model of each received info.
+
+Flux
+- Introduce new language for interfaces, with parser/code generator.
+- Use Flux to generate all code for hiding FusionCalls behind local/proxy interfaces.
+- The Flux compiler generates .cpp and .h containing abstract interface definition
+  and two implementations, one generated 'requestor' implementation making FusionCalls
+  and one 'real' implementation only being declared, implemented manually in _real.cpp file.
+  Next to these there's code generated to dispatch incoming FusionCalls to the real
+  implementation.
+- A C wrapper is also generated for minimizing code changes outside of new files, but the
+  new C++ API will be used in 1.6 branch, when Secure Fusion has stabilized in 1.5 branch.
+
+Debian Packaging
+- first try of 1.5 packages
+
+Win32
+- Add Win32 support building the pure Voodoo version of DirectFB with MSVC!
+- Added DIRECT/FUSION/VOODOO/DIRECTFB_API macro for imports/exports of public library functions.
+- Changed static initializers and constructors/destructors to init/deinit functions called via DllMain.
 
 
 1.4.6

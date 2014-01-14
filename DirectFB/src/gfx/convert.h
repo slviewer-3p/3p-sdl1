@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __GFX__CONVERT_H__
 #define __GFX__CONVERT_H__
@@ -96,6 +100,11 @@
                                  ((g) << 8)  | \
                                   (b) )
 
+#define PIXEL_ABGR(a,r,g,b)    ( ((a) << 24) | \
+                                 ((b) << 16) | \
+                                 ((g) << 8)  | \
+                                  (r) )
+
 #define PIXEL_ARGB8565(a,r,g,b)( ((a) << 16) | \
                                  PIXEL_RGB16 (r, g, b) )
 
@@ -123,6 +132,11 @@
                                  ((r) << 16) | \
                                  ((g) << 8)  | \
                                   (b) )
+
+#define PIXEL_RGBAF88871(a,r,g,b)  ( ((r) << 24) | \
+                                     ((g) << 16) | \
+                                     ((b) << 8)  | \
+                                     ((a) &~1 ) )
 
 #ifdef WORDS_BIGENDIAN
 
@@ -399,6 +413,15 @@
                                    (((pixel) & 0x0000F800) >>  6) | \
                                    (((pixel) & 0x000000F8) <<  7) )
 
+#define ARGB_TO_ABGR(pixel)  ( ((pixel) & 0xFF00FF00) | \
+                                  (((pixel) & 0x000000FF) << 16) | \
+                                  (((pixel) & 0x00FF0000) >> 16) )
+
+#define ARGB_TO_RGBAF88871(pixel) ( (((pixel) & 0x00FFFFFF) << 8 ) | \
+                                    (((pixel) & 0xFE000000) >> 24))
+
+
+
 /* RGB <-> YCbCr conversion */
 
 #define YCBCR_TO_RGB( y, cb, cr, r, g, b )                            \
@@ -426,9 +449,6 @@ do {                                                                  \
 } while (0)
 
 
-DFBSurfacePixelFormat dfb_pixelformat_for_depth( int depth );
-
-
 void                  dfb_pixel_to_color  ( DFBSurfacePixelFormat  format,
                                             unsigned long          pixel,
                                             DFBColor              *ret_color );
@@ -436,8 +456,16 @@ void                  dfb_pixel_to_color  ( DFBSurfacePixelFormat  format,
 unsigned long         dfb_pixel_from_color( DFBSurfacePixelFormat  format,
                                             const DFBColor        *color );
 
+void
+dfb_pixel_to_components( DFBSurfacePixelFormat  format,
+                         unsigned long          pixel,
+                         u8                     *a,
+                         u8                     *c2,    /* Either Y or R */
+                         u8                     *c1,    /* Either U or G */
+                         u8                     *c0 );  /* Either V or B */
 
-static inline u32
+
+static __inline__ u32
 dfb_color_to_pixel( DFBSurfacePixelFormat format,
                     u8 r, u8 g, u8 b )
 {
@@ -446,13 +474,13 @@ dfb_color_to_pixel( DFBSurfacePixelFormat format,
      return dfb_pixel_from_color( format, &color );
 }
 
-static inline u32
+static __inline__ u32
 dfb_color_to_argb( const DFBColor *color )
 {
      return (color->a << 24) | (color->r << 16) | (color->g << 8) | color->b;
 }
 
-static inline u32
+static __inline__ u32
 dfb_color_to_aycbcr( const DFBColor *color )
 {
      u32 y, cb, cr;
@@ -461,7 +489,7 @@ dfb_color_to_aycbcr( const DFBColor *color )
      return (color->a << 24) | (y << 16) | (cb << 8) | cr;
 }
 
-static inline u32
+static __inline__ u32
 dfb_color_to_acrycb( const DFBColor *color )
 {
      u32 y, cb, cr;
@@ -470,7 +498,7 @@ dfb_color_to_acrycb( const DFBColor *color )
      return (color->a << 24) | (cr << 16) | (y << 8) | cb;
 }
 
-static inline void
+static __inline__ void
 dfb_argb_to_rgb332( const u32 *src, u8 *dst, int len )
 {
      int i;
@@ -482,7 +510,7 @@ dfb_argb_to_rgb332( const u32 *src, u8 *dst, int len )
      }
 }
 
-static inline void
+static __inline__ void
 dfb_argb_to_argb1555( const u32 *src, u16 *dst, int len )
 {
      int i;
@@ -494,7 +522,7 @@ dfb_argb_to_argb1555( const u32 *src, u16 *dst, int len )
      }
 }
 
-static inline void
+static __inline__ void
 dfb_argb_to_rgba5551( const u32 *src, u16 *dst, int len )
 {
      int i;
@@ -506,7 +534,7 @@ dfb_argb_to_rgba5551( const u32 *src, u16 *dst, int len )
      }
 }
 
-static inline void
+static __inline__ void
 dfb_argb_to_argb2554( const u32 *src, u16 *dst, int len )
 {
      int i;
@@ -518,7 +546,7 @@ dfb_argb_to_argb2554( const u32 *src, u16 *dst, int len )
      }
 }
 
-static inline void
+static __inline__ void
 dfb_argb_to_argb4444( const u32 *src, u16 *dst, int len )
 {
      int i;
@@ -530,7 +558,7 @@ dfb_argb_to_argb4444( const u32 *src, u16 *dst, int len )
      }
 }
 
-static inline void
+static __inline__ void
 dfb_argb_to_rgba4444( const u32 *src, u16 *dst, int len )
 {
      int i;
@@ -542,7 +570,7 @@ dfb_argb_to_rgba4444( const u32 *src, u16 *dst, int len )
      }
 }
 
-static inline void
+static __inline__ void
 dfb_argb_to_argb8565( const u32 *src, u8 *dst, int len )
 {
      int i = -1, j = -1;
@@ -563,7 +591,7 @@ dfb_argb_to_argb8565( const u32 *src, u8 *dst, int len )
      }
 }
 
-static inline void
+static __inline__ void
 dfb_argb_to_rgb16( const u32 *src, u16 *dst, int len )
 {
      int i;
@@ -575,7 +603,7 @@ dfb_argb_to_rgb16( const u32 *src, u16 *dst, int len )
      }
 }
 
-static inline void
+static __inline__ void
 dfb_argb_to_a8( const u32 *src, u8 *dst, int len )
 {
      int i;
@@ -587,6 +615,10 @@ dfb_argb_to_a8( const u32 *src, u8 *dst, int len )
 void dfb_convert_to_rgb16( DFBSurfacePixelFormat  format,
                            const void            *src,
                            int                    spitch,
+                           const void            *src_cb,
+                           int                    scbpitch,
+                           const void            *src_cr,
+                           int                    scrpitch,
                            int                    surface_height,
                            u16                   *dst,
                            int                    dpitch,
@@ -596,6 +628,10 @@ void dfb_convert_to_rgb16( DFBSurfacePixelFormat  format,
 void dfb_convert_to_rgb555( DFBSurfacePixelFormat  format,
                             const void            *src,
                             int                    spitch,
+                            const void            *src_cb,
+                            int                    scbpitch,
+                            const void            *src_cr,
+                            int                    scrpitch,
                             int                    surface_height,
                             u16                   *dst,
                             int                    dpitch,
@@ -605,6 +641,10 @@ void dfb_convert_to_rgb555( DFBSurfacePixelFormat  format,
 void dfb_convert_to_argb( DFBSurfacePixelFormat  format,
                           const void            *src,
                           int                    spitch,
+                          const void            *src_cb,
+                          int                    scbpitch,
+                          const void            *src_cr,
+                          int                    scrpitch,
                           int                    surface_height,
                           u32                   *dst,
                           int                    dpitch,
@@ -614,6 +654,10 @@ void dfb_convert_to_argb( DFBSurfacePixelFormat  format,
 void dfb_convert_to_rgb32( DFBSurfacePixelFormat  format,
                            const void            *src,
                            int                    spitch,
+                           const void            *src_cb,
+                           int                    scbpitch,
+                           const void            *src_cr,
+                           int                    scrpitch,
                            int                    surface_height,
                            u32                   *dst,
                            int                    dpitch,
@@ -623,6 +667,10 @@ void dfb_convert_to_rgb32( DFBSurfacePixelFormat  format,
 void dfb_convert_to_rgb24( DFBSurfacePixelFormat  format,
                            const void            *src,
                            int                    spitch,
+                           const void            *src_cb,
+                           int                    scbpitch,
+                           const void            *src_cr,
+                           int                    scrpitch,
                            int                    surface_height,
                            u8                    *dst,
                            int                    dpitch,
@@ -650,6 +698,10 @@ void dfb_convert_to_a4( DFBSurfacePixelFormat  format,
 void dfb_convert_to_yuy2( DFBSurfacePixelFormat  format,
                           const void            *src,
                           int                    spitch,
+                          const void            *src_cb,
+                          int                    scbpitch,
+                          const void            *src_cr,
+                          int                    scrpitch,
                           int                    surface_height,
                           u32                   *dst,
                           int                    dpitch,
@@ -659,6 +711,10 @@ void dfb_convert_to_yuy2( DFBSurfacePixelFormat  format,
 void dfb_convert_to_uyvy( DFBSurfacePixelFormat  format,
                           const void            *src,
                           int                    spitch,
+                          const void            *src_cb,
+                          int                    scbpitch,
+                          const void            *src_cr,
+                          int                    scrpitch,
                           int                    surface_height,
                           u32                   *dst,
                           int                    dpitch,

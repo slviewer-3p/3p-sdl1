@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __GFXCARD_H__
 #define __GFXCARD_H__
 
@@ -33,17 +37,20 @@
 
 #include <direct/modules.h>
 
+#include <fusion/call.h>
 #include <fusion/lock.h>
+#include <fusion/object.h>
+
+#include <core/coretypes.h>
 
 #include <directfb.h>
-#include <core/coretypes.h>
 
 
 typedef enum {
      CCF_CLIPPING   = 0x00000001,
      CCF_NOTRIEMU   = 0x00000002,
      CCF_READSYSMEM = 0x00000004,
-     /* CCF_WRITESYSMEM ?! */
+     CCF_WRITESYSMEM= 0x00000008,
      CCF_AUXMEMORY  = 0x00000010,
      CCF_RENDEROPTS = 0x00000020
 } CardCapabilitiesFlags;
@@ -82,7 +89,7 @@ DECLARE_MODULE_DIRECTORY( dfb_graphics_drivers );
 /*
  * Increase this number when changes result in binary incompatibility!
  */
-#define DFB_GRAPHICS_DRIVER_ABI_VERSION          34
+#define DFB_GRAPHICS_DRIVER_ABI_VERSION          35
 
 #define DFB_GRAPHICS_DRIVER_INFO_NAME_LENGTH     40
 #define DFB_GRAPHICS_DRIVER_INFO_VENDOR_LENGTH   60
@@ -244,6 +251,16 @@ typedef struct _GraphicsDeviceFuncs {
      bool (*FillTriangle)  ( void *driver_data, void *device_data,
                              DFBTriangle *tri );
 
+     bool (*FillTrapezoid) ( void *driver_data, void *device_data,
+                             DFBTrapezoid *trap );
+
+     bool (*FillQuadrangles)( void *driver_data, void *device_data,
+                              DFBPoint *points, int num );
+
+     bool (*DrawMonoGlyph)   ( void *driver_data, void *device_data,
+                               const void *glyph, int glyph_width, int glyph_height, int glyph_rowbyte, int glyph_offset,
+                               int dx, int dy, int fg_color, int bg_color, int hzoom, int vzoom );
+
      /*
       * blitting functions
       */
@@ -270,6 +287,45 @@ typedef struct _GraphicsDeviceFuncs {
       * Signal end of sequence, i.e. destination surface is consistent again.
       */
      void (*StopDrawing)( void *driver_data, void *device_data, CardState *state );
+
+
+     /*
+      * BatchBlit
+      *
+      * When driver returns false (late fallback), it may set *ret_num
+      * to the number of successful blits in case of partial execution.
+      */
+     bool (*BatchBlit)( void *driver_data, void *device_data,
+                        const DFBRectangle *rects, const DFBPoint *points,
+                        unsigned int num, unsigned int *ret_num );
+
+     /*
+      * BatchFill
+      *
+      * When driver returns false (late fallback), it may set *ret_num
+      * to the number of successful fills in case of partial execution.
+      */
+     bool (*BatchFill)( void *driver_data, void *device_data,
+                        const DFBRectangle *rects,
+                        unsigned int num, unsigned int *ret_num );
+
+     /* callbacks when a state is created or destroyed. This allows a graphics
+        driver to hold additional state. */
+     void (*StateInit)   ( void *driver_data, void *device_data, CardState *state );
+     void (*StateDestroy)( void *driver_data, void *device_data, CardState *state );
+
+     /*
+      * Calculate the amount of memory and pitch for the specified
+      * surface buffer.
+      */
+     DFBResult (*CalcBufferSize)( void *driver_data, void *device_data,
+                                  CoreSurfaceBuffer  *buffer,
+                                  int *ret_pitch, int *ret_length );
+
+     bool (*FillSpans) ( void *driver_data, void *device_data,
+                         int                     y,
+                         const DFBSpan          *spans,
+                         unsigned int            num_spans );
 } GraphicsDeviceFuncs;
 
 typedef struct {
@@ -306,9 +362,13 @@ typedef enum {
 
 DFBResult dfb_gfxcard_lock( GraphicsDeviceLockFlags flags );
 void dfb_gfxcard_unlock( void );
-void dfb_gfxcard_holdup( void );
+
+DFBResult dfb_gfxcard_flush( void );
 
 bool dfb_gfxcard_state_check( CardState *state, DFBAccelerationMask accel );
+
+void dfb_gfxcard_state_init( CardState *state );
+void dfb_gfxcard_state_destroy( CardState *state );
 
 /*
  * Signal beginning of a sequence of operations using this state.
@@ -347,6 +407,20 @@ void dfb_gfxcard_filltriangles          ( const DFBTriangle    *tris,
                                           int                   num,
                                           CardState            *state );
 
+void dfb_gfxcard_fillquadrangles        ( DFBPoint             *points,
+                                          int                   num,
+                                          CardState            *state );
+
+void dfb_gfxcard_filltrapezoids         ( const DFBTrapezoid   *traps,
+                                          int                   num,
+                                          CardState            *state );
+
+void dfb_gfxcard_draw_mono_glyphs       ( const void                   *glyph[],
+                                          const DFBMonoGlyphAttributes *attributes,
+                                          const DFBPoint               *points,
+                                          unsigned int                  num,
+                                          CardState                    *state );
+
 void dfb_gfxcard_blit                   ( DFBRectangle         *rect,
                                           int                   dx,
                                           int                   dy,
@@ -374,10 +448,20 @@ void dfb_gfxcard_stretchblit            ( DFBRectangle         *srect,
                                           DFBRectangle         *drect,
                                           CardState            *state );
 
+void dfb_gfxcard_batchstretchblit       ( DFBRectangle         *srects,
+                                          DFBRectangle         *drects,
+                                          unsigned int          num,
+                                          CardState            *state );
+
 void dfb_gfxcard_texture_triangles      ( DFBVertex            *vertices,
                                           int                   num,
                                           DFBTriangleFormation  formation,
                                           CardState            *state );
+
+
+
+
+
 
 void dfb_gfxcard_drawstring             ( const u8             *text,
                                           int                   bytes,
@@ -386,19 +470,26 @@ void dfb_gfxcard_drawstring             ( const u8             *text,
                                           int                   y,
                                           CoreFont             *font,
                                           unsigned int          layers, 
-                                          CardState            *state );
+                                          CoreGraphicsStateClient *client );
 
 void dfb_gfxcard_drawglyph              ( CoreGlyphData       **glyph,
                                           int                   x,
                                           int                   y,
                                           CoreFont             *font,
                                           unsigned int          layers, 
-                                          CardState            *state );
+                                          CoreGraphicsStateClient *client );
 
-bool dfb_gfxcard_drawstring_check_state ( CoreFont             *font,
-                                          CardState            *state );
+
+
+
+
+bool dfb_gfxcard_drawstring_check_state ( CoreFont                *font,
+                                          CardState               *state,
+                                          CoreGraphicsStateClient *client );
+
 
 DFBResult dfb_gfxcard_sync( void );
+
 void dfb_gfxcard_invalidate_state( void );
 DFBResult dfb_gfxcard_wait_serial( const CoreGraphicsSerial *serial );
 void dfb_gfxcard_flush_texture_cache( void );
@@ -473,6 +564,67 @@ void          *dfb_gfxcard_auxmemory_virtual ( CoreGraphicsDevice *device,
 /* Hook for registering additional screen(s) and layer(s) in app or lib initializing DirectFB. */
 extern void (*__DFB_CoreRegisterHook)( CoreDFB *core, CoreGraphicsDevice *device, void *ctx );
 extern void  *__DFB_CoreRegisterHookCtx;
+
+
+
+
+
+typedef struct {
+     int                      magic;
+
+     /* amount of usable memory */
+     unsigned int             videoram_length;
+     unsigned int             auxram_length;
+     unsigned int             auxram_offset;
+
+     char                    *module_name;
+
+     GraphicsDriverInfo       driver_info;
+     GraphicsDeviceInfo       device_info;
+     void                    *device_data;
+
+     FusionSkirmish           lock;
+     GraphicsDeviceLockFlags  lock_flags;
+
+     /*
+      * Points to the current state of the graphics card.
+      */
+     CardState               *state;
+     FusionID                 holder; /* Fusion ID of state owner. */
+
+     FusionObjectID           last_allocation_id;
+     DFBAccelerationMask      last_op;
+     bool                     pending_ops;
+
+     long long                ts_start;
+     long long                ts_busy;
+     long long                ts_busy_sum;
+} DFBGraphicsCoreShared;
+
+struct __DFB_DFBGraphicsCore {
+     int                        magic;
+
+     CoreDFB                   *core;
+
+     DFBGraphicsCoreShared     *shared;
+
+     DirectModuleEntry         *module;
+     const GraphicsDriverFuncs *driver_funcs;
+
+     void                      *driver_data;
+     void                      *device_data; /* copy of shared->device_data */
+
+     CardCapabilities           caps;        /* local caps */
+     CardLimitations            limits;      /* local limits */
+
+     GraphicsDeviceFuncs        funcs;
+};
+
+
+void dfb_gfxcard_update_stats( DFBGraphicsCore *card,
+                               long long        now );
+void dfb_gfxcard_switch_busy ( DFBGraphicsCore *card );
+void dfb_gfxcard_switch_idle ( DFBGraphicsCore *card );
 
 
 #endif

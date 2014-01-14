@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -46,9 +50,11 @@
 #include <direct/messages.h>
 
 
+#include <fusion/conf.h>
 #include <fusion/shmalloc.h>
 #include <fusion/reactor.h>
-#include <fusion/arena.h>
+
+#include <core/CoreInputDevice.h>
 
 #include <core/core.h>
 #include <core/coredefs.h>
@@ -65,6 +71,7 @@
 #include <core/layer_region.h>
 #include <core/layers.h>
 #include <core/input.h>
+#include <core/input_hub.h>
 #include <core/windows.h>
 #include <core/windows_internal.h>
 
@@ -130,10 +137,7 @@ typedef struct {
 
      InputDeviceKeymap            keymap;
 
-     DFBInputDeviceModifierMask   modifiers_l;
-     DFBInputDeviceModifierMask   modifiers_r;
-     DFBInputDeviceLockState      locks;
-     DFBInputDeviceButtonMask     buttons;
+     CoreInputDeviceState         state;
 
      DFBInputDeviceKeyIdentifier  last_key;      /* last key pressed */
      DFBInputDeviceKeySymbol      last_symbol;   /* last symbol pressed */
@@ -142,11 +146,11 @@ typedef struct {
      FusionReactor               *reactor;       /* event dispatcher */
      FusionSkirmish               lock;
 
-     FusionCall                   call;          /* driver call via master */
-
      unsigned int                 axis_num;
      DFBInputDeviceAxisInfo      *axis_info;
      FusionRef                    ref; /* Ref between shared device & local device */
+
+     FusionCall                   call;
 } InputDeviceShared;
 
 struct __DFB_CoreInputDevice {
@@ -161,6 +165,24 @@ struct __DFB_CoreInputDevice {
 
      CoreDFB            *core;
 };
+
+/**********************************************************************************************************************/
+
+DirectResult
+CoreInputDevice_Call( CoreInputDevice     *device,
+                      FusionCallExecFlags  flags,
+                      int                  call_arg,
+                      void                *ptr,
+                      unsigned int         length,
+                      void                *ret_ptr,
+                      unsigned int         ret_size,
+                      unsigned int        *ret_length )
+{
+     D_ASSERT( device != NULL );
+     D_ASSERT( device->shared != NULL );
+
+     return fusion_call_execute3( &device->shared->call, flags, call_arg, ptr, length, ret_ptr, ret_size, ret_length );
+}
 
 /**********************************************************************************************************************/
 
@@ -181,6 +203,8 @@ struct __DFB_DFBInputCore {
 
      DirectLink         *drivers;
      DirectLink         *devices;
+
+     CoreInputHub       *hub;
 };
 
 
@@ -303,12 +327,14 @@ static void allocate_device_keymap( CoreDFB *core, CoreInputDevice *device );
 static DFBInputDeviceKeymapEntry *get_keymap_entry( CoreInputDevice *device,
                                                     int              code );
 
-static DFBResult set_keymap_entry( CoreInputDevice           *device,
-                                   int                        code,
-                                   DFBInputDeviceKeymapEntry *entry );
+static DFBResult set_keymap_entry( CoreInputDevice                 *device,
+                                   int                              code,
+                                   const DFBInputDeviceKeymapEntry *entry );
 
 static DFBResult load_keymap( CoreInputDevice           *device,
                               char                      *filename );
+
+static DFBResult reload_keymap( CoreInputDevice *device );
 
 static DFBInputDeviceKeySymbol     lookup_keysymbol( char *symbolname );
 static DFBInputDeviceKeyIdentifier lookup_keyidentifier( char *identifiername );
@@ -437,6 +463,8 @@ dfb_input_core_initialize( CoreDFB            *core,
           goto errorExit;
      }
 
+     fusion_reactor_add_permissions( core_input->reactor, 0, FUSION_REACTOR_PERMIT_ATTACH_DETACH );
+
      /* Attach local process function to the input hot-plug reactor. */
      result = fusion_reactor_attach(
                               core_input->reactor,
@@ -448,6 +476,9 @@ dfb_input_core_initialize( CoreDFB            *core,
           goto errorExit;
      }
 #endif
+
+     if (dfb_config->input_hub_service_qid)
+          CoreInputHub_Create( dfb_config->input_hub_service_qid, &core_local->hub );
 
      init_devices( core );
 
@@ -514,7 +545,7 @@ dfb_input_core_join( CoreDFB            *core,
 
 #if FUSION_BUILD_MULTI
           /* Increase the reference counter. */
-          fusion_ref_up( &device->shared->ref, true );
+          fusion_ref_up( &device->shared->ref, false );
 #endif
 
           /* add it to the list */
@@ -576,7 +607,8 @@ dfb_input_core_shutdown( DFBInputCore *data,
           devshared = device->shared;
           D_ASSERT( devshared != NULL );
 
-          fusion_call_destroy( &devshared->call );
+          CoreInputDevice_Deinit_Dispatch( &devshared->call );
+
           fusion_skirmish_destroy( &devshared->lock );
 
           if (device->driver_data != NULL) {
@@ -593,6 +625,9 @@ dfb_input_core_shutdown( DFBInputCore *data,
                driver_data = device->driver_data;
                device->driver_data = NULL;
                driver->funcs->CloseDevice( driver_data );
+
+               if (data->hub)
+                    CoreInputHub_RemoveDevice( data->hub, device->shared->id );
           }
 
           if (!--driver->nr_devices) {
@@ -619,6 +654,9 @@ dfb_input_core_shutdown( DFBInputCore *data,
           D_FREE( device );
      }
 
+     if (data->hub)
+          CoreInputHub_Destroy( data->hub );
+
      D_MAGIC_CLEAR( data );
      D_MAGIC_CLEAR( shared );
 
@@ -629,16 +667,13 @@ static DFBResult
 dfb_input_core_leave( DFBInputCore *data,
                       bool          emergency )
 {
-     DFBInputCoreShared *shared;
-     DirectLink         *n;
-     CoreInputDevice    *device;
+     DirectLink      *n;
+     CoreInputDevice *device;
 
      D_DEBUG_AT( Core_Input, "dfb_input_core_leave( %p, %semergency )\n", data, emergency ? "" : "no " );
 
      D_MAGIC_ASSERT( data, DFBInputCore );
      D_MAGIC_ASSERT( data->shared, DFBInputCoreShared );
-
-     shared = data->shared;
 
 #if FUSION_BUILD_MULTI
      fusion_reactor_detach( core_input->reactor, &local_processing_react );
@@ -649,7 +684,7 @@ dfb_input_core_leave( DFBInputCore *data,
 
 #if FUSION_BUILD_MULTI
           /* Decrease the ref between shared device and local device. */
-          fusion_ref_down( &device->shared->ref, true );
+          fusion_ref_down( &device->shared->ref, false );
 #endif
 
           D_FREE( device );
@@ -664,16 +699,13 @@ dfb_input_core_leave( DFBInputCore *data,
 static DFBResult
 dfb_input_core_suspend( DFBInputCore *data )
 {
-     DFBInputCoreShared *shared;
-     CoreInputDevice    *device;
-     InputDriver        *driver;
+     CoreInputDevice *device;
+     InputDriver     *driver;
 
      D_DEBUG_AT( Core_Input, "dfb_input_core_suspend( %p )\n", data );
 
      D_MAGIC_ASSERT( data, DFBInputCore );
      D_MAGIC_ASSERT( data->shared, DFBInputCoreShared );
-
-     shared = data->shared;
 
      D_DEBUG_AT( Core_Input, "  -> suspending...\n" );
 
@@ -694,6 +726,8 @@ dfb_input_core_suspend( DFBInputCore *data )
 
      direct_list_foreach (device, data->devices) {
           InputDeviceShared *devshared;
+
+          (void)devshared;
           
           D_MAGIC_ASSERT( device, CoreInputDevice );
           
@@ -730,17 +764,14 @@ dfb_input_core_suspend( DFBInputCore *data )
 static DFBResult
 dfb_input_core_resume( DFBInputCore *data )
 {
-     DFBInputCoreShared *shared;
-     DFBResult           ret;
-     CoreInputDevice    *device;
-     InputDriver        *driver;
+     DFBResult        ret;
+     CoreInputDevice *device;
+     InputDriver     *driver;
 
      D_DEBUG_AT( Core_Input, "dfb_input_core_resume( %p )\n", data );
 
      D_MAGIC_ASSERT( data, DFBInputCore );
      D_MAGIC_ASSERT( data->shared, DFBInputCoreShared );
-
-     shared = data->shared;
 
      D_DEBUG_AT( Core_Input, "  -> resuming...\n" );
 
@@ -802,7 +833,11 @@ dfb_input_enumerate_devices( InputDeviceCallback         callback,
 
           /* Always match if unclassified */
           if (!dev_caps)
+#ifndef DIRECTFB_DISABLE_DEPRECATED
                dev_caps = DICAPS_ALL;
+#else
+               dev_caps = DIDCAPS_ALL;
+#endif
 
           if ((dev_caps & caps) && callback( device, ctx ) == DFENUM_CANCEL)
                break;
@@ -1036,6 +1071,9 @@ dfb_input_dispatch( CoreInputDevice *device, DFBInputEvent *event )
           D_DEBUG_AT( Core_InputEvt, "  => GLOBAL\n" );
 #endif
 
+     if (core_local->hub)
+          CoreInputHub_DispatchEvent( core_local->hub, device->shared->id, event );
+
      if (core_input_filter( device, event ))
           D_DEBUG_AT( Core_InputEvt, "  ****>> FILTERED\n" );
      else
@@ -1120,9 +1158,9 @@ dfb_input_device_get_keymap_entry( CoreInputDevice           *device,
 }
 
 DFBResult
-dfb_input_device_set_keymap_entry( CoreInputDevice           *device,
-                                   int                        keycode,
-                                   DFBInputDeviceKeymapEntry *entry )
+dfb_input_device_set_keymap_entry( CoreInputDevice                 *device,
+                                   int                              keycode,
+                                   const DFBInputDeviceKeymapEntry *entry )
 {
      D_MAGIC_ASSERT( device, CoreInputDevice );
 
@@ -1149,22 +1187,52 @@ dfb_input_device_load_keymap   ( CoreInputDevice           *device,
 DFBResult
 dfb_input_device_reload_keymap( CoreInputDevice *device )
 {
-     int                ret;
      InputDeviceShared *shared;
 
      D_MAGIC_ASSERT( device, CoreInputDevice );
 
      shared = device->shared;
-
      D_ASSERT( shared != NULL );
 
      D_INFO( "DirectFB/Input: Reloading keymap for '%s' [0x%02x]...\n",
              shared->device_info.desc.name, shared->id );
 
-     if (fusion_call_execute( &shared->call, FCEF_NONE, CIDC_RELOAD_KEYMAP, NULL, &ret ))
-          return DFB_FUSION;
+     return reload_keymap( device );
+}
 
-     return ret;
+DFBResult
+dfb_input_device_get_state( CoreInputDevice      *device,
+                            CoreInputDeviceState *ret_state )
+{
+     InputDeviceShared *shared;
+
+     D_MAGIC_ASSERT( device, CoreInputDevice );
+
+     shared = device->shared;
+     D_ASSERT( shared != NULL );
+
+     *ret_state = shared->state;
+
+     return DFB_OK;
+}
+
+DFBResult
+dfb_input_device_set_configuration( CoreInputDevice            *device,
+                                    const DFBInputDeviceConfig *config )
+{
+     InputDriver *driver;
+
+     D_DEBUG_AT( Core_Input, "%s( %p, %p )\n", __FUNCTION__, device, config );
+
+     D_MAGIC_ASSERT( device, CoreInputDevice );
+
+     driver = device->driver;
+     D_ASSERT( driver != NULL );
+
+     if (!driver->funcs->SetConfiguration)
+          return DFB_UNSUPPORTED;
+
+     return driver->funcs->SetConfiguration( device, device->driver_data, config );
 }
 
 /** internal **/
@@ -1188,6 +1256,9 @@ input_add_device( CoreInputDevice *device )
      direct_list_append( &core_local->devices, &device->link );
 
      core_input->devices[ core_input->num++ ] = device->shared;
+
+     if (core_local->hub)
+          CoreInputHub_AddDevice( core_local->hub, device->shared->id, &device->shared->device_info.desc );
 }
 
 static void
@@ -1278,34 +1349,6 @@ reload_keymap( CoreInputDevice *device )
              shared->device_info.desc.name, shared->id );
 
      return DFB_OK;
-}
-
-static FusionCallHandlerResult
-input_device_call_handler( int           caller,   /* fusion id of the caller */
-                           int           call_arg, /* optional call parameter */
-                           void         *call_ptr, /* optional call parameter */
-                           void         *ctx,      /* optional handler context */
-                           unsigned int  serial,
-                           int          *ret_val )
-{
-     CoreInputDeviceCommand  command = call_arg;
-     CoreInputDevice        *device  = ctx;
-
-     D_DEBUG_AT( Core_Input, "%s( %d, %d, %p, %p )\n", __FUNCTION__, caller, call_arg, call_ptr, ctx );
-
-     D_MAGIC_ASSERT( device, CoreInputDevice );
-
-     switch (command) {
-          case CIDC_RELOAD_KEYMAP:
-               *ret_val = reload_keymap( device );
-               break;
-
-          default:
-               D_BUG( "unknown Core Input Device Command '%d'", command );
-               *ret_val = DFB_BUG;
-     }
-
-     return FCHR_RETURN;
 }
 
 static DFBResult
@@ -1460,15 +1503,19 @@ init_devices( CoreDFB *core )
                     snprintf( buf, sizeof(buf), "%s", device_info.desc.name );
 
                /* init skirmish */
-               fusion_skirmish_init( &shared->lock, buf, dfb_core_world(core) );
+               fusion_skirmish_init2( &shared->lock, buf, dfb_core_world(core), fusion_config->secure_fusion );
 
                /* create reactor */
                shared->reactor = fusion_reactor_new( sizeof(DFBInputEvent), buf, dfb_core_world(core) );
 
+               fusion_reactor_direct( shared->reactor, false );
+
+               fusion_reactor_add_permissions( shared->reactor, 0, FUSION_REACTOR_PERMIT_ATTACH_DETACH );
+
                fusion_reactor_set_lock( shared->reactor, &shared->lock );
 
                /* init call */
-               fusion_call_init( &shared->call, input_device_call_handler, device, dfb_core_world(core) );
+               CoreInputDevice_Init_Dispatch( core, device, &shared->call );
 
                /* initialize shared data */
                shared->id          = make_id(device_info.prefered_id);
@@ -1491,8 +1538,10 @@ init_devices( CoreDFB *core )
                snprintf( buf, sizeof(buf), "Ref of input device(%d)", shared->id );
                fusion_ref_init( &shared->ref, buf, dfb_core_world(core) );
 
+               fusion_ref_add_permissions( &shared->ref, 0, FUSION_REF_PERMIT_REF_UNREF_LOCAL );
+
                /* Increase reference counter. */
-               fusion_ref_up( &shared->ref, true );
+               fusion_ref_up( &shared->ref, false );
 #endif
 
                if (device_info.desc.min_keycode > device_info.desc.max_keycode) {
@@ -1594,7 +1643,7 @@ dfb_input_create_device(int device_index, CoreDFB *core_in, void *driver_in)
      snprintf( buf, sizeof(buf), "%s (%d)", device_info.desc.name, device_index);
 
      /* init skirmish */
-     result = fusion_skirmish_init( &shared->lock, buf, dfb_core_world(device->core) );
+     result = fusion_skirmish_init2( &shared->lock, buf, dfb_core_world(device->core), fusion_config->secure_fusion );
      if (result) {
           funcs->CloseDevice( driver_data );
           SHFREE( pool, shared );
@@ -1620,13 +1669,14 @@ dfb_input_create_device(int device_index, CoreDFB *core_in, void *driver_in)
           goto errorExit;
      }
 
+     fusion_reactor_direct( shared->reactor, false );
+
+     fusion_reactor_add_permissions( shared->reactor, 0, FUSION_REACTOR_PERMIT_ATTACH_DETACH );
+
      fusion_reactor_set_lock( shared->reactor, &shared->lock );
 
      /* init call */
-     fusion_call_init( &shared->call,
-                       input_device_call_handler,
-                       device,
-                       dfb_core_world(device->core) );
+     CoreInputDevice_Init_Dispatch( device->core, device, &shared->call );
 
      /* initialize shared data */
      shared->id          = make_id(device_info.prefered_id);
@@ -1647,7 +1697,8 @@ dfb_input_create_device(int device_index, CoreDFB *core_in, void *driver_in)
 #if FUSION_BUILD_MULTI
      snprintf( buf, sizeof(buf), "Ref of input device(%d)", shared->id);
      fusion_ref_init( &shared->ref, buf, dfb_core_world(core_in));
-     fusion_ref_up( &shared->ref, true );
+     fusion_ref_add_permissions( &shared->ref, 0, FUSION_REF_PERMIT_REF_UNREF_LOCAL );
+     fusion_ref_up( &shared->ref, false );
 #endif
 
      if (device_info.desc.min_keycode > device_info.desc.max_keycode) {
@@ -1756,6 +1807,9 @@ dfb_input_remove_device(int device_index, void *driver_in)
 
      device->driver->funcs->CloseDevice( device->driver_data );
 
+     if (core_local->hub)
+          CoreInputHub_RemoveDevice( core_local->hub, device->shared->id );
+
      device->driver->nr_devices--;
 
      InputDeviceHotplugEvent    message;
@@ -1801,7 +1855,8 @@ dfb_input_remove_device(int device_index, void *driver_in)
 
      core_input->num--;
 
-     fusion_call_destroy( &shared->call );
+     CoreInputDevice_Deinit_Dispatch( &shared->call );
+
      fusion_skirmish_destroy( &shared->lock );
 
      fusion_reactor_free( shared->reactor );
@@ -1847,7 +1902,7 @@ add_device_into_local_list(int dev_id)
 
 #if FUSION_BUILD_MULTI
                /* Increase the reference counter. */
-               fusion_ref_up( &device->shared->ref, true );
+               fusion_ref_up( &device->shared->ref, false );
 #endif
 
                /* add it to the list */
@@ -1906,7 +1961,7 @@ local_processing_hotplug( const void *msg_data, void *ctx )
 
 #if FUSION_BUILD_MULTI
                /* Decrease reference counter. */
-               fusion_ref_down( &device->shared->ref, true );
+               fusion_ref_down( &device->shared->ref, false );
 #endif
                D_MAGIC_CLEAR( device );
                D_FREE(device);
@@ -1982,9 +2037,9 @@ get_keymap_entry( CoreInputDevice *device,
 
 /* replace a single keymap entry with the code-entry pair */
 static DFBResult
-set_keymap_entry( CoreInputDevice           *device,
-                  int                        code,
-                  DFBInputDeviceKeymapEntry *entry )
+set_keymap_entry( CoreInputDevice                 *device,
+                  int                              code,
+                  const DFBInputDeviceKeymapEntry *entry )
 {
      InputDeviceKeymap         *map;
 
@@ -2095,7 +2150,7 @@ load_keymap( CoreInputDevice           *device,
                /* fall through */
           }
 
-          ret = set_keymap_entry( device, keycode, &entry );
+          ret = CoreInputDevice_SetKeymapEntry( device, keycode, &entry );
           if( ret )
                return ret;
      }
@@ -2183,7 +2238,7 @@ lookup_from_table( CoreInputDevice    *device,
           DFBInputDeviceKeymapSymbolIndex index =
                (event->modifiers & DIMM_ALTGR) ? DIKSI_ALT : DIKSI_BASE;
 
-          if ((event->modifiers & DIMM_SHIFT) || (entry->locks & event->locks))
+          if (!(event->modifiers & DIMM_SHIFT) ^ !(entry->locks & event->locks))
                index++;
 
           /* don't modify modifiers */
@@ -2292,10 +2347,10 @@ fixup_key_event( CoreInputDevice *device, DFBInputEvent *event )
       * Use cached values for modifiers/locks if they are missing.
       */
      if (missing & DIEF_MODIFIERS)
-          event->modifiers = shared->modifiers_l | shared->modifiers_r;
+          event->modifiers = shared->state.modifiers_l | shared->state.modifiers_r;
 
      if (missing & DIEF_LOCKS)
-          event->locks = shared->locks;
+          event->locks = shared->state.locks;
 
      /*
       * With translation table
@@ -2373,40 +2428,40 @@ fixup_key_event( CoreInputDevice *device, DFBInputEvent *event )
           if (event->type == DIET_KEYPRESS) {
                switch (event->key_id) {
                     case DIKI_SHIFT_L:
-                         shared->modifiers_l |= DIMM_SHIFT;
+                         shared->state.modifiers_l |= DIMM_SHIFT;
                          break;
                     case DIKI_SHIFT_R:
-                         shared->modifiers_r |= DIMM_SHIFT;
+                         shared->state.modifiers_r |= DIMM_SHIFT;
                          break;
                     case DIKI_CONTROL_L:
-                         shared->modifiers_l |= DIMM_CONTROL;
+                         shared->state.modifiers_l |= DIMM_CONTROL;
                          break;
                     case DIKI_CONTROL_R:
-                         shared->modifiers_r |= DIMM_CONTROL;
+                         shared->state.modifiers_r |= DIMM_CONTROL;
                          break;
                     case DIKI_ALT_L:
-                         shared->modifiers_l |= DIMM_ALT;
+                         shared->state.modifiers_l |= DIMM_ALT;
                          break;
                     case DIKI_ALT_R:
-                         shared->modifiers_r |= (event->key_symbol == DIKS_ALTGR) ? DIMM_ALTGR : DIMM_ALT;
+                         shared->state.modifiers_r |= (event->key_symbol == DIKS_ALTGR) ? DIMM_ALTGR : DIMM_ALT;
                          break;
                     case DIKI_META_L:
-                         shared->modifiers_l |= DIMM_META;
+                         shared->state.modifiers_l |= DIMM_META;
                          break;
                     case DIKI_META_R:
-                         shared->modifiers_r |= DIMM_META;
+                         shared->state.modifiers_r |= DIMM_META;
                          break;
                     case DIKI_SUPER_L:
-                         shared->modifiers_l |= DIMM_SUPER;
+                         shared->state.modifiers_l |= DIMM_SUPER;
                          break;
                     case DIKI_SUPER_R:
-                         shared->modifiers_r |= DIMM_SUPER;
+                         shared->state.modifiers_r |= DIMM_SUPER;
                          break;
                     case DIKI_HYPER_L:
-                         shared->modifiers_l |= DIMM_HYPER;
+                         shared->state.modifiers_l |= DIMM_HYPER;
                          break;
                     case DIKI_HYPER_R:
-                         shared->modifiers_r |= DIMM_HYPER;
+                         shared->state.modifiers_r |= DIMM_HYPER;
                          break;
                     default:
                          ;
@@ -2415,40 +2470,40 @@ fixup_key_event( CoreInputDevice *device, DFBInputEvent *event )
           else {
                switch (event->key_id) {
                     case DIKI_SHIFT_L:
-                         shared->modifiers_l &= ~DIMM_SHIFT;
+                         shared->state.modifiers_l &= ~DIMM_SHIFT;
                          break;
                     case DIKI_SHIFT_R:
-                         shared->modifiers_r &= ~DIMM_SHIFT;
+                         shared->state.modifiers_r &= ~DIMM_SHIFT;
                          break;
                     case DIKI_CONTROL_L:
-                         shared->modifiers_l &= ~DIMM_CONTROL;
+                         shared->state.modifiers_l &= ~DIMM_CONTROL;
                          break;
                     case DIKI_CONTROL_R:
-                         shared->modifiers_r &= ~DIMM_CONTROL;
+                         shared->state.modifiers_r &= ~DIMM_CONTROL;
                          break;
                     case DIKI_ALT_L:
-                         shared->modifiers_l &= ~DIMM_ALT;
+                         shared->state.modifiers_l &= ~DIMM_ALT;
                          break;
                     case DIKI_ALT_R:
-                         shared->modifiers_r &= (event->key_symbol == DIKS_ALTGR) ? ~DIMM_ALTGR : ~DIMM_ALT;
+                         shared->state.modifiers_r &= (event->key_symbol == DIKS_ALTGR) ? ~DIMM_ALTGR : ~DIMM_ALT;
                          break;
                     case DIKI_META_L:
-                         shared->modifiers_l &= ~DIMM_META;
+                         shared->state.modifiers_l &= ~DIMM_META;
                          break;
                     case DIKI_META_R:
-                         shared->modifiers_r &= ~DIMM_META;
+                         shared->state.modifiers_r &= ~DIMM_META;
                          break;
                     case DIKI_SUPER_L:
-                         shared->modifiers_l &= ~DIMM_SUPER;
+                         shared->state.modifiers_l &= ~DIMM_SUPER;
                          break;
                     case DIKI_SUPER_R:
-                         shared->modifiers_r &= ~DIMM_SUPER;
+                         shared->state.modifiers_r &= ~DIMM_SUPER;
                          break;
                     case DIKI_HYPER_L:
-                         shared->modifiers_l &= ~DIMM_HYPER;
+                         shared->state.modifiers_l &= ~DIMM_HYPER;
                          break;
                     case DIKI_HYPER_R:
-                         shared->modifiers_r &= ~DIMM_HYPER;
+                         shared->state.modifiers_r &= ~DIMM_HYPER;
                          break;
                     default:
                          ;
@@ -2457,7 +2512,7 @@ fixup_key_event( CoreInputDevice *device, DFBInputEvent *event )
 
           /* write back to event */
           if (missing & DIEF_MODIFIERS)
-               event->modifiers = shared->modifiers_l | shared->modifiers_r;
+               event->modifiers = shared->state.modifiers_l | shared->state.modifiers_r;
      }
 
      /*
@@ -2469,13 +2524,13 @@ fixup_key_event( CoreInputDevice *device, DFBInputEvent *event )
           if (shared->first_press || shared->last_key != event->key_id) {
               switch (event->key_id) {
                    case DIKI_CAPS_LOCK:
-                        shared->locks ^= DILS_CAPS;
+                        shared->state.locks ^= DILS_CAPS;
                         break;
                    case DIKI_NUM_LOCK:
-                        shared->locks ^= DILS_NUM;
+                        shared->state.locks ^= DILS_NUM;
                         break;
                    case DIKI_SCROLL_LOCK:
-                        shared->locks ^= DILS_SCROLL;
+                        shared->state.locks ^= DILS_SCROLL;
                         break;
                    default:
                         ;
@@ -2484,7 +2539,7 @@ fixup_key_event( CoreInputDevice *device, DFBInputEvent *event )
 
           /* write back to event */
           if (missing & DIEF_LOCKS)
-               event->locks = shared->locks;
+               event->locks = shared->state.locks;
 
           /* store last pressed key */
           shared->last_key = event->key_id;
@@ -2527,15 +2582,15 @@ fixup_mouse_event( CoreInputDevice *device, DFBInputEvent *event )
      D_MAGIC_ASSERT( device, CoreInputDevice );
 
      if (event->flags & DIEF_BUTTONS) {
-          shared->buttons = event->buttons;
+          shared->state.buttons = event->buttons;
      }
      else {
           switch (event->type) {
                case DIET_BUTTONPRESS:
-                    shared->buttons |= (1 << event->button);
+                    shared->state.buttons |= (1 << event->button);
                     break;
                case DIET_BUTTONRELEASE:
-                    shared->buttons &= ~(1 << event->button);
+                    shared->state.buttons &= ~(1 << event->button);
                     break;
                default:
                     ;
@@ -2544,7 +2599,7 @@ fixup_mouse_event( CoreInputDevice *device, DFBInputEvent *event )
           /* Add missing flag */
           event->flags |= DIEF_BUTTONS;
 
-          event->buttons = shared->buttons;
+          event->buttons = shared->state.buttons;
      }
 
      switch (event->type) {
@@ -2687,7 +2742,7 @@ id_to_symbol( DFBInputDeviceKeyIdentifier id,
               DFBInputDeviceModifierMask  modifiers,
               DFBInputDeviceLockState     locks )
 {
-     bool shift = (modifiers & DIMM_SHIFT) || (locks & DILS_CAPS);
+     bool shift = !(modifiers & DIMM_SHIFT) ^ !(locks & DILS_CAPS);
 
      if (id >= DIKI_A && id <= DIKI_Z)
           return (shift ? DIKS_CAPITAL_A : DIKS_SMALL_A) + id - DIKI_A;
@@ -2874,46 +2929,46 @@ flush_keys( CoreInputDevice *device )
 {
      D_MAGIC_ASSERT( device, CoreInputDevice );
 
-     if (device->shared->modifiers_l) {
-          if (device->shared->modifiers_l & DIMM_ALT)
+     if (device->shared->state.modifiers_l) {
+          if (device->shared->state.modifiers_l & DIMM_ALT)
                release_key( device, DIKI_ALT_L );
 
-          if (device->shared->modifiers_l & DIMM_CONTROL)
+          if (device->shared->state.modifiers_l & DIMM_CONTROL)
                release_key( device, DIKI_CONTROL_L );
 
-          if (device->shared->modifiers_l & DIMM_HYPER)
+          if (device->shared->state.modifiers_l & DIMM_HYPER)
                release_key( device, DIKI_HYPER_L );
 
-          if (device->shared->modifiers_l & DIMM_META)
+          if (device->shared->state.modifiers_l & DIMM_META)
                release_key( device, DIKI_META_L );
 
-          if (device->shared->modifiers_l & DIMM_SHIFT)
+          if (device->shared->state.modifiers_l & DIMM_SHIFT)
                release_key( device, DIKI_SHIFT_L );
 
-          if (device->shared->modifiers_l & DIMM_SUPER)
+          if (device->shared->state.modifiers_l & DIMM_SUPER)
                release_key( device, DIKI_SUPER_L );
      }
 
-     if (device->shared->modifiers_r) {
-          if (device->shared->modifiers_r & DIMM_ALTGR)
+     if (device->shared->state.modifiers_r) {
+          if (device->shared->state.modifiers_r & DIMM_ALTGR)
                release_key( device, DIKS_ALTGR );
 
-          if (device->shared->modifiers_r & DIMM_ALT)
+          if (device->shared->state.modifiers_r & DIMM_ALT)
                release_key( device, DIKI_ALT_R );
 
-          if (device->shared->modifiers_r & DIMM_CONTROL)
+          if (device->shared->state.modifiers_r & DIMM_CONTROL)
                release_key( device, DIKI_CONTROL_R );
 
-          if (device->shared->modifiers_r & DIMM_HYPER)
+          if (device->shared->state.modifiers_r & DIMM_HYPER)
                release_key( device, DIKI_HYPER_R );
 
-          if (device->shared->modifiers_r & DIMM_META)
+          if (device->shared->state.modifiers_r & DIMM_META)
                release_key( device, DIKI_META_R );
 
-          if (device->shared->modifiers_r & DIMM_SHIFT)
+          if (device->shared->state.modifiers_r & DIMM_SHIFT)
                release_key( device, DIKI_SHIFT_R );
 
-          if (device->shared->modifiers_r & DIMM_SUPER)
+          if (device->shared->state.modifiers_r & DIMM_SUPER)
                release_key( device, DIKI_SUPER_R );
      }
 }
@@ -3001,7 +3056,7 @@ core_input_filter( CoreInputDevice *device, DFBInputEvent *event )
                          dfb_layer_context_unref( context );
 
 #else
-                         kill( 0, SIGINT );
+                         direct_kill( 0, SIGINT );
 #endif
 
                          return true;

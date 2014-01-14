@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -66,6 +70,7 @@ typedef struct {
 
      IDirectFBPalette    *real;
 
+     VoodooInstanceID     self;
      VoodooInstanceID     super;
 } IDirectFBPalette_Dispatcher_data;
 
@@ -74,7 +79,11 @@ typedef struct {
 static void
 IDirectFBPalette_Dispatcher_Destruct( IDirectFBPalette *thiz )
 {
+     IDirectFBPalette_Dispatcher_data *data = thiz->priv;
+
      D_DEBUG( "%s (%p)\n", __FUNCTION__, thiz );
+
+     data->real->Release( data->real );
 
      DIRECT_DEALLOCATE_INTERFACE( thiz );
 }
@@ -167,7 +176,7 @@ IDirectFBPalette_Dispatcher_FindBestMatch( IDirectFBPalette *thiz,
 
 static DFBResult
 IDirectFBPalette_Dispatcher_CreateCopy( IDirectFBPalette  *thiz,
-                                        IDirectFBPalette **interface )
+                                        IDirectFBPalette **interface_ptr )
 {
      DIRECT_INTERFACE_GET_DATA(IDirectFBPalette_Dispatcher)
 
@@ -177,6 +186,15 @@ IDirectFBPalette_Dispatcher_CreateCopy( IDirectFBPalette  *thiz,
 }
 
 /**************************************************************************************************/
+
+static DirectResult
+Dispatch_Release( IDirectFBPalette *thiz, IDirectFBPalette *real,
+                  VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DIRECT_INTERFACE_GET_DATA(IDirectFBPalette_Dispatcher)
+
+     return voodoo_manager_unregister_local( manager, data->self );
+}
 
 static DirectResult
 Dispatch_GetCapabilities( IDirectFBPalette *thiz, IDirectFBPalette *real,
@@ -258,20 +276,26 @@ Dispatch_GetEntries( IDirectFBPalette *thiz, IDirectFBPalette *real,
      VOODOO_PARSER_GET_UINT( parser, offset );
      VOODOO_PARSER_END( parser );
 
-     entries = alloca( num_entries * sizeof(DFBColor) );
+     entries = D_MALLOC( num_entries * sizeof(DFBColor) );
      if (!entries) {
           D_WARN( "out of memory" );
           return DFB_NOSYSTEMMEMORY;
      }
 
      ret = real->GetEntries( real, entries, num_entries, offset );
-     if (ret)
+     if (ret) {
+          D_FREE( entries );
           return ret;
+     }
 
-     return voodoo_manager_respond( manager, true, msg->header.serial,
-                                    DFB_OK, VOODOO_INSTANCE_NONE,
-                                    VMBT_DATA, num_entries * sizeof(DFBColor), entries,
-                                    VMBT_NONE );
+     ret = voodoo_manager_respond( manager, true, msg->header.serial,
+                                   DFB_OK, VOODOO_INSTANCE_NONE,
+                                   VMBT_DATA, num_entries * sizeof(DFBColor), entries,
+                                   VMBT_NONE );
+
+     D_FREE( entries );
+
+     return ret;
 }
 
 static DirectResult
@@ -317,6 +341,9 @@ Dispatch( void *dispatcher, void *real, VoodooManager *manager, VoodooRequestMes
               "Handling request for instance %u with method %u...\n", msg->instance, msg->method );
 
      switch (msg->method) {
+          case IDIRECTFBPALETTE_METHOD_ID_Release:
+               return Dispatch_Release( dispatcher, real, manager, msg );
+
           case IDIRECTFBPALETTE_METHOD_ID_GetCapabilities:
                return Dispatch_GetCapabilities( dispatcher, real, manager, msg );
 
@@ -360,7 +387,7 @@ Construct( IDirectFBPalette *thiz,
 
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBPalette_Dispatcher)
 
-     ret = voodoo_manager_register_local( manager, false, thiz, real, Dispatch, ret_instance );
+     ret = voodoo_manager_register_local( manager, super, thiz, real, Dispatch, ret_instance );
      if (ret) {
           DIRECT_DEALLOCATE_INTERFACE( thiz );
           return ret;
@@ -368,6 +395,7 @@ Construct( IDirectFBPalette *thiz,
 
      data->ref   = 1;
      data->real  = real;
+     data->self  = *ret_instance;
      data->super = super;
 
      thiz->AddRef          = IDirectFBPalette_Dispatcher_AddRef;

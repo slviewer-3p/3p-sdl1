@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __FUSION__SHM__SHM_INTERNAL_H__
 #define __FUSION__SHM__SHM_INTERNAL_H__
@@ -58,7 +62,6 @@ struct __Fusion_FusionSHMPool {
 
      int                  pool_id;      /* The pool's ID within the world. */
 
-     int                  fd;           /* File descriptor of shared memory file. */
      char                *filename;     /* Name of the shared memory file. */
 };
 
@@ -233,6 +236,8 @@ struct __shmalloc_heap {
 
      /* Back pointer to shared memory pool. */
      FusionSHMPoolShared *pool;
+
+     char filename[FUSION_SHM_TMPFS_PATH_NAME_LEN+32];
 };
 
 
@@ -247,14 +252,13 @@ DirectResult __shmalloc_init_heap( FusionSHM     *shm,
                                    const char    *filename,
                                    void          *addr_base,
                                    int            space,
-                                   int           *ret_fd,
                                    int           *ret_size );
 
 DirectResult __shmalloc_join_heap( FusionSHM     *shm,
                                    const char    *filename,
                                    void          *addr_base,
                                    int            size,
-                                   int           *ret_fd );
+                                   bool           write );
 
 void        *__shmalloc_brk      ( shmalloc_heap *heap,
                                    int            increment );

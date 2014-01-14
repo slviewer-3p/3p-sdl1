@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
@@ -38,8 +42,8 @@
 
 #include <core/fonts.h>
 #include <core/gfxcard.h>
-#include <core/surface.h>
-#include <core/surface_buffer.h>
+
+#include <core/CoreSurface.h>
 
 #include <gfx/convert.h>
 
@@ -59,11 +63,18 @@
 #include FT_GLYPH_H
 
 #ifndef FT_LOAD_TARGET_MONO
-    /* FT_LOAD_TARGET_MONO was added in FreeType-2.1.3, we have to use (less good)
-       FT_LOAD_MONOCHROME with older versions. Make it an alias for code simplicity. */
+    /* FT_LOAD_TARGET_MONO was added in FreeType-2.1.3. We have to use
+       (less good) FT_LOAD_MONOCHROME with older versions. Make it an
+       alias for code simplicity. */
     #define FT_LOAD_TARGET_MONO FT_LOAD_MONOCHROME
 #endif
 
+#ifndef FT_LOAD_FORCE_AUTOHINT
+    #define FT_LOAD_FORCE_AUTOHINT 0
+#endif
+#ifndef FT_LOAD_TARGET_LIGHT
+    #define FT_LOAD_TARGET_LIGHT 0
+#endif
 
 static DFBResult
 Probe( IDirectFBFont_ProbeContext *ctx );
@@ -102,9 +113,14 @@ typedef struct {
      int          fixed_advance;
      bool         fixed_clip;
      unsigned int indices[256];
+     int          outline_radius;
+     int          outline_opacity;
+     float        up_unit_x;     /* unit vector pointing 'up' in for */
+     float        up_unit_y;     /* this font's rotation             */
 } FT2ImplData;
 
 typedef struct {
+     bool        initialised;
      signed char x;
      signed char y;
 } KerningCacheEntry;
@@ -292,238 +308,41 @@ render_glyph( CoreFont      *thiz,
      info->left =   face->glyph->bitmap_left - thiz->ascender*thiz->up_unit_x;
      info->top  = - face->glyph->bitmap_top  - thiz->ascender*thiz->up_unit_y;
 
-     if (data->fixed_clip) {
-          while (info->left + info->width > data->fixed_advance)
-               info->left--;
-
-          if (info->left < 0)
-               info->left = 0;
-
-          if (info->width > data->fixed_advance)
-               info->width = data->fixed_advance;
-     }
-
-     src = face->glyph->bitmap.buffer;
-     lock.addr += DFB_BYTES_PER_LINE(surface->config.format, info->start);
-
-     for (y=0; y < info->height; y++) {
-          int  i, j, n;
-          u8  *dst8  = lock.addr;
-          u16 *dst16 = lock.addr;
-          u32 *dst32 = lock.addr;
+     if (info->layer == 1 && info->width > 0 && info->height > 0) {
+          int   xoffset, yoffset;
+          void *addr;
+          void *blurred = NULL;
+          int   radius  = data->outline_radius;
 
           switch (face->glyph->bitmap.pixel_mode) {
                case ft_pixel_mode_grays:
-                    switch (surface->config.format) {
-                         case DSPF_ARGB:
-                              if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
-                                   for (i=0; i<info->width; i++)
-                                        dst32[i] = src[i] * 0x01010101;
-                              }
-                              else
-                                   for (i=0; i<info->width; i++)
-                                        dst32[i] = (src[i] << 24) | 0xFFFFFF;
-                              break;
-                         case DSPF_AiRGB:
-                              for (i=0; i<info->width; i++)
-                                   dst32[i] = ((src[i] ^ 0xFF) << 24) | 0xFFFFFF;
-                              break;
-                         case DSPF_ARGB8565:
-                              for (i = 0, j = -1; i < info->width; ++i) {
-                                  u32 d;
-                                  if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
-                                       d = src[i] * 0x01010101;
-                                       d = ARGB_TO_ARGB8565 (d);
-                                  }
-                                  else
-                                       d = (src[i] << 16) | 0xFFFF;
-#ifdef WORDS_BIGENDIAN
-                                   dst8[++j] = (d >> 16) & 0xff;
-                                   dst8[++j] = (d >>  8) & 0xff;
-                                   dst8[++j] = (d >>  0) & 0xff;
-#else
-                                   dst8[++j] = (d >>  0) & 0xff;
-                                   dst8[++j] = (d >>  8) & 0xff;
-                                   dst8[++j] = (d >> 16) & 0xff;
-#endif
-                              }
-                              break;
-                         case DSPF_ARGB4444:
-                         case DSPF_RGBA4444:
-                              if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
-                                   for (i=0; i<info->width; i++)
-                                        dst16[i] = (src[i] >> 4) * 0x1111;
-                              }
-                              else {
-                                   if( surface->config.format == DSPF_ARGB4444 ) {
-                                        for (i=0; i<info->width; i++)
-                                             dst16[i] = (src[i] << 8) | 0x0FFF;
-                                   } else {
-                                        for (i=0; i<info->width; i++)
-                                             dst16[i] = (src[i] >> 4) | 0xFFF0;
+                    blurred = D_CALLOC( 1, (info->width + radius) * (info->height + radius) );
+                    if (blurred) {
+                         for (yoffset=0; yoffset<radius; yoffset++) {
+                              for (xoffset=0; xoffset<radius; xoffset++) {
+                                   src = face->glyph->bitmap.buffer;
+
+                                   for (y=0; y < info->height; y++) {
+                                        int  i;
+                                        u8  *dst8 = blurred + xoffset + (y + yoffset) * (info->width + radius);
+
+                                        for (i=0; i<info->width; i++) {
+                                             int val = dst8[i] + src[i]/radius;
+
+                                             dst8[i] = (val < 255) ? val : 255;
+                                        }
+
+                                        src += face->glyph->bitmap.pitch;
                                    }
                               }
-                              break;
-                         case DSPF_ARGB2554:
-                              for (i=0; i<info->width; i++)
-                                   dst16[i] = (src[i] << 8) | 0x3FFF;
-                              break;
-                         case DSPF_ARGB1555:
-                              if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
-                                   for (i=0; i<info->width; i++) {
-                                        unsigned short x = src[i] >> 3;
-                                        dst16[i] = ((src[i] & 0x80) << 8) |
-                                             (x << 10) | (x << 5) | x;
-                                   }
-                              }
-                              else {
-                                   for (i=0; i<info->width; i++)
-                                        dst16[i] = (src[i] << 8) | 0x7FFF;
-                              }
-                              break;
-                         case DSPF_RGBA5551:
-                              if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
-                                   for (i=0; i<info->width; i++) {
-                                        unsigned short x = src[i] >> 3;
-                                        dst16[i] =  (x << 11) | (x << 6) | (x << 1) |
-                                             (src[i] >> 7);
-                                   }
-                              }
-                              else {
-                                   for (i=0; i<info->width; i++)
-                                        dst16[i] = 0xFFFE | (src[i] >> 7);
-                              }
-                              break;
-                         case DSPF_A8:
-                              direct_memcpy( lock.addr, src, info->width );
-                              break;
-                         case DSPF_A4:
-                              for (i=0, j=0; i<info->width; i+=2, j++)
-                                   dst8[j] = (src[i] & 0xF0) | (src[i+1] >> 4);
-                              break;
-                         case DSPF_A1:
-                              for (i=0, j=0; i < info->width; ++j) {
-                                   register u8 p = 0;
-
-                                   for (n=0; n<8 && i<info->width; ++i, ++n)
-                                        p |= (src[i] & 0x80) >> n;
-
-                                   dst8[j] = p;
-                              }
-                              break;
-                         case DSPF_A1_LSB:
-                              for (i=0, j=0; i < info->width; ++j) {
-                                   register u8 p = 0;
-
-                                   for (n=0; n<8 && i<info->width; ++i, ++n)
-                                        p |= (src[i] & 0x80) >> (7-n);
-
-                                   dst8[j] = p;
-                              }
-                              break;
-                         case DSPF_LUT2:
-                              for (i=0, j=0; i < info->width; ++j) {
-                                   register u8 p = 0;
-
-                                   for (n=0; n<8 && i<info->width; ++i, n+=2)
-                                        p |= (src[i] & 0xC0) >> n;
-
-                                   dst8[j] = p;
-                              }
-                              break;
-                         default:
-                              D_UNIMPLEMENTED();
-                              break;
+                         }
                     }
+                    else
+                         D_OOM();
                     break;
 
                case ft_pixel_mode_mono:
-                    switch (surface->config.format) {
-                         case DSPF_ARGB:
-                              for (i=0; i<info->width; i++)
-                                   dst32[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
-                                                0xFF : 0x00) << 24) | 0xFFFFFF;
-                              break;
-                         case DSPF_AiRGB:
-                              for (i=0; i<info->width; i++)
-                                   dst32[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
-                                                0x00 : 0xFF) << 24) | 0xFFFFFF;
-                              break;
-                         case DSPF_ARGB8565:
-                              for (i = 0, j = -1; i < info->width; ++i) {
-                                   u32 d;
-                                   if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
-                                        d = ((src[i>>3] & (1<<(7-(i%8)))) ?
-                                             0xffffff : 0x000000);
-                                   }
-                                   else
-                                       d = (((src[i>>3] & (1<<(7-(i%8)))) ?
-                                             0xff : 0x00) << 16) | 0xffff;
-#ifdef WORDS_BIGENDIAN
-                                   dst8[++j] = (d >> 16) & 0xff;
-                                   dst8[++j] = (d >>  8) & 0xff;
-                                   dst8[++j] = (d >>  0) & 0xff;
-#else
-                                   dst8[++j] = (d >>  0) & 0xff;
-                                   dst8[++j] = (d >>  8) & 0xff;
-                                   dst8[++j] = (d >> 16) & 0xff;
-#endif
-                              }
-                              break;
-                         case DSPF_ARGB4444:
-                              for (i=0; i<info->width; i++)
-                                   dst16[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
-                                                0xF : 0x0) << 12) | 0xFFF;
-                              break;
-                         case DSPF_RGBA4444:
-                              for (i=0; i<info->width; i++)
-                                   dst16[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
-                                                0xF : 0x0)      ) | 0xFFF0;
-                              break;
-                         case DSPF_ARGB2554:
-                              for (i=0; i<info->width; i++)
-                                   dst16[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
-                                                0x3 : 0x0) << 14) | 0x3FFF;
-                              break;
-                         case DSPF_ARGB1555:
-                              for (i=0; i<info->width; i++)
-                                   dst16[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
-                                                0x1 : 0x0) << 15) | 0x7FFF;
-                              break;
-                         case DSPF_RGBA5551:
-                              for (i=0; i<info->width; i++)
-                                   dst16[i] = 0xFFFE | (((src[i>>3] & (1<<(7-(i%8)))) ?
-                                                0x1 : 0x0));
-                              break;
-                         case DSPF_A8:
-                              for (i=0; i<info->width; i++)
-                                   dst8[i] = (src[i>>3] &
-                                              (1<<(7-(i%8)))) ? 0xFF : 0x00;
-                              break;
-                         case DSPF_A4:
-                              for (i=0, j=0; i<info->width; i+=2, j++)
-                                   dst8[j] = ((src[i>>3] &
-                                              (1<<(7-(i%8)))) ? 0xF0 : 0x00) |
-                                             ((src[(i+1)>>3] &
-                                              (1<<(7-((i+1)%8)))) ? 0x0F : 0x00);
-                              break;
-                         case DSPF_A1:
-                              direct_memcpy( lock.addr, src, DFB_BYTES_PER_LINE(DSPF_A1, info->width) );
-                              break;
-                         case DSPF_A1_LSB:
-                              for (i=0, j=0; i < info->width; ++j) {
-                                   register u8 p = 0;
-
-                                   for (n=0; n<8 && i<info->width; ++i, ++n)
-                                        p |= (((src[i] >> n) & 1) << (7-n));
-
-                                   dst8[j] = p;
-                              }
-                              break;
-                         default:
-                              D_UNIMPLEMENTED();
-                              break;
-                    }
+                    D_UNIMPLEMENTED();
                     break;
 
                default:
@@ -531,9 +350,322 @@ render_glyph( CoreFont      *thiz,
 
           }
 
-          src += face->glyph->bitmap.pitch;
 
-          lock.addr += lock.pitch;
+          info->width  += radius;
+          info->height += radius;
+
+          info->left   -= (radius - 1) / 2;
+          info->top    -= (radius - 1) / 2;
+
+          if (blurred) {
+               addr = lock.addr + DFB_BYTES_PER_LINE(surface->config.format, info->start);
+               src  = blurred;
+
+               for (y=0; y < info->height; y++) {
+                    int  i;
+                    u8  *dst8  = addr;
+                    u32 *dst32 = addr;
+
+                    switch (face->glyph->bitmap.pixel_mode) {
+                         case ft_pixel_mode_grays:
+                              switch (surface->config.format) {
+                                   case DSPF_ARGB:
+                                   case DSPF_ABGR:
+                                        if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
+                                             for (i=0; i<info->width; i++)
+                                                  dst32[i] = ((data->outline_opacity + 1) * src[i] / 256) * 0x01010101;
+                                        }
+                                        else {
+                                             for (i=0; i<info->width; i++)
+                                                  dst32[i] = (((data->outline_opacity + 1) * src[i] / 256) << 24) | 0xFFFFFF;
+                                        }
+                                        break;
+                                   case DSPF_A8:
+                                        for (i=0; i<info->width; i++)
+                                             dst8[i] = (data->outline_opacity + 1) * src[i] / 256;
+                                        break;
+                                   default:
+                                        D_UNIMPLEMENTED();
+                                        break;
+                              }
+                              break;
+
+                         case ft_pixel_mode_mono:
+                              D_UNIMPLEMENTED();
+                              break;
+
+                         default:
+                              break;
+
+                    }
+
+                    src  += info->width;
+                    addr += lock.pitch;
+               }
+
+               D_FREE( blurred );
+          }
+     }
+     else {
+          if (data->fixed_clip) {
+               while (info->left + info->width > data->fixed_advance)
+                    info->left--;
+
+               if (info->left < 0)
+                    info->left = 0;
+
+               if (info->width > data->fixed_advance)
+                    info->width = data->fixed_advance;
+          }
+
+          src = face->glyph->bitmap.buffer;
+          lock.addr += DFB_BYTES_PER_LINE(surface->config.format, info->start);
+
+          for (y=0; y < info->height; y++) {
+               int  i, j, n;
+               u8  *dst8  = lock.addr;
+               u16 *dst16 = lock.addr;
+               u32 *dst32 = lock.addr;
+
+               switch (face->glyph->bitmap.pixel_mode) {
+                    case ft_pixel_mode_grays:
+                         switch (surface->config.format) {
+                              case DSPF_ARGB:
+                              case DSPF_ABGR:
+                                   if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
+                                        for (i=0; i<info->width; i++)
+                                             dst32[i] = src[i] * 0x01010101;
+                                   }
+                                   else
+                                        for (i=0; i<info->width; i++)
+                                             dst32[i] = (src[i] << 24) | 0xFFFFFF;
+                                   break;
+                              case DSPF_AiRGB:
+                                   for (i=0; i<info->width; i++)
+                                        dst32[i] = ((src[i] ^ 0xFF) << 24) | 0xFFFFFF;
+                                   break;
+                              case DSPF_ARGB8565:
+                                   for (i = 0, j = -1; i < info->width; ++i) {
+                                       u32 d;
+                                       if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
+                                            d = src[i] * 0x01010101;
+                                            d = ARGB_TO_ARGB8565 (d);
+                                       }
+                                       else
+                                            d = (src[i] << 16) | 0xFFFF;
+#ifdef WORDS_BIGENDIAN
+                                        dst8[++j] = (d >> 16) & 0xff;
+                                        dst8[++j] = (d >>  8) & 0xff;
+                                        dst8[++j] = (d >>  0) & 0xff;
+#else
+                                        dst8[++j] = (d >>  0) & 0xff;
+                                        dst8[++j] = (d >>  8) & 0xff;
+                                        dst8[++j] = (d >> 16) & 0xff;
+#endif
+                                   }
+                                   break;
+                              case DSPF_ARGB4444:
+                              case DSPF_RGBA4444:
+                                   if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
+                                        for (i=0; i<info->width; i++)
+                                             dst16[i] = (src[i] >> 4) * 0x1111;
+                                   }
+                                   else {
+                                        if( surface->config.format == DSPF_ARGB4444 ) {
+                                             for (i=0; i<info->width; i++)
+                                                  dst16[i] = (src[i] << 8) | 0x0FFF;
+                                        } else {
+                                             for (i=0; i<info->width; i++)
+                                                  dst16[i] = (src[i] >> 4) | 0xFFF0;
+                                        }
+                                   }
+                                   break;
+                              case DSPF_ARGB2554:
+                                   for (i=0; i<info->width; i++)
+                                        dst16[i] = (src[i] << 8) | 0x3FFF;
+                                   break;
+                              case DSPF_ARGB1555:
+                                   if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
+                                        for (i=0; i<info->width; i++) {
+                                             unsigned short x = src[i] >> 3;
+                                             dst16[i] = ((src[i] & 0x80) << 8) |
+                                                  (x << 10) | (x << 5) | x;
+                                        }
+                                   }
+                                   else {
+                                        for (i=0; i<info->width; i++)
+                                             dst16[i] = (src[i] << 8) | 0x7FFF;
+                                   }
+                                   break;
+                              case DSPF_RGBA5551:
+                                   if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
+                                        for (i=0; i<info->width; i++) {
+                                             unsigned short x = src[i] >> 3;
+                                             dst16[i] =  (x << 11) | (x << 6) | (x << 1) |
+                                                  (src[i] >> 7);
+                                        }
+                                   }
+                                   else {
+                                        for (i=0; i<info->width; i++)
+                                             dst16[i] = 0xFFFE | (src[i] >> 7);
+                                   }
+                                   break;
+                              case DSPF_A8:
+                                   direct_memcpy( lock.addr, src, info->width );
+                                   break;
+                              case DSPF_A4:
+                                   for (i=0, j=0; i<info->width; i+=2, j++)
+                                        dst8[j] = (src[i] & 0xF0) | (src[i+1] >> 4);
+                                   break;
+                              case DSPF_A1:
+                                   for (i=0, j=0; i < info->width; ++j) {
+                                        register u8 p = 0;
+
+                                        for (n=0; n<8 && i<info->width; ++i, ++n)
+                                             p |= (src[i] & 0x80) >> n;
+
+                                        dst8[j] = p;
+                                   }
+                                   break;
+                              case DSPF_A1_LSB:
+                                   for (i=0, j=0; i < info->width; ++j) {
+                                        register u8 p = 0;
+
+                                        for (n=0; n<8 && i<info->width; ++i, ++n)
+                                             p |= (src[i] & 0x80) >> (7-n);
+
+                                        dst8[j] = p;
+                                   }
+                                   break;
+                              case DSPF_LUT2:
+                                   for (i=0, j=0; i < info->width; ++j) {
+                                        register u8 p = 0;
+
+                                        for (n=0; n<8 && i<info->width; ++i, n+=2)
+                                             p |= (src[i] & 0xC0) >> n;
+
+                                        dst8[j] = p;
+                                   }
+                                   break;
+                              default:
+                                   D_UNIMPLEMENTED();
+                                   break;
+                         }
+                         break;
+
+                    case ft_pixel_mode_mono:
+                         switch (surface->config.format) {
+                              case DSPF_ARGB:
+                              case DSPF_ABGR:
+                                   if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
+                                        for (i=0; i<info->width; i++)
+                                             dst32[i] = (src[i>>3] & (1<<(7-(i%8)))) ?
+                                                          0xFFFFFFFF : 0x00000000;
+                                   }
+                                   else {
+                                        for (i=0; i<info->width; i++)
+                                             dst32[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
+                                                          0xFF : 0x00) << 24) | 0xFFFFFF;
+                                   }
+                                   break;
+                              case DSPF_AiRGB:
+                                   if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
+                                        for (i=0; i<info->width; i++)
+                                             dst32[i] = (src[i>>3] & (1<<(7-(i%8)))) ?
+                                                          0x00FFFFFF : 0xFF000000;
+                                   }
+                                   else {
+                                        for (i=0; i<info->width; i++)
+                                             dst32[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
+                                                          0x00 : 0xFF) << 24) | 0xFFFFFF;
+                                   }
+                                   break;
+                              case DSPF_ARGB8565:
+                                   for (i = 0, j = -1; i < info->width; ++i) {
+                                        u32 d;
+                                        if (thiz->surface_caps & DSCAPS_PREMULTIPLIED) {
+                                             d = ((src[i>>3] & (1<<(7-(i%8)))) ?
+                                                  0xffffff : 0x000000);
+                                        }
+                                        else
+                                            d = (((src[i>>3] & (1<<(7-(i%8)))) ?
+                                                  0xff : 0x00) << 16) | 0xffff;
+#ifdef WORDS_BIGENDIAN
+                                        dst8[++j] = (d >> 16) & 0xff;
+                                        dst8[++j] = (d >>  8) & 0xff;
+                                        dst8[++j] = (d >>  0) & 0xff;
+#else
+                                        dst8[++j] = (d >>  0) & 0xff;
+                                        dst8[++j] = (d >>  8) & 0xff;
+                                        dst8[++j] = (d >> 16) & 0xff;
+#endif
+                                   }
+                                   break;
+                              case DSPF_ARGB4444:
+                                   for (i=0; i<info->width; i++)
+                                        dst16[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
+                                                     0xF : 0x0) << 12) | 0xFFF;
+                                   break;
+                              case DSPF_RGBA4444:
+                                   for (i=0; i<info->width; i++)
+                                        dst16[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
+                                                     0xF : 0x0)      ) | 0xFFF0;
+                                   break;
+                              case DSPF_ARGB2554:
+                                   for (i=0; i<info->width; i++)
+                                        dst16[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
+                                                     0x3 : 0x0) << 14) | 0x3FFF;
+                                   break;
+                              case DSPF_ARGB1555:
+                                   for (i=0; i<info->width; i++)
+                                        dst16[i] = (((src[i>>3] & (1<<(7-(i%8)))) ?
+                                                     0x1 : 0x0) << 15) | 0x7FFF;
+                                   break;
+                              case DSPF_RGBA5551:
+                                   for (i=0; i<info->width; i++)
+                                        dst16[i] = 0xFFFE | (((src[i>>3] & (1<<(7-(i%8)))) ?
+                                                     0x1 : 0x0));
+                                   break;
+                              case DSPF_A8:
+                                   for (i=0; i<info->width; i++)
+                                        dst8[i] = (src[i>>3] &
+                                                   (1<<(7-(i%8)))) ? 0xFF : 0x00;
+                                   break;
+                              case DSPF_A4:
+                                   for (i=0, j=0; i<info->width; i+=2, j++)
+                                        dst8[j] = ((src[i>>3] &
+                                                   (1<<(7-(i%8)))) ? 0xF0 : 0x00) |
+                                                  ((src[(i+1)>>3] &
+                                                   (1<<(7-((i+1)%8)))) ? 0x0F : 0x00);
+                                   break;
+                              case DSPF_A1:
+                                   direct_memcpy( lock.addr, src, DFB_BYTES_PER_LINE(DSPF_A1, info->width) );
+                                   break;
+                              case DSPF_A1_LSB:
+                                   for (i=0, j=0; i < info->width; ++j) {
+                                        register u8 p = 0;
+
+                                        for (n=0; n<8 && i<info->width; ++i, ++n)
+                                             p |= (((src[i] >> n) & 1) << (7-n));
+
+                                        dst8[j] = p;
+                                   }
+                                   break;
+                              default:
+                                   D_UNIMPLEMENTED();
+                                   break;
+                         }
+                         break;
+
+                    default:
+                         break;
+
+               }
+
+               src += face->glyph->bitmap.pitch;
+
+               lock.addr += lock.pitch;
+          }
      }
 
      dfb_surface_unlock_buffer( surface, &lock );
@@ -588,12 +720,17 @@ get_glyph_info( CoreFont      *thiz,
           info->yadvance =   data->fixed_advance * thiz->up_unit_x;
      }
      else {
-          info->xadvance =   face->glyph->advance.x >> 6;
-          info->yadvance = - face->glyph->advance.y >> 6;
+          info->xadvance =   face->glyph->advance.x << 2;
+          info->yadvance = - face->glyph->advance.y << 2;
      }
 
      if (data->fixed_clip && info->width > data->fixed_advance)
           info->width = data->fixed_advance;
+
+     if (info->layer == 1 && info->width > 0 && info->height > 0) {
+          info->width  += data->outline_radius;
+          info->height += data->outline_radius;
+     }
 
      return DFB_OK;
 }
@@ -619,6 +756,23 @@ get_kerning( CoreFont     *thiz,
       */
      if (KERNING_DO_CACHE (prev, current)) {
           cache = &KERNING_CACHE_ENTRY (prev, current);
+
+          if (!cache->initialised && FT_HAS_KERNING(data->base.face)) {
+               FT_Vector vector;
+
+               pthread_mutex_lock ( &library_mutex );
+
+               /* Lookup kerning values for the character pair. */
+               FT_Get_Kerning( data->base.face,
+                               prev, current, ft_kerning_default, &vector );
+
+               cache->x = (signed char) ((int)(- vector.x*data->base.up_unit_x + vector.y*data->base.up_unit_x) >> 6);
+               cache->y = (signed char) ((int)(  vector.y*data->base.up_unit_y + vector.x*data->base.up_unit_x) >> 6);
+
+               cache->initialised = true;
+
+               pthread_mutex_unlock ( &library_mutex );
+          }
 
           if (kern_x)
                *kern_x = (int) cache->x;
@@ -646,30 +800,6 @@ get_kerning( CoreFont     *thiz,
           *kern_y = (int)(  vector.y*thiz->up_unit_y + vector.x*thiz->up_unit_x) >> 6;
 
      return DFB_OK;
-}
-
-static void
-init_kerning_cache( FT2ImplKerningData *data, float up_unit_x, float up_unit_y )
-{
-     int a, b;
-
-     pthread_mutex_lock ( &library_mutex );
-
-     for (a=KERNING_CACHE_MIN; a<=KERNING_CACHE_MAX; a++) {
-          for (b=KERNING_CACHE_MIN; b<=KERNING_CACHE_MAX; b++) {
-               FT_Vector          vector;
-               KerningCacheEntry *cache = &KERNING_CACHE_ENTRY( a, b );
-
-               /* Lookup kerning values for the character pair. */
-               FT_Get_Kerning( data->base.face,
-                               a, b, ft_kerning_default, &vector );
-
-               cache->x = (signed char) ((int)(- vector.x*up_unit_y + vector.y*up_unit_x) >> 6);
-               cache->y = (signed char) ((int)(  vector.y*up_unit_y + vector.x*up_unit_x) >> 6);
-          }
-     }
-
-     pthread_mutex_unlock ( &library_mutex );
 }
 
 static DFBResult
@@ -800,6 +930,7 @@ Construct( IDirectFBFont               *thiz,
      bool                load_mono = false;
      u32                 mask = 0;
      const char         *filename = ctx->filename; /* intended for printf only */
+     DFBFontAttributes   attributes = DFFA_NONE;
 
      float sin_rot = 0.0;
      float cos_rot = 1.0;
@@ -882,12 +1013,25 @@ Construct( IDirectFBFont               *thiz,
                load_flags |= FT_LOAD_NO_HINTING;
           if (desc->attributes & DFFA_NOBITMAP)
                load_flags |= FT_LOAD_NO_BITMAP;
+          if (desc->attributes & DFFA_AUTOHINTING)
+               load_flags |= FT_LOAD_FORCE_AUTOHINT;
+          if (desc->attributes & DFFA_SOFTHINTING)
+               load_flags |= FT_LOAD_TARGET_LIGHT;
           if (desc->attributes & DFFA_NOCHARMAP)
                disable_charmap = true;
           if (desc->attributes & DFFA_NOKERNING)
                disable_kerning = true;
           if (desc->attributes & DFFA_MONOCHROME)
                load_mono = true;
+          if (desc->attributes & DFFA_VERTICAL_LAYOUT)
+               load_flags |= FT_LOAD_VERTICAL_LAYOUT;
+
+#ifdef FT_LOAD_OBLIQUE
+          if (desc->attributes & DFFA_STYLE_ITALIC)
+               load_flags |= FT_LOAD_OBLIQUE;
+#endif
+
+          attributes = desc->attributes;
      }
 
      if (load_mono)
@@ -969,7 +1113,7 @@ Construct( IDirectFBFont               *thiz,
      face->generic.data = (void *)(unsigned long) load_flags;
      face->generic.finalizer = NULL;
 
-     ret = dfb_font_create( core, &font );
+     ret = dfb_font_create( core, desc, filename, &font );
      if (ret) {
           pthread_mutex_lock ( &library_mutex );
           FT_Done_Face( face );
@@ -978,7 +1122,11 @@ Construct( IDirectFBFont               *thiz,
           return ret;
      }
 
+     font->attributes = attributes;
+     font->flags      = CFF_SUBPIXEL_ADVANCE;
+
      D_ASSERT( font->pixel_format == DSPF_ARGB ||
+               font->pixel_format == DSPF_ABGR ||
                font->pixel_format == DSPF_AiRGB ||
                font->pixel_format == DSPF_ARGB8565 ||
                font->pixel_format == DSPF_ARGB4444 ||
@@ -989,7 +1137,8 @@ Construct( IDirectFBFont               *thiz,
                font->pixel_format == DSPF_A8 ||
                font->pixel_format == DSPF_A4 ||
                font->pixel_format == DSPF_A1 ||
-               font->pixel_format == DSPF_A1_LSB );
+               font->pixel_format == DSPF_A1_LSB ||
+               font->pixel_format == DSPF_LUT2 );
 
      font->ascender   = face->size->metrics.ascender >> 6;
      font->descender  = face->size->metrics.descender >> 6;
@@ -1015,8 +1164,17 @@ Construct( IDirectFBFont               *thiz,
      data->face            = face;
      data->disable_charmap = disable_charmap;
 
-     if (FT_HAS_KERNING(face) && !disable_kerning)
-          init_kerning_cache( (FT2ImplKerningData*) data, font->up_unit_x, font->up_unit_y);
+     if (attributes & DFFA_OUTLINED) {
+          if (desc->flags & DFDESC_OUTLINE_WIDTH)
+               data->outline_radius = 1 + (desc->outline_width >> 16) * 2;
+          else
+               data->outline_radius = 3;
+
+          if (desc->flags & DFDESC_OUTLINE_OPACITY)
+               data->outline_opacity = desc->outline_opacity;
+          else
+               data->outline_opacity = 0xff;
+     }
 
      if (desc->flags & DFDESC_FIXEDADVANCE) {
           data->fixed_advance = desc->fixed_advance;
@@ -1028,6 +1186,9 @@ Construct( IDirectFBFont               *thiz,
 
      for (i=0; i<256; i++)
           data->indices[i] = FT_Get_Char_Index( face, i | mask );
+
+     data->up_unit_x = font->up_unit_x;
+     data->up_unit_y = font->up_unit_y;
 
      font->impl_data = data;
 

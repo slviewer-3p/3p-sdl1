@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -59,6 +63,8 @@ static DFBResult Construct( IDirectFBWindow  *thiz,
 
 DIRECT_INTERFACE_IMPLEMENTATION( IDirectFBWindow, Requestor )
 
+
+D_DEBUG_DOMAIN( IDirectFBWindow_Requestor, "IDirectFBWindow/Requestor", "IDirectFBWindow Requestor" );
 
 /**************************************************************************************************/
 
@@ -163,6 +169,8 @@ IDirectFBWindow_Requestor_AttachEventBuffer( IDirectFBWindow      *thiz,
      VoodooResponseMessage                *response;
 
      DIRECT_INTERFACE_GET_DATA(IDirectFBWindow_Requestor)
+
+     D_DEBUG_AT( IDirectFBWindow_Requestor, "%s( buffer %p )\n", __FUNCTION__, buffer );
 
      if (!buffer)
           return DFB_INVARG;
@@ -364,7 +372,8 @@ IDirectFBWindow_Requestor_GetSurface( IDirectFBWindow   *thiz,
 {
      DirectResult           ret;
      VoodooResponseMessage *response;
-     void                  *interface = NULL;
+     VoodooInstanceID       instance_id;
+     void                  *interface_ptr = NULL;
 
      DIRECT_INTERFACE_GET_DATA(IDirectFBWindow_Requestor)
 
@@ -377,14 +386,17 @@ IDirectFBWindow_Requestor_GetSurface( IDirectFBWindow   *thiz,
      if (ret)
           return ret;
 
-     ret = response->result;
-     if (ret == DR_OK)
-          ret = voodoo_construct_requestor( data->manager, "IDirectFBSurface",
-                                            response->instance, NULL, &interface );
+     /* Copy and finish as we do our next request in surface constructor already! */
+     instance_id = response->instance;
 
      voodoo_manager_finish_request( data->manager, response );
 
-     *ret_interface = interface;
+     ret = response->result;
+     if (ret == DR_OK)
+          ret = voodoo_construct_requestor( data->manager, "IDirectFBSurface",
+                                            instance_id, data->idirectfb, &interface_ptr );
+
+     *ret_interface = interface_ptr;
 
      return ret;
 }
@@ -1054,9 +1066,10 @@ Construct( IDirectFBWindow  *thiz,
 {
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBWindow_Requestor)
 
-     data->ref      = 1;
-     data->manager  = manager;
-     data->instance = instance;
+     data->ref       = 1;
+     data->manager   = manager;
+     data->instance  = instance;
+     data->idirectfb = arg;
 
      thiz->AddRef             = IDirectFBWindow_Requestor_AddRef;
      thiz->Release            = IDirectFBWindow_Requestor_Release;

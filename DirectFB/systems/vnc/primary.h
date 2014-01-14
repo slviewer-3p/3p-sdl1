@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __SDL__PRIMARY_H__
 #define __SDL__PRIMARY_H__
 
@@ -34,8 +38,8 @@
 #include <core/layers.h>
 #include <core/screens.h>
 
-extern ScreenFuncs       *vncPrimaryScreenFuncs;
-extern DisplayLayerFuncs *vncPrimaryLayerFuncs;
+extern const ScreenFuncs       *vncPrimaryScreenFuncs;
+extern const DisplayLayerFuncs *vncPrimaryLayerFuncs;
 
 FusionCallHandlerResult
 dfb_vnc_call_handler( int           caller,
@@ -44,6 +48,7 @@ dfb_vnc_call_handler( int           caller,
                       void         *ctx,
                       unsigned int  serial,
                       int          *ret_val );
+
 
 #endif
 

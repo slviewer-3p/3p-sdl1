@@ -1,8 +1,16 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
+
+   Written by Denis Oliver Kropp <dok@directfb.org>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
+              Sven Neumann <neo@directfb.org>,
+              Ville Syrjälä <syrjala@sci.fi> and
+              Claudio Ciccani <klan@users.sf.net>.
 
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -27,7 +35,11 @@
 #include <direct/debug.h>
 #include <direct/messages.h>
 
+#include <fusion/conf.h>
+
+#include <core/core.h>
 #include <core/gfxcard.h>
+#include <core/surface_pool.h>
 
 #include "vmware_2d.h"
 #include "vmware_gfxdriver.h"
@@ -78,8 +90,19 @@ driver_init_driver( CoreGraphicsDevice  *device,
                     void                *device_data,
                     CoreDFB             *core )
 {
+     DirectResult      ret;
+     VMWareDriverData *drv = driver_data;
+
+     if (!fusion_config->secure_fusion || dfb_core_is_master(core)) {
+          ret = direct_processor_init( &drv->processor, "Virtual2D", virtual2DFuncs, sizeof(Virtual2DPacket), drv, 0 );
+          if (ret)
+               return ret;
+     }
+
      /* initialize function pointers */
      funcs->EngineSync    = vmwareEngineSync;
+     funcs->WaitSerial    = vmwareWaitSerial;
+     funcs->GetSerial     = vmwareGetSerial;
      funcs->EngineReset   = vmwareEngineReset;
      funcs->EmitCommands  = vmwareEmitCommands;
      funcs->CheckState    = vmwareCheckState;
@@ -104,11 +127,13 @@ driver_init_device( CoreGraphicsDevice *device,
      device_info->limits.surface_byteoffset_alignment = 8;
      device_info->limits.surface_bytepitch_alignment  = 8;
 
-     device_info->caps.flags    = 0;
+     device_info->caps.flags    = CCF_READSYSMEM | CCF_WRITESYSMEM;
      device_info->caps.accel    = VMWARE_SUPPORTED_DRAWINGFUNCTIONS |
                                   VMWARE_SUPPORTED_BLITTINGFUNCTIONS;
      device_info->caps.drawing  = VMWARE_SUPPORTED_DRAWINGFLAGS;
      device_info->caps.blitting = VMWARE_SUPPORTED_BLITTINGFLAGS;
+
+     dfb_surface_pool_gfx_driver_update( CSTF_ALL, CSAID_GPU, CSAF_READ | CSAF_WRITE | CSAF_SHARED );
 
      return DFB_OK;
 }
@@ -124,5 +149,9 @@ static void
 driver_close_driver( CoreGraphicsDevice *device,
                      void               *driver_data )
 {
+     VMWareDriverData *drv = driver_data;
+
+     if (!fusion_config->secure_fusion || dfb_core_is_master(core_dfb))
+          direct_processor_destroy( &drv->processor );
 }
 

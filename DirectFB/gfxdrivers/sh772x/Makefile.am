@@ -15,8 +15,8 @@ EXTRA_DIST = \
 
 INCLUDES = \
 	-I$(top_builddir)/include	\
-	-I$(top_srcdir)/include		\
 	-I$(top_builddir)/lib		\
+	-I$(top_srcdir)/include		\
 	-I$(top_srcdir)/lib		\
 	-I$(top_srcdir)/src		\
 	-I$(top_srcdir)/systems		\
@@ -30,6 +30,10 @@ sh7722_DATA = $(sh7722_LTLIBRARIES:.la=.o)
 endif
 
 sh7722dir = $(MODULEDIR)/gfxdrivers
+
+if SH772X_SHJPEG
+SH772X_JPEG_SOURCE = sh7722_jpeg.c
+endif
 
 libdirectfb_sh7722_la_SOURCES =	\
 	sh7722.c		\
@@ -48,15 +52,16 @@ libdirectfb_sh7722_la_SOURCES =	\
 	sh7722_screen.c		\
 	sh7722_screen.h		\
 	sh7722_types.h		\
-	sh7722_jpeg.c
+	${SH772X_JPEG_SOURCE}
+
+libdirectfb_sh7722_la_CFLAGS = $(SH772X_DEP_CFLAGS)
 
 libdirectfb_sh7722_la_LDFLAGS = \
 	-module			\
 	-avoid-version		\
 	$(DFB_LDFLAGS)		\
-	-lshbeu			\
-	-luiomux		\
-	-lshjpeg
+	$(SH772X_DEP_LIBS)	\
+	${SH772X_SHJPEG_DEP_LIBS}
 
 libdirectfb_sh7722_la_LIBADD = \
 	$(top_builddir)/src/libdirectfb.la

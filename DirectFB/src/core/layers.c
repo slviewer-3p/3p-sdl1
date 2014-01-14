@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
@@ -40,9 +44,12 @@
 #include <direct/memcpy.h>
 #include <direct/messages.h>
 
+#include <fusion/conf.h>
 #include <fusion/shmalloc.h>
-#include <fusion/arena.h>
 #include <fusion/property.h>
+
+#include <core/CoreLayer.h>
+#include <core/Util.h>
 
 #include <core/core.h>
 #include <core/coredefs.h>
@@ -137,7 +144,7 @@ dfb_layer_core_initialize( CoreDFB            *core,
           snprintf( buf, sizeof(buf), "Display Layer %d", i );
 
           /* Initialize the lock. */
-          ret = fusion_skirmish_init( &lshared->lock, buf, dfb_core_world(core) );
+          ret = fusion_skirmish_init2( &lshared->lock, buf, dfb_core_world(core), fusion_config->secure_fusion );
           if (ret)
                return ret;
 
@@ -210,6 +217,10 @@ dfb_layer_core_initialize( CoreDFB            *core,
           /* Store pointer to shared data and core. */
           layer->shared = lshared;
           layer->core   = core;
+
+          CoreLayer_Init_Dispatch( core, layer, &lshared->call );
+
+          fusion_call_add_permissions( &lshared->call, 0, FUSION_CALL_PERMIT_EXECUTE );
 
           /* Add the layer to the shared list. */
           shared->layers[ shared->num++ ] = lshared;
@@ -312,6 +323,8 @@ dfb_layer_core_shutdown( DFBLayerCore *data,
                                    "Failed to shutdown layer %d!\n", shared->layer_id );
           }
 
+          CoreLayer_Deinit_Dispatch( &shared->call );
+
           /* Deinitialize the lock. */
           fusion_skirmish_destroy( &shared->lock );
 
@@ -331,6 +344,9 @@ dfb_layer_core_shutdown( DFBLayerCore *data,
           /* Free the shared layer data. */
           SHFREE( shared->shmpool, shared );
 
+          if (layer->fps)
+               FPS_Delete( layer->fps );
+
           /* Free the local layer data. */
           D_FREE( layer );
      }
@@ -348,16 +364,12 @@ static DFBResult
 dfb_layer_core_leave( DFBLayerCore *data,
                       bool          emergency )
 {
-     int                 i;
-     DFBLayerCoreShared *shared;
+     int i;
 
      D_DEBUG_AT( Core_Layer, "dfb_layer_core_leave( %p, %semergency )\n", data, emergency ? "" : "no " );
 
      D_MAGIC_ASSERT( data, DFBLayerCore );
      D_MAGIC_ASSERT( data->shared, DFBLayerCoreShared );
-
-     shared = data->shared;
-
 
      /* Deinitialize all local stuff. */
      for (i=0; i<dfb_num_layers; i++) {
@@ -366,12 +378,14 @@ dfb_layer_core_leave( DFBLayerCore *data,
           /* Deinitialize the state for window stack repaints. */
           dfb_state_destroy( &layer->state );
 
+          if (layer->fps)
+               FPS_Delete( layer->fps );
+
           /* Free local layer data. */
           D_FREE( layer );
      }
 
      dfb_num_layers = 0;
-
 
      D_MAGIC_CLEAR( data );
 
@@ -381,15 +395,12 @@ dfb_layer_core_leave( DFBLayerCore *data,
 static DFBResult
 dfb_layer_core_suspend( DFBLayerCore *data )
 {
-     int                 i;
-     DFBLayerCoreShared *shared;
+     int i;
 
      D_DEBUG_AT( Core_Layer, "dfb_layer_core_suspend( %p )\n", data );
 
      D_MAGIC_ASSERT( data, DFBLayerCore );
      D_MAGIC_ASSERT( data->shared, DFBLayerCoreShared );
-
-     shared = data->shared;
 
      for (i=dfb_num_layers-1; i>=0; i--)
           dfb_layer_suspend( dfb_layers[i] );
@@ -400,15 +411,12 @@ dfb_layer_core_suspend( DFBLayerCore *data )
 static DFBResult
 dfb_layer_core_resume( DFBLayerCore *data )
 {
-     int                 i;
-     DFBLayerCoreShared *shared;
+     int i;
 
      D_DEBUG_AT( Core_Layer, "dfb_layer_core_resume( %p )\n", data );
 
      D_MAGIC_ASSERT( data, DFBLayerCore );
      D_MAGIC_ASSERT( data->shared, DFBLayerCoreShared );
-
-     shared = data->shared;
 
      for (i=0; i<dfb_num_layers; i++)
           dfb_layer_resume( dfb_layers[i] );
@@ -622,29 +630,35 @@ dfb_layer_id_translated( const CoreLayer *layer )
      return shared->layer_id;
 }
 
+DFBDisplayLayerID
+dfb_layer_id_translate( DFBDisplayLayerID layer_id )
+{
+     D_ASSERT( dfb_config != NULL );
+
+     if (dfb_config->primary_layer > 0 &&
+         dfb_config->primary_layer < dfb_num_layers)
+     {
+          if (layer_id == DLID_PRIMARY)
+               return dfb_config->primary_layer;
+
+          if (layer_id == dfb_config->primary_layer)
+               return DLID_PRIMARY;
+     }
+
+     return layer_id;
+}
+
 DFBSurfacePixelFormat
 dfb_primary_layer_pixelformat( void )
 {
-     CoreLayerShared       *shared;
-     CoreLayerContext      *context;
-     CoreLayer             *layer  = dfb_layer_at_translated(DLID_PRIMARY);
-     DFBSurfacePixelFormat  format = DSPF_UNKNOWN;
+     CoreLayerShared *shared;
+     CoreLayer       *layer = dfb_layer_at_translated(DLID_PRIMARY);
 
      D_ASSERT( layer != NULL );
-     D_ASSERT( layer->shared != NULL );
 
      shared = layer->shared;
+     D_ASSERT( shared != NULL );
 
-     /* If no context is active, return the default format. */
-     if (dfb_layer_get_active_context( layer, &context ) != DFB_OK)
-          return shared->default_config.pixelformat;
-
-     /* Use the format from the current configuration. */
-     format = context->config.pixelformat;
-
-     /* Decrease the context's reference counter. */
-     dfb_layer_context_unref( context );
-
-     return format;
+     return shared->pixelformat;
 }
 

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __IDIRECTFBDISPLAYLAYER_DISPATCHER_H__
 #define __IDIRECTFBDISPLAYLAYER_DISPATCHER_H__
@@ -62,6 +66,7 @@
 #define IDIRECTFBDISPLAYLAYER_METHOD_ID_SetFieldParity            31
 #define IDIRECTFBDISPLAYLAYER_METHOD_ID_WaitForSync               32
 #define IDIRECTFBDISPLAYLAYER_METHOD_ID_GetWindowByResourceID     33
+#define IDIRECTFBDISPLAYLAYER_METHOD_ID_GetRotation               34
 
 /*
  * private data struct of IDirectFBDisplayLayer_Dispatcher

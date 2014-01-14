@@ -1,5 +1,6 @@
 #ifndef __DIRECTFB_STRINGS_H__
 #define __DIRECTFB_STRINGS_H__
+#include <directfb.h>
 
 
 struct DFBPixelFormatName {
@@ -45,7 +46,75 @@ struct DFBPixelFormatName {
      { DSPF_VYU, "VYU" }, \
      { DSPF_A1_LSB, "A1_LSB" }, \
      { DSPF_YV16, "YV16" }, \
+     { DSPF_ABGR, "ABGR" }, \
+     { DSPF_RGBAF88871, "RGBAF88871" }, \
+     { DSPF_LUT4, "LUT4" }, \
+     { DSPF_ALUT8, "ALUT8" }, \
+     { DSPF_LUT1, "LUT1" }, \
      { DSPF_UNKNOWN, "UNKNOWN" } \
+};
+
+
+struct DFBPorterDuffRuleName {
+     DFBSurfacePorterDuffRule rule;
+     const char *name;
+};
+
+#define DirectFBPorterDuffRuleNames(Identifier) struct DFBPorterDuffRuleName Identifier[] = { \
+     { DSPD_CLEAR, "CLEAR" }, \
+     { DSPD_SRC, "SRC" }, \
+     { DSPD_SRC_OVER, "SRC_OVER" }, \
+     { DSPD_DST_OVER, "DST_OVER" }, \
+     { DSPD_SRC_IN, "SRC_IN" }, \
+     { DSPD_DST_IN, "DST_IN" }, \
+     { DSPD_SRC_OUT, "SRC_OUT" }, \
+     { DSPD_DST_OUT, "DST_OUT" }, \
+     { DSPD_SRC_ATOP, "SRC_ATOP" }, \
+     { DSPD_DST_ATOP, "DST_ATOP" }, \
+     { DSPD_ADD, "ADD" }, \
+     { DSPD_XOR, "XOR" }, \
+     { DSPD_DST, "DST" }, \
+     { DSPD_NONE, "NONE" } \
+};
+
+
+struct DFBSurfaceCapabilitiesName {
+     DFBSurfaceCapabilities capability;
+     const char *name;
+};
+
+#define DirectFBSurfaceCapabilitiesNames(Identifier) struct DFBSurfaceCapabilitiesName Identifier[] = { \
+     { DSCAPS_PRIMARY, "PRIMARY" }, \
+     { DSCAPS_SYSTEMONLY, "SYSTEMONLY" }, \
+     { DSCAPS_VIDEOONLY, "VIDEOONLY" }, \
+     { DSCAPS_GL, "GL" }, \
+     { DSCAPS_DOUBLE, "DOUBLE" }, \
+     { DSCAPS_SUBSURFACE, "SUBSURFACE" }, \
+     { DSCAPS_INTERLACED, "INTERLACED" }, \
+     { DSCAPS_SEPARATED, "SEPARATED" }, \
+     { DSCAPS_SEPARATED, "SEPARATED" }, \
+     { DSCAPS_STATIC_ALLOC, "STATIC_ALLOC" }, \
+     { DSCAPS_TRIPLE, "TRIPLE" }, \
+     { DSCAPS_PREMULTIPLIED, "PREMULTIPLIED" }, \
+     { DSCAPS_DEPTH, "DEPTH" }, \
+     { DSCAPS_STEREO, "STEREO" }, \
+     { DSCAPS_SHARED, "SHARED" }, \
+     { DSCAPS_ROTATED, "ROTATED" }, \
+     { DSCAPS_NONE, "NONE" } \
+};
+
+
+struct DFBColorSpaceName {
+     DFBSurfaceColorSpace colorspace;
+     const char *name;
+};
+
+#define DirectFBColorSpaceNames(Identifier) struct DFBColorSpaceName Identifier[] = { \
+     { DSCS_RGB, "RGB" }, \
+     { DSCS_BT601, "BT601" }, \
+     { DSCS_BT601_FULLRANGE, "BT601_FULLRANGE" }, \
+     { DSCS_BT709, "BT709" }, \
+     { DSCS_UNKNOWN, "UNKNOWN" } \
 };
 
 
@@ -102,12 +171,37 @@ struct DFBSurfaceBlittingFlagsName {
      { DSBLIT_ROTATE180, "ROTATE180" }, \
      { DSBLIT_ROTATE270, "ROTATE270" }, \
      { DSBLIT_COLORKEY_PROTECT, "COLORKEY_PROTECT" }, \
+     { DSBLIT_SRC_COLORKEY_EXTENDED, "SRC_COLORKEY_EXTENDED" }, \
+     { DSBLIT_DST_COLORKEY_EXTENDED, "DST_COLORKEY_EXTENDED" }, \
      { DSBLIT_SRC_MASK_ALPHA, "SRC_MASK_ALPHA" }, \
      { DSBLIT_SRC_MASK_COLOR, "SRC_MASK_COLOR" }, \
-     { DSBLIT_SOURCE2, "SOURCE2" }, \
      { DSBLIT_FLIP_HORIZONTAL, "FLIP_HORIZONTAL" }, \
      { DSBLIT_FLIP_VERTICAL, "FLIP_VERTICAL" }, \
+     { DSBLIT_ROP, "ROP" }, \
+     { DSBLIT_SRC_COLORMATRIX, "SRC_COLORMATRIX" }, \
+     { DSBLIT_SRC_CONVOLUTION, "SRC_CONVOLUTION" }, \
      { DSBLIT_NOFX, "NOFX" } \
+};
+
+
+struct DFBSurfaceFlipFlagsName {
+     DFBSurfaceFlipFlags flag;
+     const char *name;
+};
+
+#define DirectFBSurfaceFlipFlagsNames(Identifier) struct DFBSurfaceFlipFlagsName Identifier[] = { \
+     { DSFLIP_WAIT, "WAIT" }, \
+     { DSFLIP_BLIT, "BLIT" }, \
+     { DSFLIP_ONSYNC, "ONSYNC" }, \
+     { DSFLIP_WAIT, "WAIT" }, \
+     { DSFLIP_PIPELINE, "PIPELINE" }, \
+     { DSFLIP_ONCE, "ONCE" }, \
+     { DSFLIP_QUEUE, "QUEUE" }, \
+     { DSFLIP_FLUSH, "FLUSH" }, \
+     { DSFLIP_SWAP, "SWAP" }, \
+     { DSFLIP_UPDATE, "UPDATE" }, \
+     { DSFLIP_WAITFORSYNC, "WAITFORSYNC" }, \
+     { DSFLIP_NONE, "NONE" } \
 };
 
 
@@ -186,6 +280,8 @@ struct DFBDisplayLayerCapabilitiesName {
      { DLCAPS_SCREEN_POSITION, "SCREEN_POSITION" }, \
      { DLCAPS_SCREEN_SIZE, "SCREEN_SIZE" }, \
      { DLCAPS_CLIP_REGIONS, "CLIP_REGIONS" }, \
+     { DLCAPS_LR_MONO, "LR_MONO" }, \
+     { DLCAPS_STEREO, "STEREO" }, \
      { DLCAPS_NONE, "NONE" } \
 };
 
@@ -211,6 +307,7 @@ struct DFBWindowCapabilitiesName {
 };
 
 #define DirectFBWindowCapabilitiesNames(Identifier) struct DFBWindowCapabilitiesName Identifier[] = { \
+     { DWCAPS_LR_MONO, "LR_MONO" }, \
      { DWCAPS_ALPHACHANNEL, "ALPHACHANNEL" }, \
      { DWCAPS_DOUBLEBUFFER, "DOUBLEBUFFER" }, \
      { DWCAPS_INPUTONLY, "INPUTONLY" }, \
@@ -218,6 +315,8 @@ struct DFBWindowCapabilitiesName {
      { DWCAPS_SUBWINDOW, "SUBWINDOW" }, \
      { DWCAPS_COLOR, "COLOR" }, \
      { DWCAPS_NOFOCUS, "NOFOCUS" }, \
+     { DWCAPS_LR_MONO, "LR_MONO" }, \
+     { DWCAPS_STEREO, "STEREO" }, \
      { DWCAPS_NONE, "NONE" } \
 };
 
@@ -239,6 +338,7 @@ struct DFBWindowOptionsName {
      { DWOP_GHOST, "GHOST" }, \
      { DWOP_INDESTRUCTIBLE, "INDESTRUCTIBLE" }, \
      { DWOP_INPUTONLY, "INPUTONLY" }, \
+     { DWOP_STEREO_SIDE_BY_SIDE_HALF, "STEREO_SIDE_BY_SIDE_HALF" }, \
      { DWOP_SCALE, "SCALE" }, \
      { DWOP_KEEP_ABOVE, "KEEP_ABOVE" }, \
      { DWOP_KEEP_UNDER, "KEEP_UNDER" }, \
@@ -281,6 +381,8 @@ struct DFBScreenEncoderCapabilitiesName {
      { DSECAPS_CONNECTORS, "CONNECTORS" }, \
      { DSECAPS_SLOW_BLANKING, "SLOW_BLANKING" }, \
      { DSECAPS_RESOLUTION, "RESOLUTION" }, \
+     { DSECAPS_FRAMING, "FRAMING" }, \
+     { DSECAPS_ASPECT_RATIO, "ASPECT_RATIO" }, \
      { DSECAPS_NONE, "NONE" } \
 };
 
@@ -314,8 +416,8 @@ struct DFBScreenEncoderTVStandardsName {
      { DSETV_PAL_N, "PAL_N" }, \
      { DSETV_PAL_NC, "PAL_NC" }, \
      { DSETV_NTSC_M_JPN, "NTSC_M_JPN" }, \
-     { DSETV_NTSC_443, "NTSC_443" }, \
      { DSETV_DIGITAL, "DIGITAL" }, \
+     { DSETV_NTSC_443, "NTSC_443" }, \
      { DSETV_UNKNOWN, "UNKNOWN" } \
 };
 
@@ -404,6 +506,16 @@ struct DFBScreenOutputResolutionName {
      { DSOR_1400_1050, "1400_1050" }, \
      { DSOR_1600_1200, "1600_1200" }, \
      { DSOR_1920_1080, "1920_1080" }, \
+     { DSOR_960_540, "960_540" }, \
+     { DSOR_1440_540, "1440_540" }, \
+     { DSOR_800_480, "800_480" }, \
+     { DSOR_1024_600, "1024_600" }, \
+     { DSOR_1366_768, "1366_768" }, \
+     { DSOR_1920_1200, "1920_1200" }, \
+     { DSOR_2560_1440, "2560_1440" }, \
+     { DSOR_2560_1600, "2560_1600" }, \
+     { DSOR_3840_2160, "3840_2160" }, \
+     { DSOR_4096_2160, "4096_2160" }, \
      { DSOR_UNKNOWN, "UNKNOWN" } \
 };
 
@@ -485,6 +597,8 @@ struct DFBScreenEncoderConfigFlagsName {
      { DSECONF_CONNECTORS, "CONNECTORS" }, \
      { DSECONF_SLOW_BLANKING, "SLOW_BLANKING" }, \
      { DSECONF_RESOLUTION, "RESOLUTION" }, \
+     { DSECONF_FRAMING, "FRAMING" }, \
+     { DSECONF_ASPECT_RATIO, "ASPECT_RATIO" }, \
      { DSECONF_UNKNOWN, "UNKNOWN" } \
 };
 
@@ -508,6 +622,21 @@ struct DFBScreenEncoderFrequencyName {
 };
 
 
+struct DFBScreenEncoderPictureFramingName {
+     DFBScreenEncoderPictureFraming framing;
+     const char *name;
+};
+
+#define DirectFBScreenEncoderPictureFramingNames(Identifier) struct DFBScreenEncoderPictureFramingName Identifier[] = { \
+     { DSEPF_MONO, "MONO" }, \
+     { DSEPF_STEREO_SIDE_BY_SIDE_HALF, "STEREO_SIDE_BY_SIDE_HALF" }, \
+     { DSEPF_STEREO_TOP_AND_BOTTOM, "STEREO_TOP_AND_BOTTOM" }, \
+     { DSEPF_STEREO_FRAME_PACKING, "STEREO_FRAME_PACKING" }, \
+     { DSEPF_STEREO_SIDE_BY_SIDE_FULL, "STEREO_SIDE_BY_SIDE_FULL" }, \
+     { DSEPF_UNKNOWN, "UNKNOWN" } \
+};
+
+
 struct DFBAccelerationMaskName {
      DFBAccelerationMask mask;
      const char *name;
@@ -518,10 +647,15 @@ struct DFBAccelerationMaskName {
      { DFXL_DRAWRECTANGLE, "DRAWRECTANGLE" }, \
      { DFXL_DRAWLINE, "DRAWLINE" }, \
      { DFXL_FILLTRIANGLE, "FILLTRIANGLE" }, \
+     { DFXL_FILLTRAPEZOID, "FILLTRAPEZOID" }, \
+     { DFXL_FILLQUADRANGLE, "FILLQUADRANGLE" }, \
+     { DFXL_FILLSPAN, "FILLSPAN" }, \
+     { DFXL_DRAWMONOGLYPH, "DRAWMONOGLYPH" }, \
      { DFXL_BLIT, "BLIT" }, \
      { DFXL_STRETCHBLIT, "STRETCHBLIT" }, \
      { DFXL_TEXTRIANGLES, "TEXTRIANGLES" }, \
      { DFXL_BLIT2, "BLIT2" }, \
+     { DFXL_TILEBLIT, "TILEBLIT" }, \
      { DFXL_DRAWSTRING, "DRAWSTRING" }, \
      { DFXL_NONE, "NONE" } \
 };

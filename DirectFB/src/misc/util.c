@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,21 +28,28 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <string.h>
+
+#include <directfb_util.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
 
 #include <fcntl.h>
 
-#include <sys/time.h>
 #include <time.h>
 
 #include <direct/debug.h>
 #include <direct/messages.h>
 #include <direct/util.h>
+
+#include <direct/String.h>
+
+#include <gfx/convert.h>
 
 #include <misc/util.h>
 
@@ -49,59 +58,10 @@ D_DEBUG_DOMAIN( DFB_Updates, "DirectFB/Updates", "DirectFB Updates" );
 
 /**********************************************************************************************************************/
 
-const DirectFBPixelFormatNames( dfb_pixelformat_names );
+const DirectFBPixelFormatNames( dfb_pixelformat_names )
+const DirectFBColorSpaceNames( dfb_colorspace_names )
 
 /**********************************************************************************************************************/
-
-bool
-dfb_region_intersect( DFBRegion *region,
-                      int x1, int y1, int x2, int y2 )
-{
-     if (region->x2 < x1 ||
-         region->y2 < y1 ||
-         region->x1 > x2 ||
-         region->y1 > y2)
-          return false;
-
-     if (region->x1 < x1)
-          region->x1 = x1;
-
-     if (region->y1 < y1)
-          region->y1 = y1;
-
-     if (region->x2 > x2)
-          region->x2 = x2;
-
-     if (region->y2 > y2)
-          region->y2 = y2;
-
-     return true;
-}
-
-bool
-dfb_region_region_intersect( DFBRegion       *region,
-                             const DFBRegion *clip )
-{
-     if (region->x2 < clip->x1 ||
-         region->y2 < clip->y1 ||
-         region->x1 > clip->x2 ||
-         region->y1 > clip->y2)
-          return false;
-
-     if (region->x1 < clip->x1)
-          region->x1 = clip->x1;
-
-     if (region->y1 < clip->y1)
-          region->y1 = clip->y1;
-
-     if (region->x2 > clip->x2)
-          region->x2 = clip->x2;
-
-     if (region->y2 > clip->y2)
-          region->y2 = clip->y2;
-
-     return true;
-}
 
 bool
 dfb_region_rectangle_intersect( DFBRegion          *region,
@@ -312,175 +272,6 @@ void dfb_rectangle_union ( DFBRectangle       *rect1,
      }
 }
 
-void dfb_region_from_rotated( DFBRegion          *region,
-                              const DFBRegion    *from,
-                              const DFBDimension *size,
-                              int                 rotation )
-{
-     D_ASSERT( region != NULL );
-
-     DFB_REGION_ASSERT( from );
-     D_ASSERT( size != NULL );
-     D_ASSERT( size->w > 0 );
-     D_ASSERT( size->h > 0 );
-     D_ASSUME( rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270 );
-
-     switch (rotation) {
-          default:
-               D_BUG( "invalid rotation %d", rotation );
-          case 0:
-               *region = *from;
-               break;
-
-          case 90:
-               region->x1 = from->y1;
-               region->y1 = size->w - from->x2 - 1;
-               region->x2 = from->y2;
-               region->y2 = size->w - from->x1 - 1;
-               break;
-
-          case 180:
-               region->x1 = size->w - from->x2 - 1;
-               region->y1 = size->h - from->y2 - 1;
-               region->x2 = size->w - from->x1 - 1;
-               region->y2 = size->h - from->y1 - 1;
-               break;
-
-          case 270:
-               region->x1 = size->h - from->y2 - 1;
-               region->y1 = from->x1;
-               region->x2 = size->h - from->y1 - 1;
-               region->y2 = from->x2;
-               break;
-     }
-
-     DFB_REGION_ASSERT( region );
-}
-
-void dfb_rectangle_from_rotated( DFBRectangle       *rectangle,
-                                 const DFBRectangle *from,
-                                 const DFBDimension *size,
-                                 int                 rotation )
-{
-     D_ASSERT( rectangle != NULL );
-
-     DFB_RECTANGLE_ASSERT( from );
-     D_ASSERT( size != NULL );
-     D_ASSERT( size->w > 0 );
-     D_ASSERT( size->h > 0 );
-     D_ASSUME( rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270 );
-
-     switch (rotation) {
-          default:
-               D_BUG( "invalid rotation %d", rotation );
-          case 0:
-               *rectangle = *from;
-               break;
-
-          case 90:
-               rectangle->x = from->y;
-               rectangle->y = size->w - from->x - from->w;
-               rectangle->w = from->h;
-               rectangle->h = from->w;
-               break;
-
-          case 180:
-               rectangle->x = size->w - from->x - from->w;
-               rectangle->y = size->h - from->y - from->h;
-               rectangle->w = from->w;
-               rectangle->h = from->h;
-               break;
-
-          case 270:
-               rectangle->x = size->h - from->y - from->h;
-               rectangle->y = from->x;
-               rectangle->w = from->h;
-               rectangle->h = from->w;
-               break;
-     }
-
-     DFB_RECTANGLE_ASSERT( rectangle );
-}
-
-void dfb_point_from_rotated_region( DFBPoint           *point,
-                                    const DFBRegion    *from,
-                                    const DFBDimension *size,
-                                    int                 rotation )
-{
-     D_ASSERT( point != NULL );
-
-     DFB_REGION_ASSERT( from );
-     D_ASSERT( size != NULL );
-     D_ASSERT( size->w > 0 );
-     D_ASSERT( size->h > 0 );
-     D_ASSUME( rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270 );
-
-     switch (rotation) {
-          default:
-               D_BUG( "invalid rotation %d", rotation );
-          case 0:
-               point->x = from->x1;
-               point->y = from->y1;
-               break;
-
-          case 90:
-               point->x = from->y1;
-               point->y = size->w - from->x2 - 1;
-               break;
-
-          case 180:
-               point->x = size->w - from->x2 - 1;
-               point->y = size->h - from->y2 - 1;
-               break;
-
-          case 270:
-               point->x = size->h - from->y2 - 1;
-               point->y = from->x1;
-               break;
-     }
-
-     D_ASSERT( point->x >= 0 );
-     D_ASSERT( point->y >= 0 );
-     D_ASSERT( point->x < size->w );
-     D_ASSERT( point->y < size->h );
-}
-
-/*
- * Compute line segment intersection.
- * Return true if intersection point exists within the given segment.
- */
-bool dfb_line_segment_intersect( const DFBRegion *line,
-                                 const DFBRegion *seg,
-                                 int             *x,
-                                 int             *y )
-{
-     int x1, x2, x3, x4;
-     int y1, y2, y3, y4;
-     int num, den;
-
-     D_ASSERT( line != NULL );
-     D_ASSERT( seg != NULL );
-
-     x1 = seg->x1;  y1 = seg->y1;  x2 = seg->y2;  y2 = seg->y2;
-     x3 = line->x1; y3 = line->y1; x4 = line->x2; y4 = line->y2;
-
-     num = (x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3);
-     den = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1);
-
-     if (!den) /* parallel */
-          return false;
-
-     if (num && ((num < 0) != (den < 0) || abs(num) > abs(den))) /* not within segment */
-          return false;
-
-     if (x)
-          *x = (s64)(x2 - x1) * num / den + x1;
-     if (y)
-          *y = (s64)(y2 - y1) * num / den + y1;
-
-     return true;
-}
-
 void
 dfb_updates_init( DFBUpdates *updates,
                   DFBRegion  *regions,
@@ -509,7 +300,7 @@ dfb_updates_add( DFBUpdates      *updates,
      D_ASSERT( updates->num_regions >= 0 );
      D_ASSERT( updates->num_regions <= updates->max_regions );
 
-     D_DEBUG_AT( DFB_Updates, "%s( %p, %4d,%4d-%4dx%4d )\n", __FUNCTION__, updates,
+     D_DEBUG_AT( DFB_Updates, "%s( %p, %4d,%4d-%4dx%4d )\n", __FUNCTION__, (void*)updates,
                  DFB_RECTANGLE_VALS_FROM_REGION(region) );
 
      if (updates->num_regions == 0) {
@@ -624,8 +415,12 @@ dfb_updates_get_rectangles( DFBUpdates   *updates,
                if (total < bounding * n / d) {
                     *ret_num = updates->num_regions;
 
-                    for (n=0; n<updates->num_regions; n++)
-                         ret_rects[n] = DFB_RECTANGLE_INIT_FROM_REGION( &updates->regions[n] );
+                    for (n=0; n<updates->num_regions; n++) {
+                         ret_rects[n].x = updates->regions[n].x1;
+                         ret_rects[n].y = updates->regions[n].y1;
+                         ret_rects[n].w = updates->regions[n].x2 - updates->regions[n].x1;
+                         ret_rects[n].h = updates->regions[n].y2 - updates->regions[n].y1;
+                    }
 
                     break;
                }
@@ -633,8 +428,68 @@ dfb_updates_get_rectangles( DFBUpdates   *updates,
           /* fall through */
 
           case 1:
-               *ret_num   = 1;
-               *ret_rects = DFB_RECTANGLE_INIT_FROM_REGION( &updates->bounding );
+               *ret_num = 1;
+
+               ret_rects[0].x = updates->bounding.x1;
+               ret_rects[0].y = updates->bounding.y1;
+               ret_rects[0].w = updates->bounding.x2 - updates->bounding.x1;
+               ret_rects[0].h = updates->bounding.y2 - updates->bounding.y1;
                break;
      }
 }
+
+const char *
+dfb_pixelformat_name( DFBSurfacePixelFormat format )
+{
+     int i = 0;
+
+     do {
+          if (format == dfb_pixelformat_names[i].format)
+               return dfb_pixelformat_names[i].name;
+     } while (dfb_pixelformat_names[i++].format != DSPF_UNKNOWN);
+
+     return D_String_PrintTLS( "unknown <0x%08x>", format );
+}
+ 
+const char *
+dfb_colorspace_name( DFBSurfaceColorSpace colorspace )
+{
+     int i = 0;
+
+     do {
+          if (colorspace == dfb_colorspace_names[i].colorspace)
+               return dfb_colorspace_names[i].name;
+     } while (dfb_colorspace_names[i++].colorspace != DSCS_UNKNOWN);
+
+     return "<invalid>";
+}
+
+DFBSurfacePixelFormat
+dfb_pixelformat_for_depth( int depth )
+{
+     switch (depth) {
+          case 1:
+               return DSPF_LUT1;
+          case 2:
+               return DSPF_LUT2;
+          case 8:
+               return DSPF_LUT8;
+          case 12:
+               return DSPF_ARGB4444;
+          case 14:
+               return DSPF_ARGB2554;
+          case 15:
+               return DSPF_ARGB1555;
+          case 16:
+               return DSPF_RGB16;
+          case 18:
+               return DSPF_RGB18;
+          case 24:
+               return DSPF_RGB24;
+          case 32:
+               return DSPF_RGB32;
+     }
+
+     return DSPF_UNKNOWN;
+}
+

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -40,6 +42,8 @@
 
 #include <direct/messages.h>
 #include <direct/util.h>
+
+#include <core/CoreInputDevice.h>
 
 #include <core/input.h>
 
@@ -129,7 +133,7 @@ main( int argc, char *argv[] )
 
      /* Reload the keymap. FIXME: Make public API? */
      if (reload) {
-          ret = dfb_input_device_reload_keymap( dfb_input_device_at( id ) );
+          ret = CoreInputDevice_ReloadKeymap( dfb_input_device_at( id ) );
           if (ret) {
                D_DERROR( ret, "Tools/Input: Reloading the keymap failed!\n" );
                goto error;
