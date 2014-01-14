@@ -24,10 +24,22 @@ else
 DAVINCI_DIR =
 endif
 
+if GFX_GP2D
+GP2D_DIR = gp2d
+else
+GP2D_DIR =
+endif
+
 if GFX_GL
 GL_DIR = gl
 else
 GL_DIR =
+endif
+
+if GFX_GLES2
+GLES2_DIR = gles2
+else
+GLES2_DIR =
 endif
 
 if GFX_I810
@@ -78,6 +90,12 @@ else
 OMAP_DIR =
 endif
 
+if GFX_PVR2D
+PVR2D_DIR = pvr2d
+else
+PVR2D_DIR =
+endif
+
 if GFX_PXA3XX
 PXA3XX_DIR = pxa3xx
 else
@@ -120,6 +138,12 @@ else
 UNICHROME_DIR =
 endif
 
+if GFX_VDPAU
+VDPAU_DIR = vdpau
+else
+VDPAU_DIR =
+endif
+
 if GFX_VMWARE
 VMWARE_DIR = vmware
 else
@@ -139,7 +163,9 @@ SUBDIRS = \
 	$(CYBER5K_DIR)	\
 	$(DAVINCI_DIR)	\
 	$(EP9X_DIR)	\
+	$(GP2D_DIR)	\
 	$(GL_DIR)	\
+	$(GLES2_DIR)	\
 	$(I810_DIR)	\
 	$(I830_DIR)	\
 	$(MACH64_DIR)	\
@@ -148,6 +174,7 @@ SUBDIRS = \
 	$(NSC_DIR)	\
 	$(NVIDIA_DIR)	\
 	$(OMAP_DIR)	\
+	$(PVR2D_DIR)	\
 	$(PXA3XX_DIR)	\
 	$(RADEON_DIR)	\
 	$(SAVAGE_DIR)	\
@@ -155,4 +182,5 @@ SUBDIRS = \
 	$(SIS315_DIR)	\
 	$(TDFX_DIR)	\
 	$(UNICHROME_DIR) \
+	$(VDPAU_DIR)	\
 	$(VMWARE_DIR)

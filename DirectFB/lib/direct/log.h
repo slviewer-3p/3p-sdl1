@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,19 +28,16 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __DIRECT__LOG_H__
 #define __DIRECT__LOG_H__
 
-#include <direct/types.h>
+#include <direct/os/log.h>
+
 #include <direct/messages.h>
 
-
-typedef enum {
-     DLT_STDERR,    /* Simply print out log on stderr. */
-     DLT_FILE,      /* Write log into a file. */
-     DLT_UDP        /* Send out log via UDP. */
-} DirectLogType;
-
+/**********************************************************************************************************************/
 
 /*
  * Creates a logging facility.
@@ -48,14 +47,14 @@ typedef enum {
  *   DLT_FILE       file name
  *   DLT_UDP        <ip>:<port>
  */
-DirectResult direct_log_create     ( DirectLogType     type,
-                                     const char       *param,
-                                     DirectLog       **ret_log );
+DirectResult DIRECT_API direct_log_create     ( DirectLogType     type,
+                                                const char       *param,
+                                                DirectLog       **ret_log );
 
 /*
  * Destroys a logging facility.
  */
-DirectResult direct_log_destroy    ( DirectLog        *log );
+DirectResult DIRECT_API direct_log_destroy    ( DirectLog        *log );
 
 /*
  * Write to the log in a printf fashion.
@@ -63,27 +62,57 @@ DirectResult direct_log_destroy    ( DirectLog        *log );
  * If log is NULL, the default log is used if it's valid,
  * otherwise stderr is used a fallback until now.
  */
-DirectResult direct_log_printf     ( DirectLog        *log,
-                                     const char       *format, ... )  D_FORMAT_PRINTF(2);
+DirectResult DIRECT_API direct_log_printf     ( DirectLog        *log,
+                                                const char       *format, ... )  D_FORMAT_PRINTF(2);
+
+/*
+ * Write to the log in a plain fashion.
+ *
+ * If log is NULL, the default log is used if it's valid,
+ * otherwise stderr is used a fallback until now.
+ */
+DirectResult DIRECT_API direct_log_write      ( DirectLog        *log,
+                                                const char       *buffer,
+                                                size_t            bytes );
 
 /*
  * Set the default log that's used when no valid log is passed.
  */
-DirectResult direct_log_set_default( DirectLog        *log );
+DirectResult DIRECT_API direct_log_set_default( DirectLog        *log );
 
 /*
  * Locks a logging facility for non-intermixed output of multiple calls in multiple threads. Not mandatory.
  */
-void         direct_log_lock       ( DirectLog        *log );
+void         DIRECT_API direct_log_lock       ( DirectLog        *log );
 
 /*
  * Unlocks a logging facility.
  */
-void         direct_log_unlock     ( DirectLog        *log );
+void         DIRECT_API direct_log_unlock     ( DirectLog        *log );
+
+/*
+ * Set a buffer to be used for the log data.
+ */
+DirectResult DIRECT_API direct_log_set_buffer ( DirectLog        *log,
+                                                char             *buffer,
+                                                size_t            bytes );
+
+/*
+ * Flush the log data and optionally synchronize with the output.
+ */
+DirectResult DIRECT_API direct_log_flush      ( DirectLog        *log,
+                                                bool              sync );
 
 /*
  * Returns the default log.
  */
-DirectLog   *direct_log_default( void );
+DirectLog    DIRECT_API *direct_log_default( void );
+
+
+#define d_printf( ... )            direct_log_printf( NULL, __VA_ARGS__ )
+
+
+void __D_log_init( void );
+void __D_log_deinit( void );
 
 #endif

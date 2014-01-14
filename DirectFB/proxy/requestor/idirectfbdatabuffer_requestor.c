@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,11 +28,12 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 
 #include <string.h>
 
@@ -43,6 +46,8 @@
 #include <voodoo/message.h>
 
 #include <media/idirectfbdatabuffer.h>
+
+#include <idirectfb.h>
 
 #include <idirectfbdatabuffer_dispatcher.h>
 
@@ -74,7 +79,13 @@ typedef struct {
 static void
 IDirectFBDataBuffer_Requestor_Destruct( IDirectFBDataBuffer *thiz )
 {
+     IDirectFBDataBuffer_Requestor_data *data = thiz->priv;
+
      D_DEBUG( "%s (%p)\n", __FUNCTION__, thiz );
+
+     voodoo_manager_request( data->manager, data->instance,
+                             IDIRECTFBDATABUFFER_METHOD_ID_Release, VREQ_NONE, NULL,
+                             VMBT_NONE );
 
      IDirectFBDataBuffer_Destruct( thiz );
 }
@@ -84,25 +95,11 @@ IDirectFBDataBuffer_Requestor_Destruct( IDirectFBDataBuffer *thiz )
 static DirectResult
 IDirectFBDataBuffer_Requestor_AddRef( IDirectFBDataBuffer *thiz )
 {
-     DFBResult              ret;
-     VoodooResponseMessage *response;
-
      DIRECT_INTERFACE_GET_DATA(IDirectFBDataBuffer_Requestor)
 
-     ret = voodoo_manager_request( data->manager, data->instance,
-                                   IDIRECTFBDATABUFFER_METHOD_ID_AddRef, VREQ_RESPOND, &response,
-                                   VMBT_NONE );
-     if (ret)
-          return ret;
+     data->base.ref++;
 
-     ret = response->result;
-
-     voodoo_manager_finish_request( data->manager, response );
-
-     if (ret == DFB_OK)
-          data->base.ref++;
-
-     return ret;
+     return DR_OK;
 }
 
 static DirectResult
@@ -113,7 +110,7 @@ IDirectFBDataBuffer_Requestor_Release( IDirectFBDataBuffer *thiz )
      if (--data->base.ref == 0)
           IDirectFBDataBuffer_Requestor_Destruct( thiz );
 
-     return DFB_OK;
+     return DR_OK;
 }
 
 static DFBResult
@@ -455,11 +452,15 @@ Construct( IDirectFBDataBuffer *thiz,
            VoodooInstanceID     instance,
            void                *arg )
 {
-     DFBResult ret;
+     DFBResult       ret;
+     IDirectFB      *idirectfb = arg;
+     IDirectFB_data *idirectfb_data;
 
-     DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBDataBuffer_Requestor)
+     DIRECT_ALLOCATE_INTERFACE_DATA( thiz, IDirectFBDataBuffer_Requestor );
 
-     ret = IDirectFBDataBuffer_Construct( thiz, NULL, arg );
+     DIRECT_INTERFACE_GET_DATA_FROM( idirectfb, idirectfb_data, IDirectFB );
+
+     ret = IDirectFBDataBuffer_Construct( thiz, NULL, idirectfb_data->core, idirectfb );
      if (ret)
           return ret;
 

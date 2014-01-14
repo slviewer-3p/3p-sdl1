@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
@@ -41,11 +45,9 @@
 
 #include <media/idirectfbimageprovider.h>
 
-#include <core/coredefs.h>
-#include <core/coretypes.h>
-
 #include <core/layers.h>
-#include <core/surface.h>
+
+#include <core/CoreSurface.h>
 
 #include <misc/gfx_util.h>
 #include <direct/interface.h>
@@ -66,10 +68,10 @@ DIRECT_INTERFACE_IMPLEMENTATION( IDirectFBImageProvider, GIF )
 
 
 #ifndef NODEBUG
-#define GIFERRORMSG(x...)     { fprintf( stderr, "(GIFLOADER) "x ); \
+#define GIFERRORMSG(...)     { fprintf( stderr, "(GIFLOADER) " __VA_ARGS__ ); \
                                 fprintf( stderr, "\n" ); }
 #else
-#define GIFERRORMSG(x...)
+#define GIFERRORMSG(...)
 #endif
 
 #define MAXCOLORMAPSIZE 256
@@ -186,7 +188,7 @@ Construct( IDirectFBImageProvider *thiz,
      buffer = va_arg( tag, IDirectFBDataBuffer * );
      core = va_arg( tag, CoreDFB * );
      va_end( tag );
-     
+
      data->base.ref = 1;
 
      data->base.buffer = buffer;
@@ -204,8 +206,10 @@ Construct( IDirectFBImageProvider *thiz,
 
      buffer->Release( buffer );
      data->base.buffer = NULL;
-     
-     if (!data->image) {
+
+     if (!data->image ||
+         (data->image_height == 0) ||
+         (data->image_width  == 0) ) {
           DIRECT_DEALLOCATE_INTERFACE( thiz );
           return DFB_FAILURE;
      }
@@ -247,7 +251,7 @@ IDirectFBImageProvider_GIF_RenderTo( IDirectFBImageProvider *thiz,
      if (dest_rect) {
           if (dest_rect->w < 1 || dest_rect->h < 1)
                return DFB_INVARG;
-          rect = *dest_rect; 
+          rect = *dest_rect;
           rect.x += dst_data->area.wanted.x;
           rect.y += dst_data->area.wanted.y;
      }
@@ -644,10 +648,10 @@ static u32* ReadImage( IDirectFBImageProvider_GIF_data *data, int width, int hei
                ;
           return NULL;
      }
-     
+
      // FIXME: allocates four additional bytes because the scaling functions
      //        in src/misc/gfx_util.c have an off-by-one bug which causes
-     //        segfaults on darwin/osx (not on linux)           
+     //        segfaults on darwin/osx (not on linux)
      if ((image = D_MALLOC(width * height * 4 + 4)) == NULL) {
           GIFERRORMSG("couldn't alloc space for image" );
      }

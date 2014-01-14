@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <directfb.h>
@@ -34,6 +38,8 @@
 
 #include <core/coredefs.h>
 #include <core/coretypes.h>
+
+#include <core/CorePalette.h>
 
 #include <core/core.h>
 #include <core/surface.h>
@@ -77,13 +83,13 @@ static void palette_destructor( FusionObject *object, bool zombie, void *ctx )
 
      dfb_palette_dispatch( palette, &notification, dfb_palette_globals );
 
-     if (palette->hash_attached) {
-          dfb_colorhash_invalidate( NULL, palette );
-          dfb_colorhash_detach( NULL, palette );
-     }
+     // FIXME-SECUREFUSION: invalidate in other processes as well
+     dfb_colorhash_invalidate( NULL, palette );
 
      SHFREE( palette->shmpool, palette->entries_yuv );
      SHFREE( palette->shmpool, palette->entries );
+
+     CorePalette_Deinit_Dispatch( &palette->call );
 
      D_MAGIC_CLEAR( palette );
 
@@ -139,8 +145,12 @@ dfb_palette_create( CoreDFB       *core,
 
      palette->num_entries = size;
 
+#if 0 //FIXME-SECUREFUSION
      /* reset cache */
      palette->search_cache.index = -1;
+#endif
+
+     CorePalette_Init_Dispatch( core, palette, &palette->call );
 
      D_MAGIC_SET( palette, CorePalette );
 
@@ -159,6 +169,7 @@ void
 dfb_palette_generate_rgb332_map( CorePalette *palette )
 {
      unsigned int i;
+     DFBColor     entries[256];
 
      D_DEBUG_AT( Core_Palette, "%s( %p )\n", __FUNCTION__, palette );
 
@@ -168,24 +179,20 @@ dfb_palette_generate_rgb332_map( CorePalette *palette )
           return;
 
      for (i=0; i<palette->num_entries; i++) {
-          palette->entries[i].a = i ? 0xff : 0x00;
-          palette->entries[i].r = lookup3to8[ (i & 0xE0) >> 5 ];
-          palette->entries[i].g = lookup3to8[ (i & 0x1C) >> 2 ];
-          palette->entries[i].b = lookup2to8[ (i & 0x03) ];
-
-          palette->entries_yuv[i].a = palette->entries[i].a;
-
-          RGB_TO_YCBCR( palette->entries[i].r, palette->entries[i].g, palette->entries[i].b,
-                        palette->entries_yuv[i].y, palette->entries_yuv[i].u, palette->entries_yuv[i].v );
+          entries[i].a = i ? 0xff : 0x00;
+          entries[i].r = lookup3to8[ (i & 0xE0) >> 5 ];
+          entries[i].g = lookup3to8[ (i & 0x1C) >> 2 ];
+          entries[i].b = lookup2to8[ (i & 0x03) ];
      }
 
-     dfb_palette_update( palette, 0, palette->num_entries - 1 );
+     CorePalette_SetEntries( palette, entries, palette->num_entries, 0 );
 }
 
 void
 dfb_palette_generate_rgb121_map( CorePalette *palette )
 {
      unsigned int i;
+     DFBColor     entries[256];
 
      D_DEBUG_AT( Core_Palette, "%s( %p )\n", __FUNCTION__, palette );
 
@@ -195,18 +202,13 @@ dfb_palette_generate_rgb121_map( CorePalette *palette )
           return;
 
      for (i=0; i<palette->num_entries; i++) {
-          palette->entries[i].a = i ? 0xff : 0x00;
-          palette->entries[i].r = (i & 0x8) ? 0xff : 0x00;
-          palette->entries[i].g = lookup2to8[ (i & 0x6) >> 1 ];
-          palette->entries[i].b = (i & 0x1) ? 0xff : 0x00;
-
-          palette->entries_yuv[i].a = palette->entries[i].a;
-
-          RGB_TO_YCBCR( palette->entries[i].r, palette->entries[i].g, palette->entries[i].b,
-                        palette->entries_yuv[i].y, palette->entries_yuv[i].u, palette->entries_yuv[i].v );
+          entries[i].a = i ? 0xff : 0x00;
+          entries[i].r = (i & 0x8) ? 0xff : 0x00;
+          entries[i].g = lookup2to8[ (i & 0x6) >> 1 ];
+          entries[i].b = (i & 0x1) ? 0xff : 0x00;
      }
 
-     dfb_palette_update( palette, 0, palette->num_entries - 1 );
+     CorePalette_SetEntries( palette, entries, palette->num_entries, 0 );
 }
 
 unsigned int
@@ -220,6 +222,7 @@ dfb_palette_search( CorePalette *palette,
 
      D_MAGIC_ASSERT( palette, CorePalette );
 
+#if 0 //FIXME-SECUREFUSION
      /* check local cache first */
      if (palette->search_cache.index != -1 &&
          palette->search_cache.color.a == a &&
@@ -227,21 +230,18 @@ dfb_palette_search( CorePalette *palette,
          palette->search_cache.color.g == g &&
          palette->search_cache.color.b == b)
           return palette->search_cache.index;
-
-     /* check the global color hash table, returns the closest match */
-     if (!palette->hash_attached) {
-          dfb_colorhash_attach( NULL, palette );
-          palette->hash_attached = true;
-     }
+#endif
 
      index = dfb_colorhash_lookup( NULL, palette, r, g, b, a );
 
+#if 0 //FIXME-SECUREFUSION
      /* write into local cache */
      palette->search_cache.index = index;
      palette->search_cache.color.a = a;
      palette->search_cache.color.r = r;
      palette->search_cache.color.g = g;
      palette->search_cache.color.b = b;
+#endif
 
      return index;
 }
@@ -265,14 +265,16 @@ dfb_palette_update( CorePalette *palette, int first, int last )
      notification.first   = first;
      notification.last    = last;
 
+#if 0 //FIXME-SECUREFUSION
      /* reset cache */
      if (palette->search_cache.index >= first &&
          palette->search_cache.index <= last)
           palette->search_cache.index = -1;
+#endif
 
      /* invalidate entries in colorhash */
-     if (palette->hash_attached)
-          dfb_colorhash_invalidate( NULL, palette );
+     // FIXME-SECUREFUSION: invalidate in other processes as well
+     dfb_colorhash_invalidate( NULL, palette );
 
      /* post message about palette update */
      dfb_palette_dispatch( palette, &notification, dfb_palette_globals );

@@ -43,18 +43,18 @@
 #                                                                                   #
 #####################################################################################
 
-$COLOR_BG                = "#F8F4D8";
+$COLOR_BG                = "#C0C8D8";
 $COLOR_LINK              = "#2369E0";
 $COLOR_TEXT              = "#232323";
 
-$COLOR_TOP_BG            = "#C0B090";
+$COLOR_TOP_BG            = "#8090A0";
 $COLOR_TOP_LINK          = "#203040";
 
 $COLOR_TITLE             = "#E09040";
 $COLOR_TITLE_BG          = "#284460";
 $COLOR_TITLE_MAIN        = "#D0D0D0";
 
-$COLOR_ENTRIES_BG        = "#F8F8F0";
+$COLOR_ENTRIES_BG        = "#D8E0E8";
 $COLOR_ENTRIES_PTR       = "#424242";
 $COLOR_ENTRIES_ID        = "#234269";
 $COLOR_ENTRIES_DESC      = "#303030";
@@ -133,6 +133,7 @@ sub substitute_links ($) {
 
    # Automatic type links
    $str =~ s/(\s)($PROJECT[\w0-9]+)/\1\<a\ href=\"types\.html#\2\"\>\2\<\/a\>/g;
+   $str =~ s/(\s)(Water[\w0-9]+)/\1\<a\ href=\"types\.html#\2\"\>\2\<\/a\>/g;
 
    # Explicit type links
    $str =~ s/(\s)\@\_(\w[\w0-9]+)/\1\<a\ href=\"types\.html#\2\"\>\2\<\/a\>/g;
@@ -881,7 +882,7 @@ sub gen_doc ($$) {
    while (<>) {
       chomp;
    
-      if ( /^\s*DECLARE_INTERFACE\s*\(\s*(\w+)\s\)\s*$/ ) {
+      if ( /^\s*D?_?DECLARE_INTERFACE\s*\(\s*(\w+)\s\)\s*$/ ) {
          $interface = $1;
 
          trim( \$interface );
@@ -896,7 +897,7 @@ sub gen_doc ($$) {
             $interfaces{$interface} = "$headline $detailed";
          }
       }
-      elsif ( /^\s*DEFINE_INTERFACE\s*\(\s*(\w+),\s*$/ ) {
+      elsif ( /^\s*D?_?DEFINE_INTERFACE\s*\(\s*(\w+),\s*$/ ) {
          parse_interface( $1 );
       }
       elsif ( /^\s*typedef\s+enum\s*\{?\s*$/ ) {

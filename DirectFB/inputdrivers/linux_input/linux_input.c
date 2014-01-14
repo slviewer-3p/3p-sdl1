@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -86,6 +90,7 @@ typedef unsigned long kernel_ulong_t;
 #include <stdlib.h>
 
 #define DFB_INPUTDRIVER_HAS_AXIS_INFO
+#define DFB_INPUTDRIVER_HAS_SET_CONFIGURATION
 
 #include <directfb.h>
 #include <directfb_keyboard.h>
@@ -110,9 +115,7 @@ typedef unsigned long kernel_ulong_t;
 /* Exclude hot-plug stub functionality from this input provider. */
 #define DISABLE_INPUT_HOTPLUG_FUNCTION_STUB
 
-#ifdef LINUX_INPUT_USE_FBDEV
 #include <fbdev/fbdev.h>
-#endif
 
 #include <core/input_driver.h>
 
@@ -173,6 +176,8 @@ typedef struct {
       * Used as the second parameter of the driver_open_device function.
       */
      int                      index;
+
+     int                      sensitivity;
 } LinuxInputData;
 
 
@@ -187,6 +192,8 @@ static char *device_names[MAX_LINUX_INPUT_DEVICES];
 static int               device_nums[MAX_LINUX_INPUT_DEVICES] = { 0 };
 /* Socket file descriptor for getting udev events. */
 static int               socket_fd = 0;
+/* Pipe file descriptor for terminating the hotplug thread. */
+static int               hotplug_quitpipe[2];
 /* The hot-plug thread that is launched by the launch_hotplug() function. */
 static DirectThread     *hotplug_thread = NULL;
 /* The driver suspended lock mutex. */
@@ -670,18 +677,19 @@ key_event( const struct input_event *levt,
  * Translates relative axis events.
  */
 static bool
-rel_event( const struct input_event *levt,
+rel_event( const LinuxInputData     *data,
+           const struct input_event *levt,
            DFBInputEvent            *devt )
 {
      switch (levt->code) {
           case REL_X:
                devt->axis = DIAI_X;
-               devt->axisrel = levt->value;
+               devt->axisrel = levt->value * data->sensitivity / 0x100;
                break;
 
           case REL_Y:
                devt->axis = DIAI_Y;
-               devt->axisrel = levt->value;
+               devt->axisrel = levt->value * data->sensitivity / 0x100;
                break;
 
           case REL_Z:
@@ -741,7 +749,8 @@ abs_event( const struct input_event *levt,
  * Translates a Linux input event into a DirectFB input event.
  */
 static bool
-translate_event( const struct input_event *levt,
+translate_event( const LinuxInputData     *data,
+                 const struct input_event *levt,
                  DFBInputEvent            *devt )
 {
      devt->flags     = DIEF_TIMESTAMP;
@@ -752,7 +761,7 @@ translate_event( const struct input_event *levt,
                return key_event( levt, devt );
 
           case EV_REL:
-               return rel_event( levt, devt );
+               return rel_event( data, levt, devt );
 
           case EV_ABS:
                return abs_event( levt, devt );
@@ -767,13 +776,16 @@ translate_event( const struct input_event *levt,
 static void
 set_led( const LinuxInputData *data, int led, int state )
 {
+     int res;
+
      struct input_event levt;
 
      levt.type = EV_LED;
      levt.code = led;
      levt.value = !!state;
 
-     write( data->fd, &levt, sizeof(levt) );
+     res = write( data->fd, &levt, sizeof(levt) );
+     (void)res;
 }
 
 static void
@@ -938,7 +950,7 @@ linux_input_EventThread( DirectThread *thread, void *driver_data )
                     status = touchpad_fsm( &fsm_state, &levt[i], &temp );
                     if (status < 0) {
                          /* Not handled. Try the direct approach. */
-                         if (!translate_event( &levt[i], &temp ))
+                         if (!translate_event( data, &levt[i], &temp ))
                               continue;
                     }
                     else if (status == 0) {
@@ -947,7 +959,7 @@ linux_input_EventThread( DirectThread *thread, void *driver_data )
                     }
                }
                else {
-                    if (!translate_event( &levt[i], &temp ))
+                    if (!translate_event( data, &levt[i], &temp ))
                          continue;
                }
 
@@ -1038,8 +1050,12 @@ get_device_info( int              fd,
 
      struct input_id devinfo;
 
+     D_DEBUG_AT( Debug_LinuxInput, "%s()\n", __FUNCTION__ );
+
      /* get device name */
      ioctl( fd, EVIOCGNAME(DFB_INPUT_DEVICE_DESC_NAME_LENGTH - 1), info->desc.name );
+
+     D_DEBUG_AT( Debug_LinuxInput, "  -> name '%s'\n", info->desc.name );
 
      /* set device vendor */
      snprintf( info->desc.vendor,
@@ -1051,7 +1067,11 @@ get_device_info( int              fd,
      if (test_bit( EV_KEY, evbit )) {
           int i;
 
+#ifndef DIRECTFB_DISABLE_DEPRECATED
           info->desc.caps |= DICAPS_KEYS;
+#else
+          info->desc.caps |= DIDCAPS_KEYS;
+#endif
 
           /* get keyboard bits */
           ioctl( fd, EVIOCGBIT(EV_KEY, sizeof(keybit)), keybit );
@@ -1136,13 +1156,21 @@ get_device_info( int              fd,
 
      /* Buttons */
      if (num_buttons) {
+#ifndef DIRECTFB_DISABLE_DEPRECATED
           info->desc.caps       |= DICAPS_BUTTONS;
+#else
+          info->desc.caps       |= DIDCAPS_BUTTONS;
+#endif
           info->desc.max_button  = DIBI_FIRST + num_buttons - 1;
      }
 
      /* Axes */
      if (num_rels || num_abs) {
+#ifndef DIRECTFB_DISABLE_DEPRECATED
           info->desc.caps       |= DICAPS_AXES;
+#else
+          info->desc.caps       |= DIDCAPS_AXES;
+#endif
           info->desc.max_axis    = DIAI_FIRST + MAX(num_rels, num_abs) - 1;
      }
 
@@ -1160,9 +1188,11 @@ get_device_info( int              fd,
 
      /* Get VID and PID information */
      ioctl( fd, EVIOCGID, &devinfo );
-     
+
      info->desc.vendor_id  = devinfo.vendor;
      info->desc.product_id = devinfo.product;
+
+     D_DEBUG_AT( Debug_LinuxInput, "  -> ids %d/%d\n", info->desc.vendor_id, info->desc.product_id );
 }
 
 static bool
@@ -1170,9 +1200,12 @@ check_device( const char *device )
 {
      int  fd;
 
+     D_DEBUG_AT( Debug_LinuxInput, "%s( '%s' )\n", __FUNCTION__, device );
+
      /* Check if we are able to open the device */
      fd = open( device, O_RDWR );
      if (fd < 0) {
+          D_DEBUG_AT( Debug_LinuxInput, "  -> open failed!\n" );
           return false;
      }
      else {
@@ -1196,13 +1229,17 @@ check_device( const char *device )
                ioctl( fd, EVIOCGRAB, 0 );
           close( fd );
 
-          if (!info.desc.caps)
+          if (!info.desc.caps) {
+              D_DEBUG_AT( Debug_LinuxInput, "  -> no caps!\n" );
               return false;
+          }
 
           if (!dfb_config->linux_input_ir_only ||
               (info.desc.type & DIDTF_REMOTE))
                return true;
      }
+
+     D_DEBUG_AT( Debug_LinuxInput, "  -> returning false!\n" );
 
      return false;
 }
@@ -1219,19 +1256,19 @@ driver_get_available( void )
      int   i;
      char *tsdev;
 
-#ifdef LINUX_INPUT_USE_FBDEV
-     if (dfb_system_type() != CORE_FBDEV)
+     if (!(dfb_config->linux_input_force || (dfb_system_type() == CORE_FBDEV) || (dfb_system_type() == CORE_MESA) || (dfb_system_type() == CORE_DRMKMS)  ))
           return 0;
 
-     FBDev *dfb_fbdev = (FBDev*) dfb_system_data();
-     D_ASSERT( dfb_fbdev );
+     if (dfb_system_type() == CORE_FBDEV && !dfb_config->linux_input_force) {
+          FBDev *dfb_fbdev = (FBDev*) dfb_system_data();
+          D_ASSERT( dfb_fbdev );
 
-     // Only allow USB keyboard and mouse support if the systems driver has
-     // the Virtual Terminal file ("/dev/tty0") open and available for use.
-     // FIXME:  Additional logic needed for system drivers not similar to fbdev?
-     if (!dfb_fbdev->vt || dfb_fbdev->vt->fd < 0)
-          return 0;
-#endif
+          // Only allow USB keyboard and mouse support if the systems driver has
+          // the Virtual Terminal file ("/dev/tty0") open and available for use.
+          // FIXME:  Additional logic needed for system drivers not similar to fbdev?
+          if (!dfb_fbdev->vt || dfb_fbdev->vt->fd < 0)
+               return 0;
+     }
 
      /* Use the devices specified in the configuration. */
      if (fusion_vector_has_elements( &dfb_config->linux_input_devices )) {
@@ -1365,7 +1402,7 @@ register_device_node( int event_num, int *index)
 
      /* Too many input devices plugged in to be handled by linux_input driver. */
      D_DEBUG_AT( Debug_LinuxInput,
-                 "The amount of devices registered exceeds the limit "
+                 "The amount of devices registered exceeds the limit (%u) "
                  "supported by linux input provider.\n",
                  MAX_LINUX_INPUT_DEVICES );
      return DFB_UNSUPPORTED;
@@ -1436,21 +1473,23 @@ get_capability( void )
 
      InputDriverCapability   capabilities = IDC_NONE;
 
-#ifdef LINUX_INPUT_USE_FBDEV
-     FBDev *dfb_fbdev;
-
-     if (dfb_system_type() != CORE_FBDEV)
-          return 0;
-
-     dfb_fbdev = (FBDev*) dfb_system_data();
-     D_ASSERT( dfb_fbdev );
-
-     // Only allow USB keyboard and mouse support if the systems driver has
-     // the Virtual Terminal file ("/dev/tty0") open and available for use.
-     // FIXME:  Additional logic needed for system drivers not similar to fbdev?
-     if (!dfb_fbdev->vt || dfb_fbdev->vt->fd < 0)
+     if (!(dfb_config->linux_input_force || (dfb_system_type() == CORE_FBDEV) || (dfb_system_type() == CORE_MESA) ))
           goto exit;
-#endif
+
+     if (dfb_system_type() == CORE_FBDEV) {
+          FBDev *dfb_fbdev = (FBDev*) dfb_system_data();
+          D_ASSERT( dfb_fbdev );
+
+          // Only allow USB keyboard and mouse support if the systems driver has
+          // the Virtual Terminal file ("/dev/tty0") open and available for use.
+          // FIXME:  Additional logic needed for system drivers not similar to fbdev?
+          if (!dfb_fbdev->vt || dfb_fbdev->vt->fd < 0) {
+               D_DEBUG_AT( Debug_LinuxInput, "  -> no VT\n" );
+               goto exit;
+          }
+     }
+
+     D_DEBUG_AT( Debug_LinuxInput, "  -> returning HOTPLUG\n" );
 
      capabilities |= IDC_HOTPLUG;
 
@@ -1470,8 +1509,9 @@ udev_hotplug_EventThread(DirectThread *thread, void * hotplug_data)
      CoreDFB           *core;
      void              *driver;
      HotplugThreadData *data = (HotplugThreadData *)hotplug_data;
-     int                rt, option;
+     int                rt;
      struct sockaddr_un sock_addr;
+     int                fdmax;
 
      D_ASSERT( data != NULL );
      D_ASSERT( data->core != NULL );
@@ -1491,6 +1531,8 @@ udev_hotplug_EventThread(DirectThread *thread, void * hotplug_data)
                     strerror(errno) );
           goto errorExit;
      }
+
+     fdmax = MAX( socket_fd, hotplug_quitpipe[0] );
 
      memset(&sock_addr, 0, sizeof(sock_addr));
      sock_addr.sun_family = AF_UNIX;
@@ -1517,10 +1559,14 @@ udev_hotplug_EventThread(DirectThread *thread, void * hotplug_data)
           /* get udev event */
           FD_ZERO(&rset);
           FD_SET(socket_fd, &rset);
+          FD_SET(hotplug_quitpipe[0], &rset);
 
-          number_file = select(socket_fd+1, &rset, NULL, NULL, NULL);
+          number_file = select(fdmax+1, &rset, NULL, NULL, NULL);
 
           if (number_file < 0 && errno != EINTR)
+               break;
+
+          if (FD_ISSET( hotplug_quitpipe[0], &rset ))
                break;
 
           /* check cancel thread */
@@ -1635,6 +1681,8 @@ errorExit:
 static DFBResult
 stop_hotplug( void )
 {
+     int res;
+
      D_DEBUG_AT( Debug_LinuxInput, "%s()\n", __FUNCTION__ );
 
      /* Exit immediately if the hotplug thread is not created successfully in
@@ -1643,10 +1691,15 @@ stop_hotplug( void )
      if (!hotplug_thread)
           goto exit;
 
+     /* Write to the hotplug quit pipe to cause the thread to terminate */
+     res = write( hotplug_quitpipe[1], " ", 1 );
+     (void)res;
      /* Shutdown the hotplug detection thread. */
-     direct_thread_cancel(hotplug_thread);
      direct_thread_join(hotplug_thread);
      direct_thread_destroy(hotplug_thread);
+     close( hotplug_quitpipe[0] );
+     close( hotplug_quitpipe[1] );
+
      hotplug_thread = NULL;
 
      /* Destroy the suspended mutex. */
@@ -1678,6 +1731,8 @@ static DFBResult
 launch_hotplug(CoreDFB         *core,
                void            *input_driver)
 {
+     int ret;
+
      D_DEBUG_AT( Debug_LinuxInput, "%s()\n", __FUNCTION__ );
 
      HotplugThreadData  *data;
@@ -1698,6 +1753,14 @@ launch_hotplug(CoreDFB         *core,
      data->core        = core;
      data->driver      = input_driver;
 
+     /* open a pipe to awake the reader thread when we want to quit */
+     ret = pipe( hotplug_quitpipe );
+     if (ret < 0) {
+          D_PERROR( "DirectFB/linux_input: could not open quitpipe for hotplug" );
+          D_FREE( data );
+          result = DFB_INIT;
+          goto errorExit;
+     }
      socket_fd = 0;
 
      /* Initialize a mutex used to communicate to the hotplug handling thread
@@ -1778,22 +1841,27 @@ driver_open_device( CoreInputDevice  *device,
           return D_OOM();
      }
 
-     data->fd       = fd;
-     data->device   = device;
-     data->has_keys = (info->desc.caps & DICAPS_KEYS) != 0;
-     data->touchpad = touchpad;
-     data->vt_fd    = -1;
+     data->fd          = fd;
+     data->device      = device;
+#ifndef DIRECTFB_DISABLE_DEPRECATED
+     data->has_keys    = (info->desc.caps & DICAPS_KEYS) != 0;
+#else
+     data->has_keys    = (info->desc.caps & DIDCAPS_KEYS) != 0;
+#endif
+     data->touchpad    = touchpad;
+     data->vt_fd       = -1;
+     data->sensitivity = 0x100;
 
       /* Track associated entry in device_nums and device_names array. */
       data->index = number;
 
      if (info->desc.min_keycode >= 0 && info->desc.max_keycode >= info->desc.min_keycode) {
-#ifdef LINUX_INPUT_USE_FBDEV
-          FBDev *dfb_fbdev = dfb_system_data();
+          if (dfb_system_type() == CORE_FBDEV) {
+               FBDev *dfb_fbdev = dfb_system_data();
 
-          if (dfb_fbdev->vt)
-               data->vt_fd = dup( dfb_fbdev->vt->fd );
-#endif
+               if (dfb_fbdev->vt)
+                    data->vt_fd = dup( dfb_fbdev->vt->fd );
+          }
           if (data->vt_fd < 0)
                data->vt_fd = open( "/dev/tty0", O_RDWR | O_NOCTTY );
 
@@ -1861,7 +1929,7 @@ driver_get_axis_info( CoreInputDevice              *device,
 {
      LinuxInputData *data = (LinuxInputData*) driver_data;
 
-     if (data->touchpad)
+     if (data->touchpad && !dfb_config->linux_input_touch_abs)
           return DFB_OK;
 
      if (axis <= ABS_PRESSURE && axis < DIAI_LAST) {
@@ -1881,6 +1949,19 @@ driver_get_axis_info( CoreInputDevice              *device,
                }
           }
      }
+
+     return DFB_OK;
+}
+
+static DFBResult
+driver_set_configuration( CoreInputDevice              *device,
+                          void                         *driver_data,
+                          const DFBInputDeviceConfig   *config )
+{
+     LinuxInputData *data = (LinuxInputData*) driver_data;
+
+     if (config->flags & DIDCONF_SENSITIVITY)
+          data->sensitivity = config->sensitivity;
 
      return DFB_OK;
 }
@@ -1953,13 +2034,14 @@ driver_get_keymap_entry( CoreInputDevice           *device,
 static void
 driver_close_device( void *driver_data )
 {
+     int res;
      LinuxInputData *data = (LinuxInputData*) driver_data;
 
      D_DEBUG_AT( Debug_LinuxInput, "%s()\n", __FUNCTION__ );
 
      /* stop input thread */
-     direct_thread_cancel( data->thread );
-     (void)write( data->quitpipe[1], " ", 1 );
+     res = write( data->quitpipe[1], " ", 1 );
+     (void)res;
      direct_thread_join( data->thread );
      direct_thread_destroy( data->thread );
      close( data->quitpipe[0] );
@@ -2054,7 +2136,7 @@ touchpad_translate( struct touchpad_fsm_state *state,
      struct touchpad_axis *axis = NULL;
      int abs, rel;
 
-     devt->flags     = DIEF_TIMESTAMP | DIEF_AXISREL;
+     devt->flags     = DIEF_TIMESTAMP | (dfb_config->linux_input_touch_abs ? DIEF_AXISABS : DIEF_AXISREL);
      devt->timestamp = levt->time;
      devt->type      = DIET_AXISMOTION;
 
@@ -2087,6 +2169,7 @@ touchpad_translate( struct touchpad_fsm_state *state,
 
      axis->old     = abs;
      devt->axisrel = rel;
+     devt->axisabs = levt->value;
 
      return 1;
 }

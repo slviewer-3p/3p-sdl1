@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,17 +28,14 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __DIRECT__CONF_H__
 #define __DIRECT__CONF_H__
 
 
-#include <direct/messages.h>
+#include <direct/log_domain.h>
 
-#if HAVE_SIGNAL_H
-#include <signal.h>
-#else
-#include <sys/signal.h>
-#endif
 
 typedef enum {
      DCFL_NONE,     /* None is fatal. */
@@ -50,9 +49,30 @@ typedef enum {
      DCTS_RR
 } DirectConfigThreadScheduler;
 
+typedef enum {
+     DMT_NONE           = 0x00000000, /* No message type. */
+
+     DMT_BANNER         = 0x00000001, /* Startup banner. */
+     DMT_INFO           = 0x00000002, /* Info messages. */
+     DMT_WARNING        = 0x00000004, /* Warnings. */
+     DMT_ERROR          = 0x00000008, /* Error messages: regular, with DFBResult, bugs,
+                                         system call errors, dlopen errors */
+     DMT_UNIMPLEMENTED  = 0x00000010, /* Messages notifying unimplemented functionality. */
+     DMT_ONCE           = 0x00000020, /* One-shot messages .*/
+     DMT_UNTESTED       = 0x00000040, /* Messages notifying unimplemented functionality. */
+     DMT_BUG            = 0x00000080, /* A bug occurred. */
+
+     DMT_ALL            = 0x000000FF  /* All types. */
+} DirectMessageType;
+
+
 struct __D_DirectConfig {
      DirectMessageType             quiet;
-     bool                          debug;
+
+     DirectLogLevel                log_level;
+     bool                          log_all;
+     bool                          log_none;
+
      bool                          trace;
 
      char                         *memcpy;            /* Don't probe for memcpy routines to save a lot of
@@ -67,7 +87,10 @@ struct __D_DirectConfig {
      DirectLog                    *log;
 
      DirectConfigFatalLevel        fatal;
-     
+
+     // @deprecated / FIXME: maybe adapt?
+     bool                          debug;
+
      bool                          debugmem;
 
      bool                          thread_block_signals;
@@ -78,15 +101,44 @@ struct __D_DirectConfig {
      DirectConfigThreadScheduler   thread_scheduler;
      int                           thread_stack_size;
      int                           thread_priority_scale;
+
+     char                        **default_interface_implementation_types;
+     char                        **default_interface_implementation_names;
+
+     unsigned int                  perf_dump_interval;
+     int                           log_delay_rand_loops;
+     int                           log_delay_rand_us;
+     int                           log_delay_min_loops;
+     int                           log_delay_min_us;
+
+     DirectMessageType             fatal_messages;
+
+     bool                          nm_for_trace;
 };
 
-extern DirectConfig *direct_config;
+extern DirectConfig DIRECT_API *direct_config;
 
-extern const char   *direct_config_usage;
+extern const char   DIRECT_API *direct_config_usage;
+
+DirectResult        DIRECT_API  direct_config_set( const char *name, const char *value );
+
+/* Retrieve all values set on option 'name'. */
+/* Pass an array of char* pointers and number of pointers in 'num'. */
+/* The actual returned number of values gets returned in 'ret_num' */
+/* The returned option/values respect directfbrc, cmdline options and DFBARGS envvar. */
+/* The returned pointers are not extra allocated so do not free them! */
+DirectResult        DIRECT_API  direct_config_get( const char *name, char **values, const int values_len, int *ret_num );
+
+/* Return the integer value for the last occurrance of the passed option's setting. */
+/* Note that 0 is also retuned in case the passed option was not found ot set. */
+long long           DIRECT_API  direct_config_get_int_value( const char *name );
+
+long long           DIRECT_API  direct_config_get_int_value_with_default( const char *name,
+                                                                          long long   def );
 
 
-DirectResult direct_config_set( const char *name, const char *value );
-
+void __D_conf_init( void );
+void __D_conf_deinit( void );
 
 #endif
 

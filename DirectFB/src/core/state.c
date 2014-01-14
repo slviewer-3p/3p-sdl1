@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,12 +28,15 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <string.h>
 
 #include <pthread.h>
 
+#include <fusion/conf.h>
 #include <fusion/fusion.h>
 #include <fusion/reactor.h>
 
@@ -51,12 +56,17 @@
 #include <misc/conf.h>
 
 
+D_DEBUG_DOMAIN( Core_GfxState, "Core/GfxState", "Core Gfx State" );
+
+
 static inline void
 validate_clip( CardState *state,
                int        xmax,
                int        ymax,
                bool       warn )
 {
+     D_DEBUG_AT( Core_GfxState, "%s( %p, %d, %d, %d )\n", __FUNCTION__, state, xmax, ymax, warn );
+
      D_MAGIC_ASSERT( state, CardState );
      DFB_REGION_ASSERT( &state->clip );
 
@@ -116,7 +126,27 @@ dfb_state_init( CardState *state, CoreDFB *core )
      state->affine_matrix = DFB_TRUE;
 
      state->from      = CSBR_FRONT;
+     state->from_eye  = DSSE_LEFT;
      state->to        = CSBR_BACK;
+     state->to_eye    = DSSE_LEFT;
+
+     state->src_colormatrix[0]  = 0x10000;
+     state->src_colormatrix[1]  = 0x00000;
+     state->src_colormatrix[2]  = 0x00000;
+     state->src_colormatrix[3]  = 0x00000;
+
+     state->src_colormatrix[4]  = 0x00000;
+     state->src_colormatrix[5]  = 0x10000;
+     state->src_colormatrix[6]  = 0x00000;
+     state->src_colormatrix[7]  = 0x00000;
+
+     state->src_colormatrix[8]  = 0x00000;
+     state->src_colormatrix[9]  = 0x00000;
+     state->src_colormatrix[10] = 0x10000;
+     state->src_colormatrix[11] = 0x00000;
+
+     state->src_convolution.kernel[4] = 0x10000;
+     state->src_convolution.scale     = 0x10000;
 
      direct_util_recursive_pthread_mutex_init( &state->lock );
 
@@ -126,6 +156,9 @@ dfb_state_init( CardState *state, CoreDFB *core )
      direct_serial_init( &state->src2_serial );
 
      D_MAGIC_SET( state, CardState );
+
+     state->gfxcard_data = NULL;
+     dfb_gfxcard_state_init( state );
 
      return 0;
 }
@@ -139,7 +172,11 @@ dfb_state_destroy( CardState *state )
 
      D_ASSERT( state->destination == NULL );
      D_ASSERT( state->source == NULL );
+     D_ASSERT( state->source2 == NULL );
      D_ASSERT( state->source_mask == NULL );
+
+     dfb_gfxcard_state_destroy( state );
+     state->gfxcard_data = NULL;
 
      D_MAGIC_CLEAR( state );
 
@@ -218,7 +255,9 @@ dfb_state_set_source( CardState *state, CoreSurface *source )
      dfb_state_lock( state );
 
      if (state->source != source) {
-          if (source && dfb_surface_ref( source )) {
+          bool ref = true;//!fusion_config->secure_fusion || dfb_core_is_master( core_dfb );
+
+          if (source && ref && dfb_surface_ref( source )) {
                D_WARN( "could not ref() source" );
                dfb_state_unlock( state );
                return DFB_DEAD;
@@ -226,11 +265,58 @@ dfb_state_set_source( CardState *state, CoreSurface *source )
 
           if (state->source) {
                D_ASSERT( D_FLAGS_IS_SET( state->flags, CSF_SOURCE ) );
-               dfb_surface_unref( state->source );
+               if (ref)
+                    dfb_surface_unref( state->source );
           }
 
           state->source    = source;
           state->modified |= SMF_SOURCE;
+
+          if (source) {
+               direct_serial_copy( &state->src_serial, &source->serial );
+
+               D_FLAGS_SET( state->flags, CSF_SOURCE );
+          }
+          else
+               D_FLAGS_CLEAR( state->flags, CSF_SOURCE );
+     }
+
+     dfb_state_unlock( state );
+
+     return DFB_OK;
+}
+
+DFBResult
+dfb_state_set_source_2( CardState   *state,
+                        CoreSurface *source,
+                        u32          flip_count )
+{
+     D_MAGIC_ASSERT( state, CardState );
+
+     dfb_state_lock( state );
+
+     if (state->source != source || state->source_flip_count != flip_count || !state->source_flip_count_used) {
+          bool ref = true;//!fusion_config->secure_fusion || dfb_core_is_master( core_dfb );
+
+          if (source && ref && dfb_surface_ref( source )) {
+               D_WARN( "could not ref() source" );
+               dfb_state_unlock( state );
+               return DFB_DEAD;
+          }
+
+          if (state->source) {
+               D_ASSERT( D_FLAGS_IS_SET( state->flags, CSF_SOURCE ) );
+               if (ref)
+                    dfb_surface_unref( state->source );
+          }
+
+          state->source    = source;
+          state->modified |= SMF_SOURCE;
+
+
+          state->source_flip_count      = flip_count;
+          state->source_flip_count_used = true;
+
 
           if (source) {
                direct_serial_copy( &state->src_serial, &source->serial );
@@ -254,7 +340,9 @@ dfb_state_set_source2( CardState *state, CoreSurface *source2 )
      dfb_state_lock( state );
 
      if (state->source2 != source2) {
-          if (source2 && dfb_surface_ref( source2 )) {
+          bool ref = true;//!fusion_config->secure_fusion || dfb_core_is_master( core_dfb );
+
+          if (source2 && ref && dfb_surface_ref( source2 )) {
                D_WARN( "could not ref() source2" );
                dfb_state_unlock( state );
                return DFB_DEAD;
@@ -262,7 +350,8 @@ dfb_state_set_source2( CardState *state, CoreSurface *source2 )
 
           if (state->source2) {
                D_ASSERT( D_FLAGS_IS_SET( state->flags, CSF_SOURCE2 ) );
-               dfb_surface_unref( state->source2 );
+               if (ref)
+                    dfb_surface_unref( state->source2 );
           }
 
           state->source2   = source2;
@@ -290,7 +379,9 @@ dfb_state_set_source_mask( CardState *state, CoreSurface *source_mask )
      dfb_state_lock( state );
 
      if (state->source_mask != source_mask) {
-          if (source_mask && dfb_surface_ref( source_mask )) {
+          bool ref = true;//!fusion_config->secure_fusion || dfb_core_is_master( core_dfb );
+
+          if (source_mask && ref && dfb_surface_ref( source_mask )) {
                D_WARN( "could not ref() source mask" );
                dfb_state_unlock( state );
                return DFB_DEAD;
@@ -298,7 +389,8 @@ dfb_state_set_source_mask( CardState *state, CoreSurface *source_mask )
 
           if (state->source_mask) {
                D_ASSERT( D_FLAGS_IS_SET( state->flags, CSF_SOURCE_MASK ) );
-               dfb_surface_unref( state->source_mask );
+               if (ref)
+                    dfb_surface_unref( state->source_mask );
           }
 
           state->source_mask  = source_mask;
@@ -369,6 +461,71 @@ dfb_state_update( CardState *state, bool update_sources )
      }
 }
 
+void
+dfb_state_update_destination( CardState *state )
+{
+     CoreSurface *destination;
+
+     D_DEBUG_AT( Core_GfxState, "%s( %p )\n", __FUNCTION__, state );
+
+     D_MAGIC_ASSERT( state, CardState );
+     DFB_REGION_ASSERT( &state->clip );
+
+     destination = state->destination;
+
+     if (D_FLAGS_IS_SET( state->flags, CSF_DESTINATION )) {
+          D_DEBUG_AT( Core_GfxState, "  -> CSF_DESTINATION is set\n" );
+
+          D_ASSERT( destination != NULL );
+
+          if (direct_serial_update( &state->dst_serial, &destination->serial )) {
+               D_DEBUG_AT( Core_GfxState, "  -> serial is updated\n" );
+
+               validate_clip( state, destination->config.size.w - 1, destination->config.size.h - 1, true );
+
+               state->modified |= SMF_DESTINATION;
+          }
+     }
+     else if (destination)
+          validate_clip( state, destination->config.size.w - 1, destination->config.size.h - 1, true );
+}
+
+void
+dfb_state_update_sources( CardState *state, CardStateFlags flags )
+{
+     D_DEBUG_AT( Core_GfxState, "%s( %p )\n", __FUNCTION__, state );
+
+     D_MAGIC_ASSERT( state, CardState );
+     DFB_REGION_ASSERT( &state->clip );
+
+     if (D_FLAGS_IS_SET( state->flags & flags, CSF_SOURCE )) {
+          CoreSurface *source = state->source;
+
+          D_ASSERT( source != NULL );
+
+          if (direct_serial_update( &state->src_serial, &source->serial ))
+               state->modified |= SMF_SOURCE;
+     }
+
+     if (D_FLAGS_IS_SET( state->flags & flags, CSF_SOURCE_MASK )) {
+          CoreSurface *source_mask = state->source_mask;
+
+          D_ASSERT( source_mask != NULL );
+
+          if (direct_serial_update( &state->src_mask_serial, &source_mask->serial ))
+               state->modified |= SMF_SOURCE_MASK;
+     }
+
+     if (D_FLAGS_IS_SET( state->flags & flags, CSF_SOURCE2 )) {
+          CoreSurface *source2 = state->source2;
+
+          D_ASSERT( source2 != NULL );
+
+          if (direct_serial_update( &state->src2_serial, &source2->serial ))
+               state->modified |= SMF_SOURCE2;
+     }
+}
+
 DFBResult
 dfb_state_set_index_translation( CardState *state,
                                  const int *indices,
@@ -425,6 +582,71 @@ dfb_state_set_matrix( CardState *state,
 }
 
 void
+dfb_state_set_rop_pattern( CardState             *state,
+                           const u32             *pattern,
+                           DFBSurfacePatternMode  pattern_mode )
+{
+     D_MAGIC_ASSERT( state, CardState );
+
+     D_ASSERT( pattern != NULL );
+
+     switch (pattern_mode) {
+          case DSPM_8_8_MONO:
+               if (state->rop_pattern_mode != pattern_mode || memcmp( state->rop_pattern, pattern, sizeof(u32) * 8*8/32 )) {
+                    direct_memcpy( state->rop_pattern, pattern, sizeof(u32) * 8*8/32 );
+
+                    state->rop_pattern_mode = pattern_mode;
+
+                    state->modified |= SMF_ROP_PATTERN;
+               }
+               break;
+
+          case DSPM_32_32_MONO:
+               if (state->rop_pattern_mode != pattern_mode || memcmp( state->rop_pattern, pattern, sizeof(u32) * 32*32/32 )) {
+                    direct_memcpy( state->rop_pattern, pattern, sizeof(u32) * 32*32/32 );
+
+                    state->rop_pattern_mode = pattern_mode;
+
+                    state->modified |= SMF_ROP_PATTERN;
+               }
+               break;
+
+          default:
+               D_BUG( "unknown pattern mode %d", pattern_mode );
+     }
+}
+
+void
+dfb_state_set_src_colormatrix( CardState *state,
+                               const s32 *matrix )
+{
+     D_MAGIC_ASSERT( state, CardState );
+
+     D_ASSERT( matrix != NULL );
+
+     if (memcmp( state->src_colormatrix, matrix, sizeof(state->src_colormatrix) )) {
+          direct_memcpy( state->src_colormatrix, matrix, sizeof(state->src_colormatrix) );
+
+          state->modified |= SMF_SRC_COLORMATRIX;
+     }
+}
+
+void
+dfb_state_set_src_convolution( CardState                  *state,
+                               const DFBConvolutionFilter *filter )
+{
+     D_MAGIC_ASSERT( state, CardState );
+
+     D_ASSERT( filter != NULL );
+
+     if (memcmp( &state->src_convolution, filter, sizeof(state->src_convolution) )) {
+          direct_memcpy( &state->src_convolution, filter, sizeof(state->src_convolution) );
+
+          state->modified |= SMF_SRC_CONVOLUTION;
+     }
+}
+
+void
 dfb_state_set_color_or_index( CardState      *state,
                               const DFBColor *color,
                               int             index )
@@ -459,5 +681,57 @@ dfb_state_set_color_or_index( CardState      *state,
                dfb_state_set_color( state, &palette->entries[index % palette->num_entries] );
           }
      }
+}
+
+DFBResult
+dfb_state_get_acceleration_mask( CardState           *state,
+                                 DFBAccelerationMask *ret_accel )
+{
+    DFBAccelerationMask mask = DFXL_NONE;
+
+    D_MAGIC_ASSERT( state, CardState );
+    D_ASSERT( ret_accel != NULL );
+
+    dfb_state_lock( state );
+
+    /* Check drawing functions */
+    if (dfb_gfxcard_state_check( state, DFXL_FILLRECTANGLE ))
+         D_FLAGS_SET( mask, DFXL_FILLRECTANGLE );
+
+    if (dfb_gfxcard_state_check( state, DFXL_DRAWRECTANGLE ))
+         D_FLAGS_SET( mask, DFXL_DRAWRECTANGLE );
+
+    if (dfb_gfxcard_state_check( state, DFXL_DRAWLINE ))
+         D_FLAGS_SET( mask, DFXL_DRAWLINE );
+
+    if (dfb_gfxcard_state_check( state, DFXL_FILLTRIANGLE ))
+         D_FLAGS_SET( mask, DFXL_FILLTRIANGLE );
+
+    if (dfb_gfxcard_state_check( state, DFXL_FILLTRAPEZOID ))
+         D_FLAGS_SET( mask, DFXL_FILLTRAPEZOID );
+
+    /* Check blitting functions */
+    if (state->source) {
+         if (dfb_gfxcard_state_check( state, DFXL_BLIT ))
+              D_FLAGS_SET( mask, DFXL_BLIT );
+
+         if (dfb_gfxcard_state_check( state, DFXL_STRETCHBLIT ))
+              D_FLAGS_SET( mask, DFXL_STRETCHBLIT );
+
+         if (dfb_gfxcard_state_check( state, DFXL_TEXTRIANGLES ))
+              D_FLAGS_SET( mask, DFXL_TEXTRIANGLES );
+    }
+
+    /* Check blitting functions */
+    if (state->source2) {
+         if (dfb_gfxcard_state_check( state, DFXL_BLIT2 ))
+              D_FLAGS_SET( mask, DFXL_BLIT2 );
+    }
+
+    dfb_state_unlock( state );
+
+    *ret_accel = mask;
+
+    return DFB_OK;
 }
 

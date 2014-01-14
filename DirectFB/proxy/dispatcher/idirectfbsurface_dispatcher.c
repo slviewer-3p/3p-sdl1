@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,11 +28,12 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
 
 #include <math.h>
@@ -38,35 +41,18 @@
 
 #include <directfb.h>
 
-#include <core/core.h>
-#include <core/coredefs.h>
-#include <core/coretypes.h>
-
-#include <core/gfxcard.h>
-#include <core/fonts.h>
-#include <core/state.h>
-#include <core/palette.h>
-#include <core/surface.h>
-
-#include <media/idirectfbfont.h>
-
-#include <display/idirectfbsurface.h>
-#include <display/idirectfbpalette.h>
-
-#include <misc/util.h>
-
 #include <direct/interface.h>
 #include <direct/mem.h>
 #include <direct/memcpy.h>
 #include <direct/messages.h>
 #include <direct/util.h>
 
-#include <gfx/convert.h>
-#include <gfx/util.h>
-
+#include <voodoo/conf.h>
 #include <voodoo/interface.h>
 #include <voodoo/manager.h>
 #include <voodoo/message.h>
+
+#include <idirectfbsurface_requestor.h>
 
 #include "idirectfbsurface_dispatcher.h"
 
@@ -96,6 +82,8 @@ typedef struct {
      VoodooInstanceID       self;
 
      VoodooManager         *manager;
+
+     VoodooInstanceID       remote;
 } IDirectFBSurface_Dispatcher_data;
 
 /**************************************************************************************************/
@@ -108,8 +96,6 @@ IDirectFBSurface_Dispatcher_Destruct( IDirectFBSurface *thiz )
      D_DEBUG( "%s (%p)\n", __FUNCTION__, thiz );
 
      data = thiz->priv;
-
-     voodoo_manager_unregister_local( data->manager, data->self );
 
      data->real->Release( data->real );
 
@@ -216,11 +202,11 @@ IDirectFBSurface_Dispatcher_GetAccelerationMask( IDirectFBSurface    *thiz,
 
 static DFBResult
 IDirectFBSurface_Dispatcher_GetPalette( IDirectFBSurface  *thiz,
-                                        IDirectFBPalette **interface )
+                                        IDirectFBPalette **interface_ptr )
 {
      DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Dispatcher)
 
-     if (!interface)
+     if (!interface_ptr)
           return DFB_INVARG;
 
      return DFB_UNIMPLEMENTED;
@@ -477,6 +463,16 @@ IDirectFBSurface_Dispatcher_FillRectangles( IDirectFBSurface   *thiz,
 }
 
 static DFBResult
+IDirectFBSurface_Dispatcher_FillTrapezoids( IDirectFBSurface   *thiz,
+                                            const DFBTrapezoid *traps,
+                                            unsigned int        num_traps )
+{
+     DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Dispatcher)
+
+     return DFB_UNIMPLEMENTED;
+}
+
+static DFBResult
 IDirectFBSurface_Dispatcher_FillSpans( IDirectFBSurface *thiz,
                                        int               y,
                                        const DFBSpan    *spans,
@@ -602,6 +598,21 @@ IDirectFBSurface_Dispatcher_StretchBlit( IDirectFBSurface   *thiz,
 }
 
 static DFBResult
+IDirectFBSurface_Dispatcher_BatchStretchBlit( IDirectFBSurface   *thiz,
+                                              IDirectFBSurface   *source,
+                                              const DFBRectangle *source_rects,
+                                              const DFBRectangle *destination_rects,
+                                              int                 num )
+{
+     DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Dispatcher)
+
+     if (!source || num < 1 || !source_rects || !destination_rects)
+          return DFB_INVARG;
+
+     return DFB_UNIMPLEMENTED;
+}
+
+static DFBResult
 IDirectFBSurface_Dispatcher_TextureTriangles( IDirectFBSurface     *thiz,
                                               IDirectFBSurface     *source,
                                               const DFBVertex      *vertices,
@@ -668,11 +679,11 @@ IDirectFBSurface_Dispatcher_GetSubSurface( IDirectFBSurface    *thiz,
 
 static DFBResult
 IDirectFBSurface_Dispatcher_GetGL( IDirectFBSurface   *thiz,
-                                   IDirectFBGL       **interface )
+                                   IDirectFBGL       **interface_ptr )
 {
      DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Dispatcher)
 
-     if (!interface)
+     if (!interface_ptr)
           return DFB_INVARG;
 
      return DFB_UNIMPLEMENTED;
@@ -726,7 +737,7 @@ Dispatch_Release( IDirectFBSurface *thiz, IDirectFBSurface *real,
 {
      DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Dispatcher)
 
-     return thiz->Release( thiz );
+     return voodoo_manager_unregister_local( manager, data->self );
 }
 
 static DirectResult
@@ -895,15 +906,24 @@ Dispatch_Flip( IDirectFBSurface *thiz, IDirectFBSurface *real,
      VoodooMessageParser  parser;
      const DFBRegion     *region;
      DFBSurfaceFlipFlags  flags;
+     unsigned int         millis = 0;
 
      DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Dispatcher)
 
      VOODOO_PARSER_BEGIN( parser, msg );
      VOODOO_PARSER_GET_ODATA( parser, region );
      VOODOO_PARSER_GET_INT( parser, flags );
+     if (data->remote)
+          VOODOO_PARSER_GET_UINT( parser, millis );
      VOODOO_PARSER_END( parser );
 
      ret = real->Flip( real, region, flags );
+
+     if (data->remote)
+          voodoo_manager_request( manager, data->remote,
+                                  IDIRECTFBSURFACE_REQUESTOR_METHOD_ID_FlipNotify, VREQ_NONE, NULL,
+                                  VMBT_UINT, millis,
+                                  VMBT_NONE );
 
      if (flags & DSFLIP_WAIT)
           return voodoo_manager_respond( manager, true, msg->header.serial,
@@ -1172,6 +1192,36 @@ Dispatch_StretchBlit( IDirectFBSurface *thiz, IDirectFBSurface *real,
 }
 
 static DirectResult
+Dispatch_BatchStretchBlit( IDirectFBSurface *thiz, IDirectFBSurface *real,
+                           VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DirectResult         ret;
+     VoodooMessageParser  parser;
+     VoodooInstanceID     instance;
+     unsigned int         num;
+     const DFBRectangle  *srects;
+     const DFBRectangle  *drects;
+     void                *surface;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Dispatcher)
+
+     VOODOO_PARSER_BEGIN( parser, msg );
+     VOODOO_PARSER_GET_ID( parser, instance );
+     VOODOO_PARSER_GET_UINT( parser, num );
+     VOODOO_PARSER_GET_DATA( parser, srects );
+     VOODOO_PARSER_GET_DATA( parser, drects );
+     VOODOO_PARSER_END( parser );
+
+     ret = voodoo_manager_lookup_local( manager, instance, NULL, &surface );
+     if (ret)
+          return ret;
+
+     real->BatchStretchBlit( real, surface, srects, drects, num );
+
+     return DFB_OK;
+}
+
+static DirectResult
 Dispatch_TextureTriangles( IDirectFBSurface *thiz, IDirectFBSurface *real,
                            VoodooManager *manager, VoodooRequestMessage *msg )
 {
@@ -1255,6 +1305,26 @@ Dispatch_FillRectangles( IDirectFBSurface *thiz, IDirectFBSurface *real,
      VOODOO_PARSER_END( parser );
 
      real->FillRectangles( real, rects, num_rects );
+
+     return DFB_OK;
+}
+
+static DirectResult
+Dispatch_FillTrapezoids( IDirectFBSurface *thiz, IDirectFBSurface *real,
+                         VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     VoodooMessageParser  parser;
+     unsigned int         num_traps;
+     const DFBTrapezoid  *traps;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Dispatcher)
+
+     VOODOO_PARSER_BEGIN( parser, msg );
+     VOODOO_PARSER_GET_UINT( parser, num_traps );
+     VOODOO_PARSER_GET_DATA( parser, traps );
+     VOODOO_PARSER_END( parser );
+
+     real->FillTrapezoids( real, traps, num_traps );
 
      return DFB_OK;
 }
@@ -1482,6 +1552,36 @@ Dispatch_GetSubSurface( IDirectFBSurface *thiz, IDirectFBSurface *real,
 }
 
 static DirectResult
+Dispatch_MakeSubSurface( IDirectFBSurface *thiz, IDirectFBSurface *real,
+                         VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DirectResult         ret;
+     VoodooMessageParser  parser;
+     VoodooInstanceID     instance;
+     const DFBRectangle  *rect;
+     void                *surface;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Dispatcher)
+
+     VOODOO_PARSER_BEGIN( parser, msg );
+     VOODOO_PARSER_GET_ID( parser, instance );
+     VOODOO_PARSER_GET_ODATA( parser, rect );
+     VOODOO_PARSER_END( parser );
+
+     ret = voodoo_manager_lookup_local( manager, instance, NULL, &surface );
+     if (ret)
+          return ret;
+
+     ret = real->MakeSubSurface( real, surface, rect );
+     if (ret)
+          return ret;
+
+     return voodoo_manager_respond( manager, true, msg->header.serial,
+                                    DFB_OK, instance,
+                                    VMBT_NONE );
+}
+
+static DirectResult
 Dispatch_DisableAcceleration( IDirectFBSurface *thiz, IDirectFBSurface *real,
                               VoodooManager *manager, VoodooRequestMessage *msg )
 {
@@ -1632,20 +1732,50 @@ Dispatch_Write( IDirectFBSurface *thiz, IDirectFBSurface *real,
      if (encoded) {
           switch (encoded) {
                case 2: {
-                    u16 buf[rect->w];
+                    if (rect->w > 2048) {
+                         u16 *buf = D_MALLOC( rect->w * 2 );
 
-                    rle16_decode( ptr, buf, rect->w );
+                         if (buf) {
+                              rle16_decode( ptr, buf, rect->w );
 
-                    real->Write( real, rect, buf, pitch );
+                              real->Write( real, rect, buf, pitch );
+
+                              D_FREE( buf );
+                         }
+                         else
+                              D_OOM();
+                    }
+                    else {
+                         u16 buf[2048];
+
+                         rle16_decode( ptr, buf, rect->w );
+
+                         real->Write( real, rect, buf, pitch );
+                    }
                     break;
                }
 
                case 4: {
-                    u32 buf[rect->w];
+                    if (rect->w > 1024) {
+                         u32 *buf = D_MALLOC( rect->w * 4 );
 
-                    rle32_decode( ptr, buf, rect->w );
+                         if (buf) {
+                              rle32_decode( ptr, buf, rect->w );
 
-                    real->Write( real, rect, buf, pitch );
+                              real->Write( real, rect, buf, pitch );
+
+                              D_FREE( buf );
+                         }
+                         else
+                              D_OOM();
+                    }
+                    else {
+                         u32 buf[1024];
+
+                         rle32_decode( ptr, buf, rect->w );
+
+                         real->Write( real, rect, buf, pitch );
+                    }
                     break;
                }
 
@@ -1656,6 +1786,193 @@ Dispatch_Write( IDirectFBSurface *thiz, IDirectFBSurface *real,
      }
      else
           real->Write( real, rect, ptr, pitch );
+
+     return DFB_OK;
+}
+
+#define RLE16_KEY   0xf001
+
+static bool
+rle16_encode( const u16    *src,
+              u16          *dst,
+              unsigned int  num,
+              unsigned int *ret_num )
+{
+     unsigned int n, last, count = 0, out = 0;
+
+     for (n=0; n<num; n++) {
+          if (out + 3 > num) {
+               *ret_num = num;
+               return false;
+          }
+
+          if (count > 0) {
+               D_ASSERT( src[n] == last );
+
+               count++;
+          }
+          else {
+               count = 1;
+               last  = src[n];
+          }
+
+          if (n == num-1 || src[n+1] != last) {
+               if (count > 2 || (count > 1 && last == RLE16_KEY)) {
+                    dst[out++] = RLE16_KEY;
+                    dst[out++] = count;
+                    dst[out++] = last;
+               }
+               else {
+                    if (count > 1 || last == RLE16_KEY)
+                         dst[out++] = last;
+
+                    dst[out++] = last;
+               }
+
+               count = 0;
+          }
+     }
+
+     *ret_num = out;
+
+     return true;
+}
+
+#define RLE32_KEY   0xf0012345
+
+static bool
+rle32_encode( const u32    *src,
+              u32          *dst,
+              unsigned int  num,
+              unsigned int *ret_num )
+{
+     unsigned int n, last, count = 0, out = 0;
+
+     for (n=0; n<num; n++) {
+          if (out + 3 > num) {
+               *ret_num = num;
+               return false;
+          }
+
+          if (count > 0) {
+               D_ASSERT( src[n] == last );
+
+               count++;
+          }
+          else {
+               count = 1;
+               last  = src[n];
+          }
+
+          if (n == num-1 || src[n+1] != last) {
+               if (count > 2 || (count > 1 && last == RLE32_KEY)) {
+                    dst[out++] = RLE32_KEY;
+                    dst[out++] = count;
+                    dst[out++] = last;
+               }
+               else {
+                    if (count > 1 || last == RLE32_KEY)
+                         dst[out++] = last;
+
+                    dst[out++] = last;
+               }
+
+               count = 0;
+          }
+     }
+
+     *ret_num = out;
+
+     return true;
+}
+
+static DirectResult
+Dispatch_Read( IDirectFBSurface *thiz, IDirectFBSurface *real,
+               VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DirectResult           ret;
+     VoodooMessageParser    parser;
+     const DFBRectangle    *rect;
+     int                    len;
+     int                    y;
+     void                  *buf;
+     DFBSurfacePixelFormat  format;
+     unsigned int           encoded;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Dispatcher)
+
+     VOODOO_PARSER_BEGIN( parser, msg );
+     VOODOO_PARSER_GET_DATA( parser, rect );
+     VOODOO_PARSER_END( parser );
+
+     real->GetPixelFormat( real, &format );
+
+     len = DFB_BYTES_PER_LINE( format, rect->w );
+     buf = alloca( len );
+
+
+     switch (voodoo_config->compression_min ? DSPF_UNKNOWN : format) {
+          case DSPF_RGB16: {
+               u16 tmp[rect->w];
+
+               for (y=0; y<rect->h; y++) {
+                    unsigned int num;
+                    DFBRectangle r = { rect->x, rect->y + y, rect->w, 1 };
+
+                    real->Read( real, &r, buf, len );
+
+                    encoded = rle16_encode( buf, tmp, rect->w, &num );
+
+                    ret = voodoo_manager_respond( manager, y == rect->h - 1, msg->header.serial,
+                                                  DFB_OK, VOODOO_INSTANCE_NONE,
+                                                  VMBT_UINT, encoded ? 2 : 0,
+                                                  VMBT_DATA, DFB_BYTES_PER_LINE( format, num ),
+                                                             encoded ? tmp : buf,
+                                                  VMBT_NONE );
+                    if (ret)
+                         break;
+               }
+               break;
+          }
+
+          case DSPF_RGB32:
+          case DSPF_ARGB: {
+               u32 tmp[rect->w];
+
+               for (y=0; y<rect->h; y++) {
+                    unsigned int num;
+                    DFBRectangle r = { rect->x, rect->y + y, rect->w, 1 };
+
+                    real->Read( real, &r, buf, len );
+
+                    encoded = rle32_encode( buf, tmp, rect->w, &num );
+
+                    ret = voodoo_manager_respond( manager, y == rect->h - 1, msg->header.serial,
+                                                  DFB_OK, VOODOO_INSTANCE_NONE,
+                                                  VMBT_UINT, encoded ? 4 : 0,
+                                                  VMBT_DATA, DFB_BYTES_PER_LINE( format, num ),
+                                                             encoded ? tmp : buf,
+                                                  VMBT_NONE );
+                    if (ret)
+                         break;
+               }
+               break;
+          }
+
+          default:
+               for (y=0; y<rect->h; y++) {
+                    DFBRectangle r = { rect->x, rect->y + y, rect->w, 1 };
+
+                    real->Read( real, &r, buf, len );
+
+                    voodoo_manager_respond( manager, y == rect->h - 1, msg->header.serial,
+                                            DFB_OK, VOODOO_INSTANCE_NONE,
+                                            VMBT_UINT, 0,
+                                            VMBT_DATA, len, buf,
+                                            VMBT_NONE );
+               }
+               break;
+     }
 
      return DFB_OK;
 }
@@ -1694,6 +2011,45 @@ Dispatch_SetMatrix( IDirectFBSurface *thiz, IDirectFBSurface *real,
      real->SetMatrix( real, matrix );
 
      return DFB_OK;
+}
+
+static DirectResult
+Dispatch_SetRemoteInstance( IDirectFBSurface *thiz, IDirectFBSurface *real,
+                            VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     VoodooMessageParser parser;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Dispatcher)
+
+     VOODOO_PARSER_BEGIN( parser, msg );
+     VOODOO_PARSER_GET_ID( parser, data->remote );
+     VOODOO_PARSER_END( parser );
+
+     return voodoo_manager_respond( manager, true, msg->header.serial, DR_OK, VOODOO_INSTANCE_NONE, VMBT_NONE );
+}
+
+static DirectResult
+Dispatch_GetFrameTime( IDirectFBSurface *thiz, IDirectFBSurface *real,
+                       VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DFBResult           ret;
+     long long           micros;
+     VoodooMessageParser parser;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBSurface_Dispatcher)
+
+     ret = real->GetFrameTime( real, &micros );
+     if (ret)
+          return ret;
+
+     /* Compensate to achieve same behaviour as with a local app calling GetFrameTime+Flip */
+     micros += voodoo_manager_connection_delay( data->manager );
+
+     return voodoo_manager_respond( manager, true, msg->header.serial,
+                                    DFB_OK, VOODOO_INSTANCE_NONE,
+                                    VMBT_UINT, (unsigned long long) micros >> 32,
+                                    VMBT_UINT, (unsigned long long) micros,
+                                    VMBT_NONE );
 }
 
 static DirectResult
@@ -1766,6 +2122,9 @@ Dispatch( void *dispatcher, void *real, VoodooManager *manager, VoodooRequestMes
           case IDIRECTFBSURFACE_METHOD_ID_StretchBlit:
                return Dispatch_StretchBlit( dispatcher, real, manager, msg );
 
+          case IDIRECTFBSURFACE_METHOD_ID_BatchStretchBlit:
+               return Dispatch_BatchStretchBlit( dispatcher, real, manager, msg );
+
           case IDIRECTFBSURFACE_METHOD_ID_TextureTriangles:
                return Dispatch_TextureTriangles( dispatcher, real, manager, msg );
 
@@ -1805,6 +2164,9 @@ Dispatch( void *dispatcher, void *real, VoodooManager *manager, VoodooRequestMes
           case IDIRECTFBSURFACE_METHOD_ID_FillRectangles:
                return Dispatch_FillRectangles( dispatcher, real, manager, msg );
 
+          case IDIRECTFBSURFACE_METHOD_ID_FillTrapezoids:
+               return Dispatch_FillTrapezoids( dispatcher, real, manager, msg );
+
           case IDIRECTFBSURFACE_METHOD_ID_FillSpans:
                return Dispatch_FillSpans( dispatcher, real, manager, msg );
 
@@ -1817,11 +2179,23 @@ Dispatch( void *dispatcher, void *real, VoodooManager *manager, VoodooRequestMes
           case IDIRECTFBSURFACE_METHOD_ID_Write:
                return Dispatch_Write( dispatcher, real, manager, msg );
 
+          case IDIRECTFBSURFACE_METHOD_ID_Read:
+               return Dispatch_Read( dispatcher, real, manager, msg );
+
           case IDIRECTFBSURFACE_METHOD_ID_SetRenderOptions:
                return Dispatch_SetRenderOptions( dispatcher, real, manager, msg );
 
           case IDIRECTFBSURFACE_METHOD_ID_SetMatrix:
                return Dispatch_SetMatrix( dispatcher, real, manager, msg );
+
+          case IDIRECTFBSURFACE_METHOD_ID_MakeSubSurface:
+               return Dispatch_MakeSubSurface( dispatcher, real, manager, msg );
+
+          case IDIRECTFBSURFACE_METHOD_ID_SetRemoteInstance:
+               return Dispatch_SetRemoteInstance( dispatcher, real, manager, msg );
+
+          case IDIRECTFBSURFACE_METHOD_ID_GetFrameTime:
+               return Dispatch_GetFrameTime( dispatcher, real, manager, msg );
      }
 
      return DFB_NOSUCHMETHOD;
@@ -1848,7 +2222,7 @@ Construct( IDirectFBSurface *thiz,
 
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBSurface_Dispatcher)
 
-     ret = voodoo_manager_register_local( manager, false, thiz, real, Dispatch, ret_instance );
+     ret = voodoo_manager_register_local( manager, super, thiz, real, Dispatch, ret_instance );
      if (ret) {
           DIRECT_DEALLOCATE_INTERFACE( thiz );
           return ret;
@@ -1899,11 +2273,13 @@ Construct( IDirectFBSurface *thiz,
      thiz->TileBlit = IDirectFBSurface_Dispatcher_TileBlit;
      thiz->BatchBlit = IDirectFBSurface_Dispatcher_BatchBlit;
      thiz->StretchBlit = IDirectFBSurface_Dispatcher_StretchBlit;
+     thiz->BatchStretchBlit = IDirectFBSurface_Dispatcher_BatchStretchBlit;
      thiz->TextureTriangles = IDirectFBSurface_Dispatcher_TextureTriangles;
 
      thiz->SetDrawingFlags = IDirectFBSurface_Dispatcher_SetDrawingFlags;
      thiz->FillRectangle = IDirectFBSurface_Dispatcher_FillRectangle;
      thiz->FillRectangles = IDirectFBSurface_Dispatcher_FillRectangles;
+     thiz->FillTrapezoids = IDirectFBSurface_Dispatcher_FillTrapezoids;
      thiz->FillSpans = IDirectFBSurface_Dispatcher_FillSpans;
      thiz->DrawLine = IDirectFBSurface_Dispatcher_DrawLine;
      thiz->DrawLines = IDirectFBSurface_Dispatcher_DrawLines;

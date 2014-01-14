@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -68,8 +72,6 @@ IDirectFBWindow_Dispatcher_Destruct( IDirectFBWindow *thiz )
      D_DEBUG( "%s (%p)\n", __FUNCTION__, thiz );
 
      data = thiz->priv;
-
-     voodoo_manager_unregister_local( data->manager, data->self );
 
      data->real->Release( data->real );
 
@@ -563,7 +565,7 @@ Dispatch_Release( IDirectFBWindow *thiz, IDirectFBWindow *real,
 {
      DIRECT_INTERFACE_GET_DATA(IDirectFBWindow_Dispatcher)
 
-     return thiz->Release( thiz );
+     return voodoo_manager_unregister_local( data->manager, data->self );
 }
 
 static DirectResult
@@ -588,8 +590,8 @@ Dispatch_CreateEventBuffer( IDirectFBWindow *thiz, IDirectFBWindow *real,
 
      ret = voodoo_construct_requestor( manager, "IDirectFBEventBuffer",
                                        instance, buffer, &requestor );
-     if (ret)
-          buffer->Release( buffer );
+
+     buffer->Release( buffer );
 
      return voodoo_manager_respond( manager, true, msg->header.serial,
                                     ret, VOODOO_INSTANCE_NONE,
@@ -748,7 +750,7 @@ Dispatch_GetSurface( IDirectFBWindow *thiz, IDirectFBWindow *real,
           return ret;
 
      ret = voodoo_construct_dispatcher( manager, "IDirectFBSurface",
-                                        surface, data->self, NULL, &instance, NULL );
+                                        surface, data->super, NULL, &instance, NULL );
      if (ret) {
           surface->Release( surface );
           return ret;
@@ -763,7 +765,6 @@ static DirectResult
 Dispatch_SetOptions( IDirectFBWindow *thiz, IDirectFBWindow *real,
                      VoodooManager *manager, VoodooRequestMessage *msg )
 {
-     DFBResult           ret;
      VoodooMessageParser parser;
      DFBWindowOptions    options;
 
@@ -773,9 +774,7 @@ Dispatch_SetOptions( IDirectFBWindow *thiz, IDirectFBWindow *real,
      VOODOO_PARSER_GET_INT( parser, options );
      VOODOO_PARSER_END( parser );
 
-     ret = real->SetOptions( real, options );
-
-     return DFB_OK;
+     return real->SetOptions( real, options );
 }
 
 static DirectResult
@@ -968,7 +967,6 @@ static DirectResult
 Dispatch_SetStackingClass( IDirectFBWindow *thiz, IDirectFBWindow *real,
                            VoodooManager *manager, VoodooRequestMessage *msg )
 {
-     DFBResult              ret;
      VoodooMessageParser    parser;
      DFBWindowStackingClass stacking_class;
 
@@ -985,9 +983,7 @@ Dispatch_SetStackingClass( IDirectFBWindow *thiz, IDirectFBWindow *real,
           }
      }
 
-     ret = real->SetStackingClass( real, stacking_class );
-
-     return DFB_OK;
+     return real->SetStackingClass( real, stacking_class );
 }
 
 static DirectResult
@@ -1327,7 +1323,7 @@ Construct( IDirectFBWindow  *thiz,     /* Dispatcher interface */
      D_ASSERT( ret_instance != NULL );
 
      /* Register the dispatcher, getting a new instance ID that refers to it. */
-     ret = voodoo_manager_register_local( manager, false, thiz, real, Dispatch, &instance );
+     ret = voodoo_manager_register_local( manager, super, thiz, real, Dispatch, &instance );
      if (ret) {
           DIRECT_DEALLOCATE_INTERFACE( thiz );
           return ret;

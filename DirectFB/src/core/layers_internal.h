@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __CORE__LAYERS_INTERNAL_H__
 #define __CORE__LAYERS_INTERNAL_H__
@@ -74,6 +78,10 @@ typedef struct {
      FusionVector                       added_regions;
 
      FusionSHMPoolShared               *shmpool;
+
+     FusionCall                         call;
+
+     DFBSurfacePixelFormat              pixelformat;
 } CoreLayerShared;
 
 struct __DFB_CoreLayer {
@@ -91,6 +99,13 @@ struct __DFB_CoreLayer {
      const DisplayLayerFuncs *funcs;
 
      CardState                state;
+
+     DFB_DisplayTask         *display_task;
+     DFB_SurfaceTask         *display_task_onscreen;
+
+     DFB_Util_FPS            *fps;
+
+     DFB_DisplayTask         *prev_task;
 };
 
 typedef enum {
@@ -133,11 +148,16 @@ struct __DFB_CoreLayerContext {
 
      DFBColorAdjustment          adjustment; /* Color adjustment of the layer.*/
 
+     bool                        follow_video;    /* Stereo ofset is deteremined by video metadata. */
+     int                         z;               /* Stereo offset to use when the layer is mixed. */
+
      CoreWindowStack            *stack;      /* Every layer has its own
                                                 windowstack as every layer has
                                                 its own pixel buffer. */
 
      FusionSHMPoolShared        *shmpool;
+
+     FusionCall                  call;
 };
 
 typedef enum {
@@ -156,7 +176,7 @@ typedef enum {
 struct __DFB_CoreLayerRegion {
      FusionObject                object;
 
-     CoreLayerContext           *context;
+     FusionObjectID              context_id;
 
      FusionSkirmish              lock;
 
@@ -165,12 +185,17 @@ struct __DFB_CoreLayerRegion {
      CoreLayerRegionConfig       config;
 
      CoreSurface                *surface;
-     CoreSurfaceBufferLock       surface_lock;
      GlobalReaction              surface_reaction;
 
      void                       *region_data;
 
      CoreSurfaceAccessorID       surface_accessor;
+
+     FusionCall                  call;
+
+     DFB_DisplayTaskListLocked  *display_tasks;
+
+     DFBDisplayLayerID           layer_id;
 };
 
 

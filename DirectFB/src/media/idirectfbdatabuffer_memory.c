@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,29 +28,20 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 
 #include <string.h>
 #include <errno.h>
 
-#include <sys/time.h>
-
-#include <pthread.h>
-
-#include <fusion/reactor.h>
 #include <direct/list.h>
+#include <direct/thread.h>
 
 #include <directfb.h>
-
-#include <core/coredefs.h>
-#include <core/coretypes.h>
-
-#include <core/input.h>
-#include <core/windows.h>
 
 #include <direct/interface.h>
 #include <direct/mem.h>
@@ -173,7 +166,7 @@ IDirectFBDataBuffer_Memory_GetData( IDirectFBDataBuffer *thiz,
 
      size = MIN( length, data->length - data->pos );
 
-     direct_memcpy( data_buffer, data->buffer + data->pos, size );
+     direct_memcpy( data_buffer, (char*) data->buffer + data->pos, size );
 
      data->pos += size;
 
@@ -202,7 +195,7 @@ IDirectFBDataBuffer_Memory_PeekData( IDirectFBDataBuffer *thiz,
 
      size = MIN( length, data->length - data->pos - offset );
 
-     direct_memcpy( data_buffer, data->buffer + data->pos + offset, size );
+     direct_memcpy( data_buffer, (char*) data->buffer + data->pos + offset, size );
 
      if (read_out)
           *read_out = size;
@@ -233,13 +226,14 @@ DFBResult
 IDirectFBDataBuffer_Memory_Construct( IDirectFBDataBuffer *thiz,
                                       const void          *data_buffer,
                                       unsigned int         length,
-                                      CoreDFB             *core )
+                                      CoreDFB             *core,
+                                      IDirectFB           *idirectfb )
 {
      DFBResult ret;
 
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBDataBuffer_Memory)
 
-     ret = IDirectFBDataBuffer_Construct( thiz, NULL, core );
+     ret = IDirectFBDataBuffer_Construct( thiz, NULL, core, idirectfb );
      if (ret)
           return ret;
 

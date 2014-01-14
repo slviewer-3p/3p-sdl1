@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,11 +28,18 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __IDIRECTFBEVENTBUFFER_H__
 #define __IDIRECTFBEVENTBUFFER_H__
 
+#include <directfb_build.h>
+
 #include <fusion/types.h>
+
+#if !DIRECTFB_BUILD_PURE_VOODOO
 #include <core/input.h>
+#endif
 
 typedef bool (*EventBufferFilterCallback)( DFBEvent *evt,
                                            void     *ctx );
@@ -42,6 +51,7 @@ DFBResult IDirectFBEventBuffer_Construct( IDirectFBEventBuffer      *thiz,
                                           EventBufferFilterCallback  filter,
                                           void                      *filter_ctx );
 
+#if !DIRECTFB_BUILD_PURE_VOODOO
 DFBResult IDirectFBEventBuffer_AttachInputDevice( IDirectFBEventBuffer *thiz,
                                                   CoreInputDevice      *device );
 DFBResult IDirectFBEventBuffer_DetachInputDevice( IDirectFBEventBuffer *thiz,
@@ -51,6 +61,12 @@ DFBResult IDirectFBEventBuffer_AttachWindow( IDirectFBEventBuffer *thiz,
                                              CoreWindow           *window );
 DFBResult IDirectFBEventBuffer_DetachWindow( IDirectFBEventBuffer *thiz,
                                              CoreWindow           *window );
+
+DFBResult IDirectFBEventBuffer_AttachSurface( IDirectFBEventBuffer *thiz,
+                                              CoreSurface          *surface );
+DFBResult IDirectFBEventBuffer_DetachSurface( IDirectFBEventBuffer *thiz,
+                                              CoreSurface          *surface );
+#endif
 
 
 #endif

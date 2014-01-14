@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,11 +28,12 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 
 #include <string.h>
 
@@ -73,7 +76,13 @@ typedef struct {
 static void
 IDirectFBScreen_Requestor_Destruct( IDirectFBScreen *thiz )
 {
+     IDirectFBScreen_Requestor_data *data = thiz->priv;
+
      D_DEBUG( "%s (%p)\n", __FUNCTION__, thiz );
+
+     voodoo_manager_request( data->manager, data->instance,
+                             IDIRECTFBSCREEN_METHOD_ID_Release, VREQ_NONE, NULL,
+                             VMBT_NONE );
 
      DIRECT_DEALLOCATE_INTERFACE( thiz );
 }
@@ -247,17 +256,27 @@ IDirectFBScreen_Requestor_EnumDisplayLayers( IDirectFBScreen         *thiz,
 
      VOODOO_PARSER_BEGIN( parser, response );
      VOODOO_PARSER_GET_INT( parser, num );
-     VOODOO_PARSER_COPY_DATA( parser, items );
+
+     items = D_MALLOC( sizeof(*items) * num );
+     if (items)
+          VOODOO_PARSER_READ_DATA( parser, items, sizeof(*items) * num );
+     else
+          ret = D_OOM();
+
      VOODOO_PARSER_END( parser );
 
      voodoo_manager_finish_request( data->manager, response );
 
-     for (i=0; i<num; i++) {
-          if (callbackfunc( items[i].layer_id, items[i].desc, callbackdata ) == DFENUM_CANCEL)
-               return DFB_OK;
+     if (items) {
+          for (i=0; i<num; i++) {
+               if (callbackfunc( items[i].layer_id, items[i].desc, callbackdata ) == DFENUM_CANCEL)
+                    break;
+          }
+
+          D_FREE( items );
      }
 
-     return DFB_OK;
+     return ret;
 }
 
 static DFBResult

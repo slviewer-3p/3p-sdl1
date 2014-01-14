@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <string.h>
@@ -40,6 +44,9 @@
 #include <fusion/reactor.h>
 #include <fusion/shmalloc.h>
 
+#include <core/CoreWindowStack.h>
+
+#include <core/core.h>
 #include <core/input.h>
 #include <core/layer_context.h>
 #include <core/layers_internal.h>
@@ -65,7 +72,7 @@ typedef struct {
      DirectLink       link;
 
      DFBInputDeviceID id;
-     GlobalReaction   reaction;
+     Reaction         reaction;
 } StackDevice;
 
 typedef struct {
@@ -129,13 +136,13 @@ stack_containers_add(CoreWindowStack *p)
 static void
 stack_containers_remove(CoreWindowStack *p)
 {
-     Stack_Container    *stack_cntr = NULL;
+     Stack_Container    *stack_cntr, *next = NULL;
 
      D_DEBUG_AT( Core_WindowStack, "Enter:%s()\n", __FUNCTION__);
 
      pthread_mutex_lock( &stack_containers_lock );
 
-     direct_list_foreach(stack_cntr, stack_containers) {
+     direct_list_foreach_safe(stack_cntr, next, stack_containers) {
           if((void *)p == stack_cntr->ctx) {
                direct_list_remove(&stack_containers, &stack_cntr->link);
                D_FREE(stack_cntr);
@@ -185,11 +192,14 @@ dfb_windowstack_create( CoreLayerContext *context )
 {
      DFBResult          ret;
      CoreWindowStack   *stack;
+     CoreLayer         *layer;
      CoreSurfacePolicy  policy = CSP_SYSTEMONLY;
 
      D_DEBUG_AT( Core_WindowStack, "%s( %p )\n", __FUNCTION__, context );
 
      D_ASSERT( context != NULL );
+
+     layer = dfb_layer_at( context->layer_id );
 
      /* Allocate window stack data (completely shared) */
      stack = (CoreWindowStack*) SHCALLOC( context->shmpool, 1, sizeof(CoreWindowStack) );
@@ -240,10 +250,19 @@ dfb_windowstack_create( CoreLayerContext *context )
           return NULL;
      }
 
+     if (dfb_config->single_window)
+          fusion_vector_init( &stack->visible_windows, 23, stack->shmpool );
+
      /* Attach to all input devices */
+#ifndef DIRECTFB_DISABLE_DEPRECATED
      dfb_input_enumerate_devices( stack_attach_devices, stack, DICAPS_ALL );
+#else
+     dfb_input_enumerate_devices( stack_attach_devices, stack, DIDCAPS_ALL );
+#endif
 
      stack_containers_add(stack);
+
+     CoreWindowStack_Init_Dispatch( layer->core, stack, &stack->call );
 
      D_DEBUG_AT( Core_WindowStack, "  -> %p\n", stack );
 
@@ -267,8 +286,7 @@ dfb_windowstack_detach_devices( CoreWindowStack *stack )
           DirectLink  *next   = l->next;
           StackDevice *device = (StackDevice*) l;
 
-          dfb_input_detach_global( dfb_input_device_at( device->id ),
-                                   &device->reaction );
+          dfb_input_detach( dfb_input_device_at( device->id ), &device->reaction );
 
           SHFREE( stack->shmpool, device );
 
@@ -298,6 +316,8 @@ dfb_windowstack_destroy( CoreWindowStack *stack )
 
           dfb_surface_unlink( &stack->bg.image );
      }
+
+     CoreWindowStack_Deinit_Dispatch( &stack->call );
 
      /* Deallocate shared stack data. */
      if (stack->stack_data) {
@@ -593,7 +613,7 @@ dfb_windowstack_cursor_enable( CoreDFB *core, CoreWindowStack *stack, bool enabl
           return DFB_OK;
      }
 
-     if (enable && !stack->cursor.surface) {
+     if (enable && !stack->cursor.surface && !dfb_config->no_cursor_updates) {
           ret = load_default_cursor( core, stack );
           if (ret) {
                dfb_windowstack_unlock( stack );
@@ -605,7 +625,8 @@ dfb_windowstack_cursor_enable( CoreDFB *core, CoreWindowStack *stack, bool enabl
      stack->cursor.enabled = enable;
 
      /* Notify WM. */
-     dfb_wm_update_cursor( stack, enable ? CCUF_ENABLE : CCUF_DISABLE );
+     if (!dfb_config->no_cursor_updates)
+          dfb_wm_update_cursor( stack, enable ? CCUF_ENABLE : CCUF_DISABLE );
 
      /* Unlock the window stack. */
      dfb_windowstack_unlock( stack );
@@ -629,7 +650,7 @@ dfb_windowstack_cursor_set_opacity( CoreWindowStack *stack, u8 opacity )
           stack->cursor.opacity = opacity;
           
           /* Notify WM. */
-          if (stack->cursor.enabled)
+          if (stack->cursor.enabled && !dfb_config->no_cursor_updates)
                dfb_wm_update_cursor( stack, CCUF_OPACITY );
      }
 
@@ -656,7 +677,7 @@ dfb_windowstack_cursor_set_shape( CoreWindowStack *stack,
      D_MAGIC_ASSERT( stack, CoreWindowStack );
      D_ASSERT( shape != NULL );
 
-     if (dfb_config->no_cursor)
+     if (dfb_config->no_cursor || dfb_config->no_cursor_updates)
           return DFB_OK;
 
      /* Lock the window stack. */
@@ -735,7 +756,7 @@ dfb_windowstack_cursor_warp( CoreWindowStack *stack, int x, int y )
           stack->cursor.y = y;
 
           /* Notify the WM. */
-          if (stack->cursor.enabled)
+          if (stack->cursor.enabled && !dfb_config->no_cursor_updates)
                dfb_wm_update_cursor( stack, CCUF_POSITION );
      }
 
@@ -796,10 +817,121 @@ dfb_windowstack_get_cursor_position( CoreWindowStack *stack, int *ret_x, int *re
 
 /**********************************************************************************************************************/
 
+static void
+WindowStack_Input_Flush( CoreWindowStack *stack )
+{
+     if (!stack->motion_x.type && !stack->motion_y.type)
+          return;
+
+     /* Lock the window stack. */
+     if (dfb_windowstack_lock( stack ))
+          return;
+
+     /* Call the window manager to dispatch the event. */
+     if (dfb_layer_context_active( stack->context )) {
+          if (stack->motion_x.type && stack->motion_y.type)
+               stack->motion_x.flags |= DIEF_FOLLOW;
+
+          if (stack->motion_x.type)
+               dfb_wm_process_input( stack, &stack->motion_x );
+
+          if (stack->motion_y.type)
+               dfb_wm_process_input( stack, &stack->motion_y );
+     }
+
+     /* Unlock the window stack. */
+     dfb_windowstack_unlock( stack );
+
+     stack->motion_x.type = DIET_UNKNOWN;
+     stack->motion_y.type = DIET_UNKNOWN;
+
+     stack->motion_cleanup = NULL;
+     stack->motion_ts      = 0;
+}
+
+static void
+WindowStack_Input_AddAbsolute( CoreWindowStack     *stack,
+                               DFBInputEvent       *target,
+                               const DFBInputEvent *event )
+{
+     *target = *event;
+
+     target->flags &= ~DIEF_FOLLOW;
+}
+
+static void
+WindowStack_Input_AddRelative( CoreWindowStack     *stack,
+                               DFBInputEvent       *target,
+                               const DFBInputEvent *event )
+{
+     int axisrel = 0;
+
+     if (target->type)
+          axisrel = target->axisrel;
+
+     *target = *event;
+
+     target->axisrel += axisrel;
+     target->flags   &= ~DIEF_FOLLOW;
+}
+
+static void
+WindowStack_Input_Add( CoreWindowStack     *stack,
+                       const DFBInputEvent *event )
+{
+     long long ts = direct_clock_get_time( DIRECT_CLOCK_MONOTONIC );
+
+     if ((stack->motion_x.type && stack->motion_x.device_id != event->device_id) ||
+         (stack->motion_y.type && stack->motion_y.device_id != event->device_id) ||
+         ts - stack->motion_ts > 10000)
+          WindowStack_Input_Flush( stack );
+
+     if (!stack->motion_ts)
+          stack->motion_ts = ts;
+
+     switch (event->type) {
+          case DIET_AXISMOTION:
+               switch (event->axis) {
+                    case DIAI_X:
+                         if (event->flags & DIEF_AXISABS)
+                              WindowStack_Input_AddAbsolute( stack, &stack->motion_x, event );
+                         else
+                              WindowStack_Input_AddRelative( stack, &stack->motion_x, event );
+                         break;
+
+                    case DIAI_Y:
+                         if (event->flags & DIEF_AXISABS)
+                              WindowStack_Input_AddAbsolute( stack, &stack->motion_y, event );
+                         else
+                              WindowStack_Input_AddRelative( stack, &stack->motion_y, event );
+                         break;
+
+                    default:
+                         break;
+               }
+               break;
+
+          default:
+               break;
+     }
+}
+
+static void
+WindowStack_Input_DispatchCleanup( void *ctx )
+{
+     CoreWindowStack *stack = ctx;
+
+     WindowStack_Input_Flush( stack );
+
+     // Decrease the layer context's reference count.
+     dfb_layer_context_unref( stack->context );
+}
+
 ReactionResult
 _dfb_windowstack_inputdevice_listener( const void *msg_data,
                                        void       *ctx )
 {
+     DFBResult            ret;
      const DFBInputEvent *event = msg_data;
      CoreWindowStack     *stack = ctx;
 
@@ -826,6 +958,38 @@ _dfb_windowstack_inputdevice_listener( const void *msg_data,
      if (dfb_layer_context_ref( stack->context ))
           return RS_REMOVE;
 
+     switch (event->type) {
+          case DIET_AXISMOTION:
+               switch (event->axis) {
+                    case DIAI_X:
+                    case DIAI_Y:
+                         WindowStack_Input_Add( stack, event );
+
+                         if (!stack->motion_cleanup) {
+                              ret = (DFBResult) fusion_dispatch_cleanup_add( dfb_core_world(core_dfb),
+                                                                             WindowStack_Input_DispatchCleanup,
+                                                                             stack, &stack->motion_cleanup );
+                              if (ret) {
+                                   D_DERROR( ret, "Core/WindowStack: Failed to add dispatch cleanup!\n" );
+                                   dfb_layer_context_unref( stack->context );
+                                   return RS_OK;
+                              }
+                         }
+                         else
+                              dfb_layer_context_unref( stack->context );
+                         return RS_OK;
+
+                    default:
+                         break;
+               }
+               break;
+
+          default:
+               break;
+     }
+
+     WindowStack_Input_Flush( stack );
+
      /* Lock the window stack. */
      if (dfb_windowstack_lock( stack )) {
           dfb_layer_context_unref( stack->context );
@@ -840,7 +1004,8 @@ _dfb_windowstack_inputdevice_listener( const void *msg_data,
      dfb_windowstack_unlock( stack );
 
      // Decrease the layer context's reference count.
-     dfb_layer_context_unref( stack->context );
+     if (!stack->motion_cleanup)
+          dfb_layer_context_unref( stack->context );
 
      return RS_OK;
 }
@@ -861,15 +1026,7 @@ _dfb_windowstack_background_image_listener( const void *msg_data,
      D_MAGIC_ASSERT( stack, CoreWindowStack );
 
      if (notification->flags & CSNF_DESTROY) {
-          if (stack->bg.image == notification->surface) {
-               D_ERROR( "Core/WindowStack: Surface for background vanished.\n" );
-
-               stack->bg.mode  = DLBM_COLOR;
-               stack->bg.image = NULL;
-
-               dfb_windowstack_repaint_all( stack );
-          }
-
+          D_ERROR( "Core/WindowStack: Surface for background vanished.\n" );
           return RS_REMOVE;
      }
 
@@ -904,8 +1061,7 @@ stack_attach_devices( CoreInputDevice *device,
 
      direct_list_prepend( &stack->devices, &dev->link );
 
-     dfb_input_attach_global( device, DFB_WINDOWSTACK_INPUTDEVICE_LISTENER,
-                              ctx, &dev->reaction );
+     dfb_input_attach( device, _dfb_windowstack_inputdevice_listener, ctx, &dev->reaction );
 
      return DFENUM_OK;
 }
@@ -928,7 +1084,7 @@ stack_detach_devices( CoreInputDevice *device,
           if (dfb_input_device_id(device) == dev->id) {
                direct_list_remove( &stack->devices, &dev->link );
 
-               dfb_input_detach_global(device, &dev->reaction );
+               dfb_input_detach( device, &dev->reaction );
                SHFREE( stack->shmpool, dev );
                return DFENUM_OK;
           }
@@ -1015,6 +1171,21 @@ load_default_cursor( CoreDFB *core, CoreWindowStack *stack )
                }
           }
 #endif
+          // premultiply
+          {
+               int i = MIN (40, lock.pitch/4);
+               u32 *tmp_data = data;
+
+               while (i--) {
+                    const u32 s = *tmp_data;
+                    const u32 a = (s >> 24) + 1;
+
+                    *tmp_data = ((((s & 0x00ff00ff) * a) >> 8) & 0x00ff00ff) |
+                                ((((s & 0x0000ff00) * a) >> 8) & 0x0000ff00) |
+                                ((((s & 0xff000000)    )     )             );
+                    ++tmp_data;
+               }
+          }
           data += lock.pitch;
      }
 
@@ -1036,7 +1207,10 @@ create_cursor_surface( CoreWindowStack *stack,
      CoreSurface            *surface;
      CoreLayer              *layer;
      CoreLayerContext       *context;
-     DFBSurfaceCapabilities  surface_caps = DSCAPS_NONE;
+     DFBSurfaceCapabilities  surface_caps = DSCAPS_PREMULTIPLIED;
+
+     if (dfb_config->cursor_videoonly)
+          surface_caps |= DSCAPS_VIDEOONLY;
 
      D_DEBUG_AT( Core_WindowStack, "%s( %p, %dx%d )\n", __FUNCTION__, stack, width, height );
 
@@ -1065,9 +1239,9 @@ create_cursor_surface( CoreWindowStack *stack,
      dfb_surface_caps_apply_policy( stack->cursor.policy, &surface_caps );
 
      /* Create the cursor surface. */
-     ret = dfb_surface_create_simple( layer->core, width, height, DSPF_ARGB,
+     ret = dfb_surface_create_simple( layer->core, width, height, DSPF_ARGB, DSCS_RGB, 
                                       surface_caps, CSTF_SHARED | CSTF_CURSOR,
-                                      0, /* FIXME: no shared cursor objects, no cursor id */
+                                      dfb_config->cursor_resource_id, /* FIXME: no shared cursor objects, no cursor id */
                                       NULL, &surface );
      if (ret) {
           D_ERROR( "Core/WindowStack: Failed creating a surface for software cursor!\n" );

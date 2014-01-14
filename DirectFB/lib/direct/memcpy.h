@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,17 +28,18 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __DIRECT__MEMCPY_H__
 #define __DIRECT__MEMCPY_H__
 
-#include <stdlib.h>
-#include <string.h>
+#include <direct/types.h>
 
 
-void direct_find_best_memcpy( void );
-void direct_print_memcpy_routines( void );
+void DIRECT_API direct_find_best_memcpy( void );
+void DIRECT_API direct_print_memcpy_routines( void );
 
-extern void *(*direct_memcpy)( void *to, const void *from, size_t len );
+extern void DIRECT_API *(*direct_memcpy)( void *to, const void *from, size_t len );
 
 static __inline__ void *direct_memmove( void *to, const void *from, size_t len )
 {

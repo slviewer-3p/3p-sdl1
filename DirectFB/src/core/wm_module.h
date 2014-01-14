@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __DFB__CORE__WM_MODULE_H__
 #define __DFB__CORE__WM_MODULE_H__
@@ -208,7 +212,8 @@ static DFBResult wm_update_stack   ( CoreWindowStack        *stack,
 static DFBResult wm_update_window  ( CoreWindow             *window,
                                      void                   *wm_data,
                                      void                   *window_data,
-                                     const DFBRegion        *region,
+                                     const DFBRegion        *left_region,
+                                     const DFBRegion        *right_region,
                                      DFBSurfaceFlipFlags     flags );
 
 static DFBResult wm_update_cursor  ( CoreWindowStack        *stack,

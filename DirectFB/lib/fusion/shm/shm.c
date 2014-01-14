@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -52,8 +56,8 @@
 
 /**********************************************************************************************************************/
 
-static int
-find_tmpfs( char *name, int len )
+int
+fusion_find_tmpfs( char *name, int len )
 {
      int    largest = 0;
      char   buffer[1024];
@@ -77,7 +81,7 @@ find_tmpfs( char *name, int len )
              (!strcmp( mount_fs, "tmpfs" ) || !strcmp( mount_fs, "shmfs" ) || !strcmp( mount_fs, "ramfs" )))
           {
                struct statfs stat;
-               int           bytes;
+               s64           bytes;
 
                if (statfs( mount_point, &stat )) {
                     D_PERROR( "Fusion/SHM: statfs on '%s' failed!\n", mount_point );
@@ -129,7 +133,7 @@ fusion_shm_init( FusionWorld *world )
           if (fusion_config->tmpfs) {
                direct_snputs( shared->tmpfs, fusion_config->tmpfs, FUSION_SHM_TMPFS_PATH_NAME_LEN );
           }
-          else if (!find_tmpfs( shared->tmpfs, FUSION_SHM_TMPFS_PATH_NAME_LEN )) {
+          else if (!fusion_find_tmpfs( shared->tmpfs, FUSION_SHM_TMPFS_PATH_NAME_LEN )) {
                D_ERROR( "Fusion/SHM: Could not find tmpfs mount point, falling back to /dev/shm!\n" );
                direct_snputs( shared->tmpfs, "/dev/shm", FUSION_SHM_TMPFS_PATH_NAME_LEN );
           }
@@ -137,7 +141,7 @@ fusion_shm_init( FusionWorld *world )
           shared->world = world->shared;
 
           /* Initialize shared lock. */
-          ret = fusion_skirmish_init( &shared->lock, "Fusion SHM", world );
+          ret = fusion_skirmish_init2( &shared->lock, "Fusion SHM", world, fusion_config->secure_fusion );
           if (ret) {
                D_DERROR( ret, "Fusion/SHM: Failed to create skirmish!\n" );
                return ret;
@@ -153,10 +157,6 @@ fusion_shm_init( FusionWorld *world )
      else {
           D_MAGIC_ASSERT( shared, FusionSHMShared );
 
-          ret = fusion_skirmish_prevail( &shared->lock );
-          if (ret)
-               return ret;
-
           D_MAGIC_SET( shm, FusionSHM );
 
           for (i=0, num=0; i<FUSION_SHM_MAX_POOLS; i++) {
@@ -170,8 +170,6 @@ fusion_shm_init( FusionWorld *world )
                                    fusion_shm_pool_detach( shm, &shared->pools[i] );
                          }
 
-                         fusion_skirmish_dismiss( &shared->lock );
-
                          D_MAGIC_CLEAR( shm );
 
                          return ret;
@@ -182,8 +180,6 @@ fusion_shm_init( FusionWorld *world )
           }
 
           D_ASSERT( num == shared->num_pools );
-
-          fusion_skirmish_dismiss( &shared->lock );
      }
 
      return DR_OK;
@@ -207,12 +203,12 @@ fusion_shm_deinit( FusionWorld *world )
 
      D_MAGIC_ASSERT( shared, FusionSHMShared );
 
-     ret = fusion_skirmish_prevail( &shared->lock );
-     if (ret)
-          return ret;
-
      /* Deinitialize shared data. */
      if (fusion_master( world )) {
+          ret = fusion_skirmish_prevail( &shared->lock );
+          if (ret)
+               return ret;
+
           D_ASSUME( shared->num_pools == 0 );
 
           for (i=0; i<FUSION_SHM_MAX_POOLS; i++) {
@@ -240,52 +236,9 @@ fusion_shm_deinit( FusionWorld *world )
                     fusion_shm_pool_detach( shm, &shared->pools[i] );
                }
           }
-
-          fusion_skirmish_dismiss( &shared->lock );
      }
 
      D_MAGIC_CLEAR( shm );
-
-     return DR_OK;
-}
-
-DirectResult
-fusion_shm_attach_unattached( FusionWorld *world )
-{
-     int              i;
-     DirectResult     ret;
-     FusionSHM       *shm;
-     FusionSHMShared *shared;
-
-     D_MAGIC_ASSERT( world, FusionWorld );
-     D_MAGIC_ASSERT( world->shared, FusionWorldShared );
-
-     shm    = &world->shm;
-     shared = &world->shared->shm;
-
-     D_MAGIC_ASSERT( shm, FusionSHM );
-     D_MAGIC_ASSERT( shared, FusionSHMShared );
-
-     ret = fusion_skirmish_prevail( &shared->lock );
-     if (ret)
-          return ret;
-
-     for (i=0; i<FUSION_SHM_MAX_POOLS; i++) {
-          if (!shared->pools[i].active)
-               continue;
-
-          D_MAGIC_ASSERT( &shared->pools[i], FusionSHMPoolShared );
-
-          if (!shm->pools[i].attached) {
-               ret = fusion_shm_pool_attach( shm, &shared->pools[i] );
-               if (ret)
-                    D_DERROR( ret, "fusion_shm_pool_attach( '%s' ) failed!\n", shared->pools[i].name );
-          }
-          else
-               D_MAGIC_ASSERT( &shm->pools[i], FusionSHMPool );
-     }
-
-     fusion_skirmish_dismiss( &shared->lock );
 
      return DR_OK;
 }
@@ -296,7 +249,6 @@ fusion_shm_enum_pools( FusionWorld           *world,
                        void                  *ctx )
 {
      int              i;
-     DirectResult     ret;
      FusionSHM       *shm;
      FusionSHMShared *shared;
 
@@ -309,10 +261,6 @@ fusion_shm_enum_pools( FusionWorld           *world,
 
      D_MAGIC_ASSERT( shm, FusionSHM );
      D_MAGIC_ASSERT( shared, FusionSHMShared );
-
-     ret = fusion_skirmish_prevail( &shared->lock );
-     if (ret)
-          return ret;
 
      for (i=0; i<FUSION_SHM_MAX_POOLS; i++) {
           if (!shared->pools[i].active)
@@ -329,8 +277,6 @@ fusion_shm_enum_pools( FusionWorld           *world,
           if (callback( &shm->pools[i], ctx ) == DENUM_CANCEL)
                break;
      }
-
-     fusion_skirmish_dismiss( &shared->lock );
 
      return DR_OK;
 }

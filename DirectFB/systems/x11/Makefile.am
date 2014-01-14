@@ -1,9 +1,9 @@
 # Makefile.am for DirectFB/systems/x11
 
 INCLUDES = \
-	-I$(top_srcdir)/include		\
 	-I$(top_builddir)/include	\
 	-I$(top_builddir)/lib		\
+	-I$(top_srcdir)/include		\
 	-I$(top_srcdir)/lib		\
 	-I$(top_srcdir)/src		\
 	-I$(top_srcdir)/gfxdrivers	\
@@ -28,6 +28,7 @@ libdirectfb_x11_la_LDFLAGS += -lGL
 endif
 
 libdirectfb_x11_la_SOURCES = \
+	idirectfbgl.c		\
 	primary.c		\
 	primary.h		\
 	surfacemanager.c	\

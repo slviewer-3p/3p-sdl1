@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __DIRECTFB_H__
 #define __DIRECTFB_H__
 
@@ -36,12 +40,15 @@ extern "C"
 #endif
 
 #include <dfb_types.h>
-#include <sys/time.h> /* struct timeval */
 
 #include <directfb_build.h>
 #include <directfb_keyboard.h>
 
 #include <direct/interface.h>
+
+#ifdef WIN32
+#undef CreateWindow  // FIXME
+#endif
 
 /*
  * Version handling.
@@ -56,136 +63,88 @@ extern const unsigned int directfb_interface_age;
  * Check for a certain DirectFB version.
  * In case of an error a message is returned describing the mismatch.
  */
-const char * DirectFBCheckVersion( unsigned int required_major,
-                                   unsigned int required_minor,
-                                   unsigned int required_micro );
+const char DIRECTFB_API *DirectFBCheckVersion( unsigned int required_major,
+                                               unsigned int required_minor,
+                                               unsigned int required_micro );
 
 
 /*
  * Main interface of DirectFB, created by DirectFBCreate().
  */
-DECLARE_INTERFACE( IDirectFB )
+D_DECLARE_INTERFACE( IDirectFB )
 
 /*
  * Interface to a surface object, being a graphics context for rendering and state control,
  * buffer operations, palette access and sub area translate'n'clip logic.
  */
-DECLARE_INTERFACE( IDirectFBSurface )
+D_DECLARE_INTERFACE( IDirectFBSurface )
 
 /*
  * Interface for read/write access to the colors of a palette object and for cloning it.
  */
-DECLARE_INTERFACE( IDirectFBPalette )
+D_DECLARE_INTERFACE( IDirectFBPalette )
 
 /*
  * Input device interface for keymap access, event buffers and state queries.
  */
-DECLARE_INTERFACE( IDirectFBInputDevice )
+D_DECLARE_INTERFACE( IDirectFBInputDevice )
 
 /*
  * Layer interface for configuration, window stack usage or direct surface access, with shared/exclusive context.
  */
-DECLARE_INTERFACE( IDirectFBDisplayLayer )
+D_DECLARE_INTERFACE( IDirectFBDisplayLayer )
 
 /*
  * Interface to a window object, controlling appearance and focus, positioning and stacking,
  * event buffers and surface access.
  */
-DECLARE_INTERFACE( IDirectFBWindow )
+D_DECLARE_INTERFACE( IDirectFBWindow )
 
 /*
  * Interface to a local event buffer to send/receive events, wait for events, abort waiting or reset buffer.
  */
-DECLARE_INTERFACE( IDirectFBEventBuffer )
+D_DECLARE_INTERFACE( IDirectFBEventBuffer )
 
 /*
  * Font interface for getting metrics, measuring strings or single characters, query/choose encodings.
  */
-DECLARE_INTERFACE( IDirectFBFont )
+D_DECLARE_INTERFACE( IDirectFBFont )
 
 /*
  * Interface to an image provider, retrieving information about the image and rendering it to a surface.
  */
-DECLARE_INTERFACE( IDirectFBImageProvider )
+D_DECLARE_INTERFACE( IDirectFBImageProvider )
 
 /*
  * Interface to a video provider for playback with advanced control and basic stream information.
  */
-DECLARE_INTERFACE( IDirectFBVideoProvider )
+D_DECLARE_INTERFACE( IDirectFBVideoProvider )
 
 /*
  * Data buffer interface, providing unified access to different kinds of data storage and live feed.
  */
-DECLARE_INTERFACE( IDirectFBDataBuffer )
+D_DECLARE_INTERFACE( IDirectFBDataBuffer )
 
 /*
  * Interface to different display outputs, encoders, connector settings, power management and synchronization.
  */
-DECLARE_INTERFACE( IDirectFBScreen )
+D_DECLARE_INTERFACE( IDirectFBScreen )
 
 /*
  * OpenGL context of a surface.
  */
-DECLARE_INTERFACE( IDirectFBGL )
-
+D_DECLARE_INTERFACE( IDirectFBGL )
 
 /*
- * Return code of all interface methods and most functions
- *
- * Whenever a method has to return any information, it is done via output parameters. These are pointers to
- * primitive types such as <i>int *ret_num</i>, enumerated types like <i>DFBBoolean *ret_enabled</i>, structures
- * as in <i>DFBDisplayLayerConfig *ret_config</i>, just <i>void **ret_data</i> or other types...
+ * Rendering context manager
  */
-typedef enum {
-     /*
-      * Aliases for backward compatibility and uniform look in DirectFB code
-      */
-     DFB_OK              = DR_OK,                 /* No error occured. */
-     DFB_FAILURE         = DR_FAILURE,            /* A general or unknown error occured. */
-     DFB_INIT            = DR_INIT,               /* A general initialization error occured. */
-     DFB_BUG             = DR_BUG,                /* Internal bug or inconsistency has been detected. */
-     DFB_DEAD            = DR_DEAD,               /* Interface has a zero reference counter (available in debug mode). */
-     DFB_UNSUPPORTED     = DR_UNSUPPORTED,        /* The requested operation or an argument is (currently) not supported. */
-     DFB_UNIMPLEMENTED   = DR_UNIMPLEMENTED,      /* The requested operation is not implemented, yet. */
-     DFB_ACCESSDENIED    = DR_ACCESSDENIED,       /* Access to the resource is denied. */
-     DFB_INVAREA         = DR_INVAREA,            /* An invalid area has been specified or detected. */
-     DFB_INVARG          = DR_INVARG,             /* An invalid argument has been specified. */
-     DFB_NOSYSTEMMEMORY  = DR_NOLOCALMEMORY,      /* There's not enough system memory. */
-     DFB_NOSHAREDMEMORY  = DR_NOSHAREDMEMORY,     /* There's not enough shared memory. */
-     DFB_LOCKED          = DR_LOCKED,             /* The resource is (already) locked. */
-     DFB_BUFFEREMPTY     = DR_BUFFEREMPTY,        /* The buffer is empty. */
-     DFB_FILENOTFOUND    = DR_FILENOTFOUND,       /* The specified file has not been found. */
-     DFB_IO              = DR_IO,                 /* A general I/O error occured. */
-     DFB_BUSY            = DR_BUSY,               /* The resource or device is busy. */
-     DFB_NOIMPL          = DR_NOIMPL,             /* No implementation for this interface or content type has been found. */
-     DFB_TIMEOUT         = DR_TIMEOUT,            /* The operation timed out. */
-     DFB_THIZNULL        = DR_THIZNULL,           /* 'thiz' pointer is NULL. */
-     DFB_IDNOTFOUND      = DR_IDNOTFOUND,         /* No resource has been found by the specified id. */
-     DFB_DESTROYED       = DR_DESTROYED,          /* The underlying object (e.g. a window or surface) has been destroyed. */
-     DFB_FUSION          = DR_FUSION,             /* Internal fusion error detected, most likely related to IPC resources. */
-     DFB_BUFFERTOOLARGE  = DR_BUFFERTOOLARGE,     /* Buffer is too large. */
-     DFB_INTERRUPTED     = DR_INTERRUPTED,        /* The operation has been interrupted. */
-     DFB_NOCONTEXT       = DR_NOCONTEXT,          /* No context available. */
-     DFB_TEMPUNAVAIL     = DR_TEMPUNAVAIL,        /* Temporarily unavailable. */
-     DFB_LIMITEXCEEDED   = DR_LIMITEXCEEDED,      /* Attempted to exceed limit, i.e. any kind of maximum size, count etc. */
-     DFB_NOSUCHMETHOD    = DR_NOSUCHMETHOD,       /* Requested method is not known, e.g. to remote site. */
-     DFB_NOSUCHINSTANCE  = DR_NOSUCHINSTANCE,     /* Requested instance is not known, e.g. to remote site. */
-     DFB_ITEMNOTFOUND    = DR_ITEMNOTFOUND,       /* No such item found. */
-     DFB_VERSIONMISMATCH = DR_VERSIONMISMATCH,    /* Some versions didn't match. */
-     DFB_EOF             = DR_EOF,                /* Reached end of file. */
-     DFB_SUSPENDED       = DR_SUSPENDED,          /* The requested object is suspended. */
-     DFB_INCOMPLETE      = DR_INCOMPLETE,         /* The operation has been executed, but not completely. */
-     DFB_NOCORE          = DR_NOCORE,             /* Core part not available. */
+D_DECLARE_INTERFACE( IDirectFBGL2 )
 
-     /*
-      * DirectFB specific result codes starting at (after) this offset
-      */
-     DFB__RESULT_OFFSET  = D_RESULT_TYPE_BASE( 'D','F','B' ),
+/*
+ * Rendering context
+ */
+D_DECLARE_INTERFACE( IDirectFBGL2Context )
 
-     DFB_NOVIDEOMEMORY,  /* There's not enough video memory. */
-     DFB_MISSINGFONT,    /* No font has been set. */
-     DFB_MISSINGIMAGE,   /* No image has been set. */
-} DFBResult;
 
 /*
  * A boolean.
@@ -218,6 +177,18 @@ typedef struct {
      int            w;   /* width of it */
      int            h;   /* height of it */
 } DFBDimension;
+
+/*
+ * A rectangle specified by two points.
+ *
+ * The defined rectangle includes the top left but not the bottom right endpoint.
+ */
+typedef struct {
+     int            x1;  /* X coordinate of top-left point (inclusive) */
+     int            y1;  /* Y coordinate of top-left point (inclusive) */
+     int            x2;  /* X coordinate of lower-right point (exclusive) */
+     int            y2;  /* Y coordinate of lower-right point (exclusive) */
+} DFBBox;
 
 /*
  * A rectangle specified by a point and a dimension.
@@ -276,6 +247,18 @@ typedef struct {
      int            x3;  /* X coordinate of third edge */
      int            y3;  /* Y coordinate of third edge */
 } DFBTriangle;
+
+/*
+ * A trapezoid specified by two points with a width each.
+ */
+typedef struct {
+     int            x1;  /* X coordinate of first span */
+     int            y1;  /* Y coordinate of first span  */
+     int            w1;  /* width of first span */
+     int            x2;  /* X coordinate of second span */
+     int            y2;  /* Y coordinate of second span */
+     int            w2;  /* width of second span */
+} DFBTrapezoid;
 
 /*
  * A color defined by channels with 8bit each.
@@ -357,25 +340,25 @@ typedef struct {
  * Print a description of the result code along with an
  * optional message that is put in front with a colon.
  */
-DFBResult DirectFBError(
-                             const char  *msg,    /* optional message */
-                             DFBResult    result  /* result code to interpret */
-                       );
+DFBResult DIRECTFB_API DirectFBError(
+                                          const char  *msg,    /* optional message */
+                                          DFBResult    result  /* result code to interpret */
+                                    );
 
 /*
  * Behaves like DirectFBError, but shuts down the calling application.
  */
-DFBResult DirectFBErrorFatal(
-                             const char  *msg,    /* optional message */
-                             DFBResult    result  /* result code to interpret */
-                            );
+DFBResult DIRECTFB_API DirectFBErrorFatal(
+                                               const char  *msg,    /* optional message */
+                                               DFBResult    result  /* result code to interpret */
+                                         );
 
 /*
  * Returns a string describing 'result'.
  */
-const char *DirectFBErrorString(
-                         DFBResult    result
-                      );
+const char DIRECTFB_API *DirectFBErrorString(
+                                                  DFBResult    result
+                                            );
 
 /*
  * Retrieves information about supported command-line flags in the
@@ -389,33 +372,33 @@ const char *DirectFBUsageString( void );
  * absolutely need to call this before doing anything else.
  * Removes all options used by DirectFB from argv.
  */
-DFBResult DirectFBInit(
-                         int         *argc,    /* pointer to main()'s argc */
-                         char      *(*argv[])  /* pointer to main()'s argv */
-                      );
+DFBResult DIRECTFB_API DirectFBInit(
+                                         int         *argc,    /* pointer to main()'s argc */
+                                         char      *(*argv[])  /* pointer to main()'s argv */
+                                   );
 
 /*
  * Sets configuration parameters supported on command line and in
  * config file. Can only be called before DirectFBCreate but after
  * DirectFBInit.
  */
-DFBResult DirectFBSetOption(
-                         const char  *name,
-                         const char  *value
-                      );
+DFBResult DIRECTFB_API DirectFBSetOption(
+                                              const char  *name,
+                                              const char  *value
+                                        );
 
 /*
  * Creates the super interface.
  */
-DFBResult DirectFBCreate(
-                          IDirectFB **interface  /* pointer to the
-                                                    created interface */
-                        );
+DFBResult DIRECTFB_API DirectFBCreate(
+                                           IDirectFB **interface_ptr  /* pointer to the created interface */
+                                     );
 
 
 typedef unsigned int DFBScreenID;
 typedef unsigned int DFBDisplayLayerID;
 typedef unsigned int DFBDisplayLayerSourceID;
+typedef unsigned int DFBSurfaceID;
 typedef unsigned int DFBWindowID;
 typedef unsigned int DFBInputDeviceID;
 typedef unsigned int DFBTextEncodingID;
@@ -547,8 +530,20 @@ typedef enum {
 
      DLCAPS_CLIP_REGIONS      = 0x00400000,  /* Supports IDirectFBDisplayLayer::SetClipRegions(). */
 
-     DLCAPS_ALL               = 0x0073FFFF
+     DLCAPS_LR_MONO           = 0x01000000,  /* Supports L/R mono stereoscopic display. */
+     DLCAPS_STEREO            = 0x02000000,  /* Supports independent L/R stereoscopic display. */
+
+     DLCAPS_ALL               = 0x0373FFFF
 } DFBDisplayLayerCapabilities;
+
+/*
+ * Flags used by image providers
+ */
+typedef enum {
+     DIRENDER_NONE           = 0x00000000,
+     DIRENDER_FAST           = 0x00000001,   /* Select fast rendering method */
+     DIRENDER_ALL            = 0x00000001
+} DIRenderFlags;
 
 /*
  * Capabilities of a screen.
@@ -582,7 +577,22 @@ typedef enum {
      DLOP_DST_COLORKEY        = 0x00000010,  /* Enable dest. color key. */
      DLOP_OPACITY             = 0x00000020,  /* Make usage of the global alpha
                                                 factor set by SetOpacity. */
-     DLOP_FIELD_PARITY        = 0x00000040   /* Set field parity */
+     DLOP_FIELD_PARITY        = 0x00000040,  /* Set field parity */
+
+     DLOP_LR_MONO             = 0x00000100,	/* Layer has a single set of surface buffers and a stereo depth. The number
+                                                of buffers in each set is deteremined by DSCAPS_DOUBLE, DSCAPS_TRIPLE, etc
+                                                as usual. If they exist, the windows on this layer must not be stereo or
+                                                L/R mono, otherwise window information will be lost when they are composited
+                                                to the layer. The layer contents (composited windows if they exist) will
+                                                be shifted horizontally left and right by the stereo depth value when
+                                                the layer is composited on the display screen. */
+     DLOP_STEREO              = 0x00000200,	/* Layer has 2 independent sets of surface buffers (left eye & right eye
+                                                buffers), each with unique content. The number of buffers in each set is
+                                                deteremined by DSCAPS_DOUBLE, DSCAPS_TRIPLE, etc as usual. This option
+                                                is required if any of the windows on this layer have DWCAPS_STEREO or
+                                                DWCAPS_LR_MONO set, otherwise the stereo or L/R depth content of the
+                                                windows cannot be preserved when compositing to the layer. */
+     DLOP_ALL                 = 0x000003FF
 } DFBDisplayLayerOptions;
 
 /*
@@ -619,6 +629,7 @@ typedef enum {
      DSDESC_PALETTE      = 0x00000020,  /* Initialize the surfaces palette
                                            with the entries specified in the
                                            description. */
+     DSDESC_COLORSPACE   = 0x00000040,  /* colorspace field is valid */
 
      DSDESC_RESOURCE_ID  = 0x00000100,  /* user defined resource id for general purpose
                                            surfaces is specified, or resource id of window,
@@ -627,7 +638,7 @@ typedef enum {
      DSDESC_HINTS        = 0x00000200,  /* Flags for optimized allocation and pixel format selection are set.
                                            See also DFBSurfaceHintFlags. */
 
-     DSDESC_ALL          = 0x0000033F   /* all of these */
+     DSDESC_ALL          = 0x0000037F   /* all of these */
 } DFBSurfaceDescriptionFlags;
 
 /*
@@ -652,6 +663,7 @@ typedef enum {
                                             There's no video memory allocation/storage. */
      DSCAPS_VIDEOONLY     = 0x00000004,  /* Surface data is permanently stored in video memory.<br>
                                             There's no system memory allocation/storage. */
+     DSCAPS_GL            = 0x00000008,  /* Surface data is stored in memory that can be accessed by a GL accelerator. */
      DSCAPS_DOUBLE        = 0x00000010,  /* Surface is double buffered */
      DSCAPS_SUBSURFACE    = 0x00000020,  /* Surface is just a sub area of another
                                             one sharing the surface data. */
@@ -675,11 +687,14 @@ typedef enum {
 
      DSCAPS_DEPTH         = 0x00010000,  /* A depth buffer is allocated. */
 
+     DSCAPS_STEREO        = 0x00020000,  /* Both left & right buffers are allocated. Only valid with windows and
+                                            layers with the DLOP_STEREO or DWCAPS_STEREO flags set. */
+
      DSCAPS_SHARED        = 0x00100000,  /* The surface will be accessible among processes. */
 
      DSCAPS_ROTATED       = 0x01000000,  /* The back buffers are allocated with swapped width/height (unimplemented!). */
 
-     DSCAPS_ALL           = 0x011113F7,  /* All of these. */
+     DSCAPS_ALL           = 0x011113FF,  /* All of these. */
 
 
      DSCAPS_FLIPPING      = DSCAPS_DOUBLE | DSCAPS_TRIPLE /* Surface needs Flip() calls to make
@@ -714,40 +729,44 @@ typedef enum {
  * Flags controlling blitting commands.
  */
 typedef enum {
-     DSBLIT_NOFX               = 0x00000000, /* uses none of the effects */
-     DSBLIT_BLEND_ALPHACHANNEL = 0x00000001, /* enables blending and uses
-                                                alphachannel from source */
-     DSBLIT_BLEND_COLORALPHA   = 0x00000002, /* enables blending and uses
-                                                alpha value from color */
-     DSBLIT_COLORIZE           = 0x00000004, /* modulates source color with
-                                                the color's r/g/b values */
-     DSBLIT_SRC_COLORKEY       = 0x00000008, /* don't blit pixels matching the source color key */
-     DSBLIT_DST_COLORKEY       = 0x00000010, /* write to destination only if the destination pixel
-                                                matches the destination color key */
-     DSBLIT_SRC_PREMULTIPLY    = 0x00000020, /* modulates the source color with the (modulated)
-                                                source alpha */
-     DSBLIT_DST_PREMULTIPLY    = 0x00000040, /* modulates the dest. color with the dest. alpha */
-     DSBLIT_DEMULTIPLY         = 0x00000080, /* divides the color by the alpha before writing the
-                                                data to the destination */
-     DSBLIT_DEINTERLACE        = 0x00000100, /* deinterlaces the source during blitting by reading
-                                                only one field (every second line of full
-                                                image) scaling it vertically by factor two */
-     DSBLIT_SRC_PREMULTCOLOR   = 0x00000200, /* modulates the source color with the color alpha */
-     DSBLIT_XOR                = 0x00000400, /* bitwise xor the destination pixels with the
-                                                source pixels after premultiplication */
-     DSBLIT_INDEX_TRANSLATION  = 0x00000800, /* do fast indexed to indexed translation,
-                                                this flag is mutual exclusive with all others */
-     DSBLIT_ROTATE90           = 0x00002000, /* rotate the image by 90 degree */
-     DSBLIT_ROTATE180          = 0x00001000, /* rotate the image by 180 degree */
-     DSBLIT_ROTATE270          = 0x00004000, /* rotate the image by 270 degree */
-     DSBLIT_COLORKEY_PROTECT   = 0x00010000, /* make sure written pixels don't match color key (internal only ATM) */
-     DSBLIT_SRC_MASK_ALPHA     = 0x00100000, /* modulate source alpha channel with alpha channel from source mask,
-                                                see also IDirectFBSurface::SetSourceMask() */
-     DSBLIT_SRC_MASK_COLOR     = 0x00200000, /* modulate source color channels with color channels from source mask,
-                                                see also IDirectFBSurface::SetSourceMask() */
-     DSBLIT_SOURCE2            = 0x00400000, /* use secondary source instead of destination for reading */
-     DSBLIT_FLIP_HORIZONTAL    = 0x01000000, /* flip the image horizontally */
-     DSBLIT_FLIP_VERTICAL      = 0x02000000, /* flip the image vertically */
+     DSBLIT_NOFX                   = 0x00000000, /* uses none of the effects */
+     DSBLIT_BLEND_ALPHACHANNEL     = 0x00000001, /* enables blending and uses
+                                                    alphachannel from source */
+     DSBLIT_BLEND_COLORALPHA       = 0x00000002, /* enables blending and uses
+                                                    alpha value from color */
+     DSBLIT_COLORIZE               = 0x00000004, /* modulates source color with
+                                                    the color's r/g/b values */
+     DSBLIT_SRC_COLORKEY           = 0x00000008, /* don't blit pixels matching the source color key */
+     DSBLIT_DST_COLORKEY           = 0x00000010, /* write to destination only if the destination pixel
+                                                    matches the destination color key */
+     DSBLIT_SRC_PREMULTIPLY        = 0x00000020, /* modulates the source color with the (modulated)
+                                                    source alpha */
+     DSBLIT_DST_PREMULTIPLY        = 0x00000040, /* modulates the dest. color with the dest. alpha */
+     DSBLIT_DEMULTIPLY             = 0x00000080, /* divides the color by the alpha before writing the
+                                                    data to the destination */
+     DSBLIT_DEINTERLACE            = 0x00000100, /* deinterlaces the source during blitting by reading
+                                                    only one field (every second line of full
+                                                    image) scaling it vertically by factor two */
+     DSBLIT_SRC_PREMULTCOLOR       = 0x00000200, /* modulates the source color with the color alpha */
+     DSBLIT_XOR                    = 0x00000400, /* bitwise xor the destination pixels with the
+                                                    source pixels after premultiplication */
+     DSBLIT_INDEX_TRANSLATION      = 0x00000800, /* do fast indexed to indexed translation,
+                                                    this flag is mutual exclusive with all others */
+     DSBLIT_ROTATE90               = 0x00002000, /* rotate the image by 90 degree */
+     DSBLIT_ROTATE180              = 0x00001000, /* rotate the image by 180 degree */
+     DSBLIT_ROTATE270              = 0x00004000, /* rotate the image by 270 degree */
+     DSBLIT_COLORKEY_PROTECT       = 0x00010000, /* make sure written pixels don't match color key (internal only ATM) */
+     DSBLIT_SRC_COLORKEY_EXTENDED  = 0x00020000, /* use extended source color key */
+     DSBLIT_DST_COLORKEY_EXTENDED  = 0x00040000, /* use extended destination color key */
+     DSBLIT_SRC_MASK_ALPHA         = 0x00100000, /* modulate source alpha channel with alpha channel from source mask,
+                                                    see also IDirectFBSurface::SetSourceMask() */
+     DSBLIT_SRC_MASK_COLOR         = 0x00200000, /* modulate source color channels with color channels from source mask,
+                                                    see also IDirectFBSurface::SetSourceMask() */
+     DSBLIT_FLIP_HORIZONTAL        = 0x01000000, /* flip the image horizontally */
+     DSBLIT_FLIP_VERTICAL          = 0x02000000, /* flip the image vertically */
+     DSBLIT_ROP                    = 0x04000000, /* use rop setting */
+     DSBLIT_SRC_COLORMATRIX        = 0x08000000, /* use source color matrix setting */
+     DSBLIT_SRC_CONVOLUTION        = 0x10000000  /* use source convolution filter */
 } DFBSurfaceBlittingFlags;
 
 /*
@@ -761,7 +780,9 @@ typedef enum {
      DSRO_MATRIX               = 0x00000004, /* Use the transformation matrix set via IDirectFBSurface::SetMatrix(). */
      DSRO_ANTIALIAS            = 0x00000008, /* Enable anti-aliasing for edges (alphablend must be enabled). */
 
-     DSRO_ALL                  = 0x0000000F  /* All of these. */
+     DSRO_WRITE_MASK_BITS      = 0x00000010, /* Enable usage of write mask bits setting. */
+
+     DSRO_ALL                  = 0x0000001F  /* All of these. */
 } DFBSurfaceRenderOptions;
 
 /*
@@ -774,20 +795,31 @@ typedef enum {
      DFXL_DRAWRECTANGLE  = 0x00000002,  /* DrawRectangle() is accelerated. */
      DFXL_DRAWLINE       = 0x00000004,  /* DrawLine() is accelerated. */
      DFXL_FILLTRIANGLE   = 0x00000008,  /* FillTriangle() is accelerated. */
+     DFXL_FILLTRAPEZOID  = 0x00000010,  /* FillTrapezoid() is accelerated. */
+     DFXL_FILLQUADRANGLE = 0x00000020,  /* FillQuadrangle() is accelerated. */
+     DFXL_FILLSPAN       = 0x00000040,  /* FillSpan() is accelerated. */
+
+     DFXL_DRAWMONOGLYPH  = 0x00001000,  /* DrawMonoGlyphs() is accelerated. */
 
      DFXL_BLIT           = 0x00010000,  /* Blit() and TileBlit() are accelerated. */
      DFXL_STRETCHBLIT    = 0x00020000,  /* StretchBlit() is accelerated. */
      DFXL_TEXTRIANGLES   = 0x00040000,  /* TextureTriangles() is accelerated. */
      DFXL_BLIT2          = 0x00080000,  /* BatchBlit2() is accelerated. */
+     DFXL_TILEBLIT       = 0x00100000,  /* TileBlit() is accelerated. */
 
      DFXL_DRAWSTRING     = 0x01000000,  /* DrawString() and DrawGlyph() are accelerated. */
 
 
-     DFXL_ALL            = 0x010F000F,  /* All drawing/blitting functions. */
-     DFXL_ALL_DRAW       = 0x0000000F,  /* All drawing functions. */
-     DFXL_ALL_BLIT       = 0x010F0000,  /* All blitting functions. */
+     DFXL_ALL            = 0x011F007F,  /* All drawing/blitting functions. */
+     DFXL_ALL_DRAW       = 0x0000107F,  /* All drawing functions. */
+     DFXL_ALL_BLIT       = 0x011F0000   /* All blitting functions. */
 } DFBAccelerationMask;
 
+
+#define DFB_MASK_BYTE0 0x000000ff
+#define DFB_MASK_BYTE1 0x0000ff00
+#define DFB_MASK_BYTE2 0x00ff0000
+#define DFB_MASK_BYTE3 0xff000000
 
 /*
  * @internal
@@ -834,11 +866,20 @@ typedef enum {
  * Basic input device features.
  */
 typedef enum {
+#ifndef DIRECTFB_DISABLE_DEPRECATED
      DICAPS_KEYS         = 0x00000001,  /* device supports key events */
      DICAPS_AXES         = 0x00000002,  /* device supports axis events */
      DICAPS_BUTTONS      = 0x00000004,  /* device supports button events */
 
      DICAPS_ALL          = 0x00000007   /* all capabilities */
+#else
+     DIDCAPS_NONE        = 0x00000000,  /* device supports no events */
+     DIDCAPS_KEYS        = 0x00000001,  /* device supports key events */ 
+     DIDCAPS_AXES        = 0x00000002,  /* device supports axis events */  
+     DIDCAPS_BUTTONS     = 0x00000004,  /* device supports button events */
+
+     DIDCAPS_ALL         = 0x00000007   /* all capabilities */
+#endif
 } DFBInputDeviceCapabilities;
 
 /*
@@ -889,7 +930,9 @@ typedef enum {
 
      DWDESC_TOPLEVEL_ID  = 0x00000400,  /* The top level window is set in toplevel_id field. */
 
-     DWDESC_RESOURCE_ID  = 0x00001000,  /* Resource id for window surface creation has been set. */
+     DWDESC_COLORSPACE   = 0x00000800,  /* colorspace field is valid */
+
+     DWDESC_RESOURCE_ID  = 0x00001000   /* Resource id for window surface creation has been set. */
 } DFBWindowDescriptionFlags;
 
 /*
@@ -933,8 +976,21 @@ typedef enum {
 
      DWCAPS_NOFOCUS      = 0x00000100,  /* Window will never get focus or receive key events, unless it grabs them. */
 
+     DWCAPS_LR_MONO      = 0x00001000,	/* Window has a single set of surface buffers and a stereo depth. The number
+                                           of buffers in each set is deteremined by DSCAPS_DOUBLE, DSCAPS_TRIPLE, etc
+                                           as usual. Selecting this option requires the underlying layer to have
+                                           DLOP_STEREO set, otherwise the stereo depth for the left and right eye
+                                           cannot be preserved when compositing to the underlying layer. The buffer is
+                                           composited to both the left and right eye buffers of the layer with an x-axis
+                                           right and left shift of depth pixels, respectively. */
+     DWCAPS_STEREO       = 0x00002000,	/* Window has 2 independent sets of surface buffers (left eye & right eye
+                                           buffers), each with unique content. The number of buffers in each set is
+                                           deteremined by DSCAPS_DOUBLE, DSCAPS_TRIPLE, etc as usual. Selecting this
+                                           option requires the underlying layer to have DLOP_STEREO set, otherwise
+                                           the independent content of the left and right eye cannot be preserved when
+                                           compositing to the layer. */
 
-     DWCAPS_ALL          = 0x0000013F   /* All of these. */
+     DWCAPS_ALL          = 0x0000313F   /* All of these. */
 } DFBWindowCapabilities;
 
 /*
@@ -965,6 +1021,7 @@ typedef enum {
                                            It will receive events but is not shown.
                                            Note that toggling this bit will not
                                            free/assign the window surface. */
+     DWOP_STEREO_SIDE_BY_SIDE_HALF = 0x00008000,  /* Treat single buffer as combined left/right buffers, side by side. */
      DWOP_SCALE          = 0x00010000,  /* Surface won't be changed if window size on screen changes. The surface
                                            can be resized separately using IDirectFBWindow::ResizeSurface(). */
 
@@ -972,7 +1029,7 @@ typedef enum {
      DWOP_KEEP_UNDER     = 0x00200000,  /* Keep window under parent window. */
      DWOP_FOLLOW_BOUNDS  = 0x00400000,  /* Follow window bounds from parent. */
 
-     DWOP_ALL            = 0x0071707F   /* all possible options */
+     DWOP_ALL            = 0x0071F07F   /* all possible options */
 } DFBWindowOptions;
 
 /*
@@ -1004,17 +1061,26 @@ typedef enum {
  * same font file.
  */
 typedef enum {
-     DFFA_NONE           = 0x00000000,  /* none of these flags */
-     DFFA_NOKERNING      = 0x00000001,  /* don't use kerning */
-     DFFA_NOHINTING      = 0x00000002,  /* don't use hinting */
-     DFFA_MONOCHROME     = 0x00000004,  /* don't use anti-aliasing */
-     DFFA_NOCHARMAP      = 0x00000008,  /* no char map, glyph indices are
-                                           specified directly */
-     DFFA_FIXEDCLIP      = 0x00000010,  /* width fixed advance, clip to it */
-     DFFA_NOBITMAP       = 0x00000020,  /* ignore bitmap strikes; for
-                                           bitmap-only fonts this flag is
-                                           ignored */
-     DFFA_OUTLINED       = 0x00000040
+     DFFA_NONE                = 0x00000000,  /* none of these flags */
+     DFFA_NOKERNING           = 0x00000001,  /* don't use kerning */
+     DFFA_NOHINTING           = 0x00000002,  /* don't use hinting */
+     DFFA_MONOCHROME          = 0x00000004,  /* don't use anti-aliasing */
+     DFFA_NOCHARMAP           = 0x00000008,  /* no char map, glyph indices are
+                                                specified directly */
+     DFFA_FIXEDCLIP           = 0x00000010,  /* width fixed advance, clip to it */
+     DFFA_NOBITMAP            = 0x00000020,  /* ignore bitmap strikes; for
+                                                bitmap-only fonts this flag is
+                                                ignored */
+     DFFA_OUTLINED            = 0x00000040,
+     DFFA_AUTOHINTING         = 0x00000080,  /* prefer auto-hinter over the font's
+                                                native hinter */
+     DFFA_SOFTHINTING         = 0x00000100,  /* use a lighter hinting algorithm
+                                                that produces glyphs that are more
+                                                fuzzy but better resemble the
+                                                original shape */
+     DFFA_STYLE_ITALIC        = 0x00000200,  /* load italic style */
+     DFFA_VERTICAL_LAYOUT     = 0x00000400,  /* load vertical layout */
+     DFFA_STYLE_BOLD          = 0x00000800   /* load bold style */
 } DFBFontAttributes;
 
 /*
@@ -1032,7 +1098,7 @@ typedef enum {
      DFDESC_FRACT_WIDTH       = 0x00000040,  /* fractional width is set */
      DFDESC_OUTLINE_WIDTH     = 0x00000080,  /* outline width is set */
      DFDESC_OUTLINE_OPACITY   = 0x00000100,  /* outline opacity is set */
-     DFDESC_ROTATION          = 0x00000200,  /* rotation is set */
+     DFDESC_ROTATION          = 0x00000200   /* rotation is set */
 } DFBFontDescriptionFlags;
 
 /*
@@ -1167,7 +1233,7 @@ typedef enum {
      DSPF_NV12      = DFB_SURFACE_PIXELFORMAT( 15, 12, 0, 0, 0, 1, 0, 2, 0, 0, 0 ),
 
      /* 16 bit   YUV (8 bit Y plane followed by one 16 bit half width Cb|Cr [7:0|7:0] plane) */
-     DSPF_NV16      = DFB_SURFACE_PIXELFORMAT( 16, 24, 0, 0, 0, 1, 0, 0, 1, 0, 0 ),
+     DSPF_NV16      = DFB_SURFACE_PIXELFORMAT( 16, 16, 0, 0, 0, 1, 0, 0, 1, 0, 0 ),
 
      /* 16 bit  ARGB (2 byte, alpha 2@14, red 5@9, green 5@4, blue 4@0) */
      DSPF_ARGB2554  = DFB_SURFACE_PIXELFORMAT( 17, 14, 2, 1, 0, 2, 0, 0, 0, 0, 0 ),
@@ -1230,10 +1296,24 @@ typedef enum {
      /* 16 bit   YUV (8 bit Y plane followed by 8 bit 2x1 subsampled V/U planes) */
      DSPF_YV16      = DFB_SURFACE_PIXELFORMAT( 36, 16, 0, 0, 0, 1, 0, 0, 1, 0, 0 ),
 
+     /* 32 bit  ABGR (4 byte, alpha 8@24, blue 8@16, green 8@8, red 8@0) */
+     DSPF_ABGR      = DFB_SURFACE_PIXELFORMAT( 37, 24, 8, 1, 0, 4, 0, 0, 0, 0, 0 ),
+
+     /* 32 bit RGBAF (4 byte, red 8@24, green 8@16, blue 8@8, alpha 7@1, flash 1@0 */
+     DSPF_RGBAF88871 = DFB_SURFACE_PIXELFORMAT( 38, 24, 7, 1, 0, 4, 0, 0, 0, 0, 0 ),
+
+     /*  4 bit   LUT (1 byte/ 2 pixel, 4 bit color and alpha lookup from palette) */
+     DSPF_LUT4      = DFB_SURFACE_PIXELFORMAT( 39,  4, 0, 1, 4, 0, 1, 0, 0, 1, 0 ),
+
+     /*  16 bit   LUT (1 byte alpha and 8 bit color lookup from palette) */
+     DSPF_ALUT8     = DFB_SURFACE_PIXELFORMAT( 40,  8, 8, 1, 0, 2, 0, 0, 0, 1, 0 ),
+
+     /*  1 bit    LUT (1 byte/ 8 pixel, 1 bit color and alpha lookup from palette) */
+     DSPF_LUT1      = DFB_SURFACE_PIXELFORMAT( 41,  1, 0, 1, 1, 0, 7, 0, 0, 1, 0 )
 } DFBSurfacePixelFormat;
 
 /* Number of pixelformats defined */
-#define DFB_NUM_PIXELFORMATS            37
+#define DFB_NUM_PIXELFORMATS            42
 
 /* These macros extract information about the pixel format. */
 #define DFB_PIXELFORMAT_INDEX(fmt)      (((fmt) & 0x0000007F)      )
@@ -1259,6 +1339,61 @@ typedef enum {
 #define DFB_PLANAR_PIXELFORMAT(fmt)     (((fmt) & 0x3C000000) !=  0)
 
 #define DFB_PIXELFORMAT_INV_ALPHA(fmt)  (((fmt) & 0x80000000) !=  0)
+
+#define DFB_COLOR_IS_RGB(fmt)           \
+     (((fmt) == DSPF_ARGB1555)     ||   \
+      ((fmt) == DSPF_RGB16)        ||   \
+      ((fmt) == DSPF_RGB24)        ||   \
+      ((fmt) == DSPF_RGB32)        ||   \
+      ((fmt) == DSPF_ARGB)         ||   \
+      ((fmt) == DSPF_RGB332)       ||   \
+      ((fmt) == DSPF_AiRGB)        ||   \
+      ((fmt) == DSPF_ARGB2554)     ||   \
+      ((fmt) == DSPF_ARGB4444)     ||   \
+      ((fmt) == DSPF_RGBA4444)     ||   \
+      ((fmt) == DSPF_ARGB1666)     ||   \
+      ((fmt) == DSPF_ARGB6666)     ||   \
+      ((fmt) == DSPF_RGB18)        ||   \
+      ((fmt) == DSPF_RGB444)       ||   \
+      ((fmt) == DSPF_RGB555)       ||   \
+      ((fmt) == DSPF_BGR555)       ||   \
+      ((fmt) == DSPF_RGBAF88871))
+
+#define DFB_COLOR_IS_YUV(fmt)           \
+     (((fmt) == DSPF_YUY2)         ||   \
+      ((fmt) == DSPF_UYVY)         ||   \
+      ((fmt) == DSPF_I420)         ||   \
+      ((fmt) == DSPF_YV12)         ||   \
+      ((fmt) == DSPF_NV12)         ||   \
+      ((fmt) == DSPF_NV16)         ||   \
+      ((fmt) == DSPF_NV21)         ||   \
+      ((fmt) == DSPF_AYUV)         ||   \
+      ((fmt) == DSPF_YUV444P)      ||   \
+      ((fmt) == DSPF_AVYU)         ||   \
+      ((fmt) == DSPF_VYU)          ||   \
+      ((fmt) == DSPF_YV16))
+
+/*
+ * Color space used by the colors in the surface.
+ */
+typedef enum {
+     DSCS_UNKNOWN             = 0,
+     DSCS_RGB                 = 1,                /* standard RGB */
+     DSCS_BT601               = 2,                /* ITU BT.601 */
+     DSCS_BT601_FULLRANGE     = 3,                /* ITU BT.601 Full Range */
+     DSCS_BT709               = 4                 /* ITU BT.709 */
+} DFBSurfaceColorSpace;
+
+#define DFB_NUM_COLORSPACES   5
+
+#define DFB_COLORSPACE_IS_COMPATIBLE(cs, fmt)                              \
+     ((DFB_COLOR_IS_RGB((fmt)) &&  ((cs) == DSCS_RGB))                ||   \
+      (DFB_COLOR_IS_YUV((fmt)) && (((cs) == DSCS_BT601)               ||   \
+                                   ((cs) == DSCS_BT601_FULLRANGE)     ||   \
+                                   ((cs) == DSCS_BT709))))
+
+#define DFB_COLORSPACE_DEFAULT(fmt)     \
+     (DFB_COLOR_IS_RGB((fmt)) ? DSCS_RGB : DFB_COLOR_IS_YUV((fmt)) ? DSCS_BT601 : DSCS_UNKNOWN)
 
 /*
  * Hint flags for optimized allocation, format selection etc.
@@ -1288,7 +1423,7 @@ typedef struct {
      struct {
           void                         *data;        /* data pointer of existing buffer */
           int                           pitch;       /* pitch of buffer */
-     } preallocated[2];
+     } preallocated[3];
 
      struct {
           const DFBColor               *entries;
@@ -1299,6 +1434,8 @@ typedef struct {
                                                           purpose surfaces or id of layer or window */
 
      DFBSurfaceHintFlags                hints;       /* usage hints for optimized allocation, format selection etc. */
+
+     DFBSurfaceColorSpace               colorspace;  /* color space */
 } DFBSurfaceDescription;
 
 /*
@@ -1476,7 +1613,7 @@ typedef struct {
      DFBSurfacePixelFormat              pixelformat;  /* pixel format */
      int                                posx;         /* distance from left layer border */
      int                                posy;         /* distance from upper layer border */
-     DFBSurfaceCapabilities             surface_caps; /* pixel format */
+     DFBSurfaceCapabilities             surface_caps; /* surface capabilities */
      DFBWindowID                        parent_id;    /* window id of parent window */
      DFBWindowOptions                   options;      /* initial window options */
      DFBWindowStackingClass             stacking;     /* initial stacking class */
@@ -1484,6 +1621,8 @@ typedef struct {
      unsigned long                      resource_id;  /* resource id used to create the window surface */
 
      DFBWindowID                        toplevel_id;  /* top level window, if != 0 window will be a sub window */
+
+     DFBSurfaceColorSpace               colorspace;   /* color space */
 } DFBWindowDescription;
 
 /*
@@ -1577,7 +1716,7 @@ typedef enum {
      DVCAPS_VOLUME      = 0x00000200,  /* supports Volume adjustment       */
      DVCAPS_EVENT       = 0x00000400,  /* supports the sending of events as video/audio data changes.*/
      DVCAPS_ATTRIBUTES  = 0x00000800,  /* supports dynamic changing of atrributes.*/
-     DVCAPS_AUDIO_SEL   = 0x00001000,  /* Supportes chosing audio outputs.*/
+     DVCAPS_AUDIO_SEL   = 0x00001000   /* Supportes chosing audio outputs.*/
 } DFBVideoProviderCapabilities;
 
 /*
@@ -1612,7 +1751,7 @@ typedef enum {
      DVAUDIOUNIT_TWO    = 0x00000002, /* Audio Unit Two           */
      DVAUDIOUNIT_THREE  = 0x00000004, /* Audio Unit Three         */
      DVAUDIOUNIT_FOUR   = 0x00000008, /* Audio Unit Four          */
-     DVAUDIOUNIT_ALL    = 0x0000000F, /* Audio Unit One           */
+     DVAUDIOUNIT_ALL    = 0x0000000F  /* Audio Unit One           */
 } DFBVideoProviderAudioUnits;
 
 
@@ -1702,7 +1841,7 @@ typedef struct {
  * content types. On creation a suitable implementation is
  * automatically chosen.
  */
-DEFINE_INTERFACE(   IDirectFB,
+D_DEFINE_INTERFACE(   IDirectFB,
 
    /** Cooperative level, video mode **/
 
@@ -2048,6 +2187,18 @@ DEFINE_INTERFACE(   IDirectFB,
           void                     *arg,
           void                    **ret_interface
      );
+
+
+   /** Surfaces **/
+
+     /*
+      * Get a surface by ID.
+      */
+     DFBResult (*GetSurface) (
+          IDirectFB                *thiz,
+          DFBSurfaceID              surface_id,
+          IDirectFBSurface        **ret_interface
+     );
 )
 
 /* predefined layer ids */
@@ -2104,8 +2255,8 @@ typedef enum {
      DLCONF_OPTIONS           = 0x00000010,
      DLCONF_SOURCE            = 0x00000020,
      DLCONF_SURFACE_CAPS      = 0x00000040,
-
-     DLCONF_ALL               = 0x0000007F
+     DLCONF_COLORSPACE        = 0x00000080,
+     DLCONF_ALL               = 0x000000FF
 } DFBDisplayLayerConfigFlags;
 
 /*
@@ -2117,6 +2268,7 @@ typedef struct {
      int                           width;         /* Pixel width */
      int                           height;        /* Pixel height */
      DFBSurfacePixelFormat         pixelformat;   /* Pixel format */
+     DFBSurfaceColorSpace          colorspace;    /* Color space */
      DFBDisplayLayerBufferMode     buffermode;    /* Buffer mode */
      DFBDisplayLayerOptions        options;       /* Enable capabilities */
      DFBDisplayLayerSourceID       source;        /* Selected layer source */
@@ -2124,6 +2276,9 @@ typedef struct {
      DFBSurfaceCapabilities        surface_caps;  /* Choose surface capabilities, available:
                                                      INTERLACED, SEPARATED, PREMULTIPLIED. */
 } DFBDisplayLayerConfig;
+
+#define DLSO_FIXED_LIMIT      0x7f      /* Stereo fixed depth value must be between +DLSO_FIXED_LIMIT
+                                           and -DLSO_FIXED_LIMIT. */
 
 /*
  * Screen Power Mode.
@@ -2238,7 +2393,7 @@ typedef enum {
      DSOC_SCART2         = 0x00000010, /* 2nd SCART connector */
      DSOC_COMPONENT      = 0x00000020, /* Component video connector */
      DSOC_HDMI           = 0x00000040, /* HDMI connector */
-     DSOC_656            = 0x00000080, /* DVO connector */
+     DSOC_656            = 0x00000080  /* DVO connector */
 } DFBScreenOutputConnectors;
 
 /*
@@ -2287,7 +2442,17 @@ typedef enum {
     DSOR_1400_1050 = 0x00000400, /* 1400x1050 Resolution */
     DSOR_1600_1200 = 0x00000800, /* 1600x1200 Resolution */
     DSOR_1920_1080 = 0x00001000, /* 1920x1080 Resolution */
-    DSOR_ALL       = 0x00001FFF  /* All Resolution */
+    DSOR_960_540   = 0x00002000, /* 960x540 Resolution */
+    DSOR_1440_540  = 0x00004000, /* 1440x540 Resolution */
+    DSOR_800_480   = 0x00008000, /* 800x480 Resolution */
+    DSOR_1024_600  = 0x00010000, /* 1024x600 Resolution */
+    DSOR_1366_768  = 0x00020000, /* 1366x768 Resolution */
+    DSOR_1920_1200 = 0x00040000, /* 1920x1200 Resolution */
+    DSOR_2560_1440 = 0x00080000, /* 2560x1440 Resolution */
+    DSOR_2560_1600 = 0x00100000, /* 2650x1600 Resolution */
+    DSOR_3840_2160 = 0x00200000, /* 3840x2160 Resolution */
+    DSOR_4096_2160 = 0x00400000, /* 4096x2160 Resolution */
+    DSOR_ALL       = 0x004FFFFF  /* All Resolutions */
 } DFBScreenOutputResolution;
 
 
@@ -2356,8 +2521,10 @@ typedef enum {
      DSECAPS_CONNECTORS   = 0x00001000, /* Select output connector(s). */
      DSECAPS_SLOW_BLANKING = 0x00002000, /* Slow Blanking on outputs is supported. */
      DSECAPS_RESOLUTION   = 0x00004000, /* Different encoder resolutions supported */
+     DSECAPS_FRAMING      = 0x00008000, /* Can select picture framing mode for stereo */
+     DSECAPS_ASPECT_RATIO = 0x00010000, /* Can specify display aspect ratio */
 
-     DSECAPS_ALL          = 0x00007f3f
+     DSECAPS_ALL          = 0x0001FF3F
 } DFBScreenEncoderCapabilities;
 
 /*
@@ -2387,8 +2554,8 @@ typedef enum {
      DSETV_PAL_N          = 0x00000080, /* PAL N support (specific) */
      DSETV_PAL_NC         = 0x00000100, /* PAL NC support (specific) */
      DSETV_NTSC_M_JPN     = 0x00000200, /* NTSC_JPN support */
-     DSETV_NTSC_443       = 0x00000800, /* NTSC with 4.43MHz colour carrier */
      DSETV_DIGITAL        = 0x00000400, /* TV standards from the digital domain.  specify resolution, scantype, frequency.*/
+     DSETV_NTSC_443       = 0x00000800, /* NTSC with 4.43MHz colour carrier */
      DSETV_ALL            = 0x00000FFF  /* All TV Standards*/
 } DFBScreenEncoderTVStandards;
 
@@ -2416,8 +2583,51 @@ typedef enum {
      DSEF_75HZ           = 0x00000020, /* 75 Hz Output. */
      DSEF_30HZ           = 0x00000040, /* 30 Hz Output. */
      DSEF_24HZ           = 0x00000080, /* 24 Hz Output. */
-     DSEF_23_976HZ       = 0x00000100, /* 23.976 Hz Output. */
+     DSEF_23_976HZ       = 0x00000100  /* 23.976 Hz Output. */
 } DFBScreenEncoderFrequency;
+
+/*
+ * Encoder picture delivery method.
+ * See HDMI Specification 1.4a - Extraction of 3D signaling portion for more details
+ */
+typedef enum {
+     DSEPF_UNKNOWN                      = 0,
+     DSEPF_MONO                         = 0x00000001,  /* Normal output to non-stereoscopic (3D) TV. No
+                                                          L/R content provided to TV. Frame is output on
+                                                          each vsync. */
+     DSEPF_STEREO_SIDE_BY_SIDE_HALF     = 0x00000002,  /* L/R frames are downscaled horizontally by 2 and
+                                                          packed side-by-side into a single frame, left on left
+                                                          half of frame. The packed frame is output on each
+                                                          vsync. Some stereoscopic TV's support this mode
+                                                          using HDMI v1.3 and a special menu configuration. */
+     DSEPF_STEREO_TOP_AND_BOTTOM        = 0x00000004,  /* L/R frames are downscaled vertically by 2 and
+                                                          packed into a single frame, left on top. The packed
+                                                          frame is output on each vsync. Some stereoscopic TV's
+                                                          support this mode using HDMI v1.3 and a special
+                                                          menu configuration. */
+     DSEPF_STEREO_FRAME_PACKING         = 0x00000008,  /* Full resolution L/R frames or fields are delivered sequentially
+                                                          to the TV, alternating left & right with an active
+                                                          space between each video frame. Vsync occurs
+                                                          after each sequence of: vblank, left eye video frame,
+                                                          active space, right eye video frame. Requires HDMI v1.4a. */
+
+     DSEPF_STEREO_SIDE_BY_SIDE_FULL     = 0x00000010,  /* L/R frames are packed side-by-side into a double width
+                                                          single frame, left on left half of frame. The packed
+                                                          frame is output on each vsync. Requires HDMI v1.4a. */
+     DSEPF_ALL                          = 0x0000001f
+} DFBScreenEncoderPictureFraming;
+
+#ifndef DIRECTFB_DISABLE_DEPRECATED
+#define DSEPF_STEREO_PACKED_HORIZ  DSEPF_STEREO_SIDE_BY_SIDE_HALF
+#define DSEPF_STEREO_PACKED_VERT   DSEPF_STEREO_TOP_AND_BOTTOM
+#define DSEPF_STEREO_SEQUENTIAL    DSEPF_STEREO_FRAME_PACKING
+#endif
+
+typedef enum {
+    DFB_ASPECT_RATIO_eAuto, /* 4x3 for SD and 480p, 16x9 for HD (including 720p, 1080i, etc.) */
+    DFB_ASPECT_RATIO_e4x3,
+    DFB_ASPECT_RATIO_e16x9
+} DFBDisplayAspectRatio;
 
 #define DFB_SCREEN_ENCODER_DESC_NAME_LENGTH    24
 
@@ -2434,28 +2644,34 @@ typedef struct {
      DFBScreenOutputResolution     all_resolutions;    /* Supported Resolutions*/
 
      char name[DFB_SCREEN_ENCODER_DESC_NAME_LENGTH];   /* Encoder name */
+
+     DFBScreenEncoderPictureFraming all_framing;       /* Supported HDMI signaling modes */
+     DFBDisplayAspectRatio          all_aspect_ratio;  /* Supported display aspect ratios */
 } DFBScreenEncoderDescription;
 
 /*
  * Flags for display encoder configuration.
  */
 typedef enum {
-     DSECONF_NONE         = 0x00000000, /* None of these. */
+     DSECONF_NONE             = 0x00000000, /* None of these. */
 
-     DSECONF_TV_STANDARD  = 0x00000001, /* Set TV standard. */
-     DSECONF_TEST_PICTURE = 0x00000002, /* Set test picture mode. */
-     DSECONF_MIXER        = 0x00000004, /* Select mixer. */
-     DSECONF_OUT_SIGNALS  = 0x00000008, /* Select generated output signal(s). */
-     DSECONF_SCANMODE     = 0x00000010, /* Select interlaced or progressive output. */
-     DSECONF_TEST_COLOR   = 0x00000020, /* Set color for DSETP_SINGLE. */
-     DSECONF_ADJUSTMENT   = 0x00000040, /* Set color adjustment. */
-     DSECONF_FREQUENCY    = 0x00000080, /* Set Output Frequency*/
+     DSECONF_TV_STANDARD      = 0x00000001, /* Set TV standard. */
+     DSECONF_TEST_PICTURE     = 0x00000002, /* Set test picture mode. */
+     DSECONF_MIXER            = 0x00000004, /* Select mixer. */
+     DSECONF_OUT_SIGNALS      = 0x00000008, /* Select generated output signal(s). */
+     DSECONF_SCANMODE         = 0x00000010, /* Select interlaced or progressive output. */
+     DSECONF_TEST_COLOR       = 0x00000020, /* Set color for DSETP_SINGLE. */
+     DSECONF_ADJUSTMENT       = 0x00000040, /* Set color adjustment. */
+     DSECONF_FREQUENCY        = 0x00000080, /* Set Output Frequency*/
 
-     DSECONF_CONNECTORS   = 0x00000100, /* Select output connector(s). */
-     DSECONF_SLOW_BLANKING = 0x00000200, /* Can select slow blanking support. */
-     DSECONF_RESOLUTION    = 0x00000400, /* Can change resolution of the encoder.*/
+     DSECONF_CONNECTORS       = 0x00000100, /* Select output connector(s). */
+     DSECONF_SLOW_BLANKING    = 0x00000200, /* Can select slow blanking support. */
+     DSECONF_RESOLUTION       = 0x00000400, /* Can change resolution of the encoder.*/
 
-     DSECONF_ALL          = 0x000007FF
+     DSECONF_FRAMING          = 0x00000800, /* Set method for delivering pictures to display. */
+     DSECONF_ASPECT_RATIO     = 0x00001000, /* Set display aspect ratio. */
+
+     DSECONF_ALL              = 0x00001FFF
 } DFBScreenEncoderConfigFlags;
 
 /*
@@ -2477,27 +2693,30 @@ typedef enum {
      DSETP_BLACK    = 0x00000080   /* Whole screen (00, 00, 00). */
 } DFBScreenEncoderTestPicture;
 
+
 /*
  * Configuration of a display encoder.
  */
 typedef struct {
-     DFBScreenEncoderConfigFlags   flags;         /* Validates struct members. */
+     DFBScreenEncoderConfigFlags        flags;              /* Validates struct members. */
 
-     DFBScreenEncoderTVStandards   tv_standard;   /* TV standard. */
-     DFBScreenEncoderTestPicture   test_picture;  /* Test picture mode. */
-     int                           mixer;         /* Selected mixer. */
-     DFBScreenOutputSignals        out_signals;   /* Generated output signals. */
-     DFBScreenOutputConnectors     out_connectors; /* Selected output connector(s). */
-     DFBScreenOutputSlowBlankingSignals     slow_blanking;/* Slow Blanking signals. */
+     DFBScreenEncoderTVStandards        tv_standard;        /* TV standard. */
+     DFBScreenEncoderTestPicture        test_picture;       /* Test picture mode. */
+     int                                mixer;              /* Selected mixer. */
+     DFBScreenOutputSignals             out_signals;        /* Generated output signals. */
+     DFBScreenOutputConnectors          out_connectors;     /* Selected output connector(s). */
+     DFBScreenOutputSlowBlankingSignals slow_blanking;      /* Slow Blanking signals. */
 
-     DFBScreenEncoderScanMode      scanmode;      /* Interlaced or progressive output. */
+     DFBScreenEncoderScanMode           scanmode;           /* Interlaced or progressive output. */
 
-     DFBColor                      test_color;    /* Color for DSETP_SINGLE. */
+     DFBColor                           test_color;         /* Color for DSETP_SINGLE. */
 
-     DFBColorAdjustment            adjustment;    /* Color adjustment. */
+     DFBColorAdjustment                 adjustment;         /* Color adjustment. */
 
-     DFBScreenEncoderFrequency     frequency;     /* Selected Output Frequency*/
-     DFBScreenOutputResolution     resolution;    /* Selected Output resolution*/
+     DFBScreenEncoderFrequency          frequency;          /* Selected Output Frequency*/
+     DFBScreenOutputResolution          resolution;         /* Selected Output resolution*/
+     DFBScreenEncoderPictureFraming     framing;            /* Selected picture delivery method. */
+     DFBDisplayAspectRatio              aspect_ratio;       /* screen aspect ratio */
 } DFBScreenEncoderConfig;
 
 
@@ -2508,7 +2727,7 @@ typedef struct {
 /*
  * <i>No summary yet...</i>
  */
-DEFINE_INTERFACE(   IDirectFBScreen,
+D_DEFINE_INTERFACE(   IDirectFBScreen,
 
    /** Retrieving information **/
 
@@ -2734,7 +2953,7 @@ DEFINE_INTERFACE(   IDirectFBScreen,
 /*
  * <i>No summary yet...</i>
  */
-DEFINE_INTERFACE(   IDirectFBDisplayLayer,
+D_DEFINE_INTERFACE(   IDirectFBDisplayLayer,
 
    /** Information **/
 
@@ -2881,6 +3100,32 @@ DEFINE_INTERFACE(   IDirectFBDisplayLayer,
           int                                 width,
           int                                 height
      );
+
+     /*
+      * Get stereo depth.
+      */
+     DFBResult (*GetStereoDepth) (
+         IDirectFBDisplayLayer               *thiz,
+         bool                                *follow_video,
+         int                                 *z
+    );
+
+
+     /*
+      * Set stereo depth.
+      *
+      * If follow_video is true then the pixel offset value from the video metadata will be used to set the
+      * perceived depth. Otherwise, the z value specified will cause the left eye buffer
+      * content to be shifted on the x-axis by +z and the right eye buffer to be shifted
+      * by -z. A positive z value will cause the layer to appear closer than
+      * the TV plane while a negative z value will make the layer appear farther away. The
+      * depth is limited to a value between +DLSO_FIXED_LIMIT and -DLSO_FIXED_LIMIT.
+      */
+     DFBResult (*SetStereoDepth) (
+         IDirectFBDisplayLayer               *thiz,
+         bool                                 follow_video,
+         int                                  z
+    );
 
 
    /** Misc Settings **/
@@ -3240,6 +3485,11 @@ typedef enum {
      DSFLIP_QUEUE        = 0x00000100,
      DSFLIP_FLUSH        = 0x00000200,
 
+     DSFLIP_SWAP         = 0x00000400,  /* Causes real flip even though region was specified.
+                                           Does not make sense in combination with DSFLIP_BLIT! */
+
+     DSFLIP_UPDATE       = 0x00000800,  /* Update from front only, no swapping */
+
      DSFLIP_WAITFORSYNC  = DSFLIP_WAIT | DSFLIP_ONSYNC
 } DFBSurfaceFlipFlags;
 
@@ -3282,12 +3532,25 @@ typedef enum {
 } DFBSurfaceLockFlags;
 
 /*
- * Available Porter/Duff rules.
+ * Stereo eye buffer.
  */
 typedef enum {
-                               /* pixel = (source * fs + destination * fd),
-                                  sa = source alpha,
-                                  da = destination alpha */
+     DSSE_NONE           = 0x00000000,  /* None */
+
+     DSSE_LEFT           = 0x00000001,  /* Left eye buffers to be used for all future
+                                           operations on this surface. */
+     DSSE_RIGHT          = 0x00000002   /* Right eye buffers to be used for all future
+                                           operations on this surface. */
+} DFBSurfaceStereoEye;
+
+/*
+ * Available Porter/Duff rules.
+ *
+ * pixel = (source * fs + destination * fd),
+ * sa = source alpha,
+ * da = destination alpha
+ */
+typedef enum {
      DSPD_NONE           =  0, /* fs: sa      fd: 1.0-sa (defaults) */
      DSPD_CLEAR          =  1, /* fs: 0.0     fd: 0.0    */
      DSPD_SRC            =  2, /* fs: 1.0     fd: 0.0    */
@@ -3301,7 +3564,7 @@ typedef enum {
      DSPD_DST_ATOP       = 10, /* fs: 1.0-da  fd: sa     */
      DSPD_ADD            = 11, /* fs: 1.0     fd: 1.0    */
      DSPD_XOR            = 12, /* fs: 1.0-da  fd: 1.0-sa */
-     DSPD_DST            = 13, /* fs: 0.0     fd: 1.0    */
+     DSPD_DST            = 13  /* fs: 0.0     fd: 1.0    */
 } DFBSurfacePorterDuffRule;
 
 /*
@@ -3331,7 +3594,7 @@ typedef enum {
      DSBF_INVDESTALPHA       = 8,  /* cf: 1-da           af: 1-da */
      DSBF_DESTCOLOR          = 9,  /* cf:   dc           af:   da */
      DSBF_INVDESTCOLOR       = 10, /* cf: 1-dc           af: 1-da */
-     DSBF_SRCALPHASAT        = 11, /* cf: min(sa, 1-da)  af:    1 */
+     DSBF_SRCALPHASAT        = 11  /* cf: min(sa, 1-da)  af:    1 */
 } DFBSurfaceBlendFunction;
 
 /*
@@ -3346,6 +3609,19 @@ typedef struct {
      float s;   /* Texture S coordinate */
      float t;   /* Texture T coordinate */
 } DFBVertex;
+
+/*
+ * Transformed vertex of a textured triangle using fixed 16.16 values.
+ */
+typedef struct {
+     int   x;   /* Destination X coordinate (in pixels) */
+     int   y;   /* Destination Y coordinate (in pixels) */
+     int   z;   /* Z coordinate */
+     int   w;   /* W coordinate */
+
+     int   s;   /* Texture S coordinate */
+     int   t;   /* Texture T coordinate */
+} DFBVertex1616;
 
 /*
  * Way of building triangles from the list of vertices.
@@ -3364,8 +3640,87 @@ typedef enum {
 
      DSMF_STENCIL   = 0x00000001,  /* Take <b>x</b> and <b>y</b> as fixed start coordinates in the mask. */
 
-     DSMF_ALL       = 0x00000001,  /* All of these. */
+     DSMF_ALL       = 0x00000001   /* All of these. */
 } DFBSurfaceMaskFlags;
+
+/*
+ * Available Rop codes.
+ */
+typedef enum {
+     DSROP_CLEAR              =  0x00,
+     DSROP_XOR                =  0x96,
+     DSROP_SRC_COPY           =  0xCC
+
+     /* TODO: to be extended with all ROP codes, possibly move to separate header file */
+} DFBSurfaceRopCode;
+
+/*
+ * Available pattern mode
+ */
+typedef enum {
+     DSPM_8_8_MONO            =  0,
+     DSPM_32_32_MONO          =  1
+} DFBSurfacePatternMode;
+
+/*
+ * Color key polarity
+ */
+typedef enum {
+     DCKP_DEFAULT   = 0,
+     DCKP_OTHER     = 1
+} DFBColorKeyPolarity;
+
+/*
+ * Extended color key definition
+ */
+typedef struct {
+     DFBColorKeyPolarity polarity;
+     DFBColor            lower;
+     DFBColor            upper;
+} DFBColorKeyExtended;
+
+/*
+ * Attributes for DrawMonoGlyphs
+ */
+typedef struct {
+     int  width;         /* glyph width */
+     int  height;        /* glyph height */
+     int  rowbyte;       /* glyph rowbyte */
+     int  bitoffset;     /* glyph bitoffset */
+     int  fgcolor;       /* foreground color */
+     int  bgcolor;       /* background color */
+     int  hzoom;         /* horizontal zoom factor */
+     int  vzoom;         /* vertical zoom factor */
+} DFBMonoGlyphAttributes;
+
+/*
+ * Convolution filter
+ *
+ * The kernel consists of 3x3 fixed point 16.16 values.
+ * Additionally there are scale and bias, also fixed point 16.16 values.
+ */
+typedef struct {
+     s32  kernel[9];
+     s32  scale;
+     s32  bias;
+} DFBConvolutionFilter;
+
+
+typedef enum {
+     DFTCF_NONE        = 0x00000000,  /* None of these */
+
+     DFTCF_INTERVAL    = 0x00000001,  /* Interval is specified, otherwise the interval is set automatically depending on screen refresh */
+     DFTCF_MAX_ADVANCE = 0x00000002,  /* Maximum time to render in advance, GetFrameTime will block to keep the limit */
+
+     DFTCF_ALL         = 0x00000003,  /* All of these */
+} DFBFrameTimeConfigFlags;
+
+typedef struct {
+     DFBFrameTimeConfigFlags  flags;
+
+     long long                interval;
+     long long                max_advance;
+} DFBFrameTimeConfig;
 
 /********************
  * IDirectFBSurface *
@@ -3374,7 +3729,7 @@ typedef enum {
 /*
  * <i>No summary yet...</i>
  */
-DEFINE_INTERFACE(   IDirectFBSurface,
+D_DEFINE_INTERFACE(   IDirectFBSurface,
 
    /** Retrieving information **/
 
@@ -3423,6 +3778,14 @@ DEFINE_INTERFACE(   IDirectFBSurface,
      DFBResult (*GetPixelFormat) (
           IDirectFBSurface         *thiz,
           DFBSurfacePixelFormat    *ret_format
+     );
+
+     /*
+      * Get the current color space.
+      */
+     DFBResult (*GetColorSpace) (
+          IDirectFBSurface         *thiz,
+          DFBSurfaceColorSpace     *ret_colorspace
      );
 
      /*
@@ -3482,6 +3845,30 @@ DEFINE_INTERFACE(   IDirectFBSurface,
    /** Buffer operations **/
 
      /*
+      * Get the current stereo eye.
+      *
+      * Only applicable to window/layer surfaces with the DWCAPS_STEREO or DLOP_STEREO
+      * option. This method will retrieve which set of buffers (left or right) is currently
+      * active for operations on this surface.
+      */
+     DFBResult (*GetStereoEye) (
+          IDirectFBSurface         *thiz,
+          DFBSurfaceStereoEye      *ret_eye
+     );
+
+     /*
+      * Select the stereo eye for future operations.
+      *
+      * Only applicable to window/layer surfaces with the DWCAPS_STEREO or DLOP_STEREO
+      * option. This method will specify which set of buffers (left or right) is to be
+      * used for future operations on this surface.
+      */
+     DFBResult (*SetStereoEye) (
+          IDirectFBSurface         *thiz,
+          DFBSurfaceStereoEye       eye
+     );
+
+     /*
       * Lock the surface for the access type specified.
       *
       * Returns a data pointer and the line pitch of it.<br>
@@ -3500,9 +3887,9 @@ DEFINE_INTERFACE(   IDirectFBSurface,
 
      /*
       * Obsolete. Returns DFB_FAILURE always.
-      * 
+      *
       * Previously returned the framebuffer offset of a locked surface.
-      * However, it is not a safe API to use at all, since it is not 
+      * However, it is not a safe API to use at all, since it is not
       * guaranteed that the offset actually belongs to fbmem (e.g. could be AGP memory).
       */
      DFBResult (*GetFramebufferOffset) (
@@ -3529,6 +3916,25 @@ DEFINE_INTERFACE(   IDirectFBSurface,
      DFBResult (*Flip) (
           IDirectFBSurface         *thiz,
           const DFBRegion          *region,
+          DFBSurfaceFlipFlags       flags
+     );
+
+     /*
+      * Flip/Update stereo surface buffers. Flips both the left and right
+      * buffers simultaneously to ensure synchronization between the two.
+      * Only applicable to window and layer surfaces with the DWCAPS_STEREO
+      * or DLOP_STEREO option set; will fail with all other surfaces.
+      *
+      * If no region is specified the whole surface is flipped,
+      * otherwise blitting is used to update the region.
+      * If surface capabilities don't include DSCAPS_FLIPPING,
+      * this method has the effect to make visible changes
+      * made to the surface contents.
+      */
+     DFBResult (*FlipStereo) (
+          IDirectFBSurface         *thiz,
+          const DFBRegion          *left_region,
+          const DFBRegion          *right_region,
           DFBSurfaceFlipFlags       flags
      );
 
@@ -4220,6 +4626,247 @@ DEFINE_INTERFACE(   IDirectFBSurface,
           IDirectFBSurface *thiz,
           unsigned long    *addr
      );
+
+   /** Drawing functions **/
+
+     /*
+      * Fill a bunch of trapezoids with a single call.
+      *
+      * Fill <b>num</b> trapezoids with the current color following the
+      * drawing flags. Each trapezoid specified by a DFBTrapezoid.
+      */
+     DFBResult (*FillTrapezoids) (
+          IDirectFBSurface         *thiz,
+          const DFBTrapezoid       *traps,
+          unsigned int              num
+     );
+
+
+   /** Drawing/blitting control **/
+
+     /*
+      * Sets write mask bits.
+      *
+      * Bits being set in the mask will NOT get written to the destination. Default is all zeros, i.e. all bits written.
+      */
+     DFBResult (*SetWriteMaskBits) (
+          IDirectFBSurface         *thiz,
+          u64                       bits
+     );
+
+     /*
+      * Set Rop operation related parameters.
+      *
+      * rop_code: rop code<br>
+      * fg_color: pattern foreground color<br>
+      * bg_color: pattern background color<br>
+      * pattern: pattern array<br>
+      * pattern_mode: 8*8 mono or 32 * 32 mono
+      */
+     DFBResult (*SetRop) (
+          IDirectFBSurface         *thiz,
+          DFBSurfaceRopCode         rop_code,
+          const DFBColor           *fg_color,
+          const DFBColor           *bg_color,
+          const u32                *pattern,
+          DFBSurfacePatternMode     pattern_mode
+     );
+
+     /*
+      * Sets extended source color keying.
+      */
+     DFBResult (*SetSrcColorKeyExtended) (
+          IDirectFBSurface          *thiz,
+          const DFBColorKeyExtended *key_extended
+     );
+
+     /*
+      * Sets extended destination color keying.
+      */
+     DFBResult (*SetDstColorKeyExtended) (
+          IDirectFBSurface          *thiz,
+          const DFBColorKeyExtended *colorkey_extended
+     );
+
+
+   /** Drawing functions **/
+
+     /*
+      * Blit monochrome glyph data with attributes.
+      *
+      * This is a very special function with no software implementation yet.
+      */
+     DFBResult (*DrawMonoGlyphs) (
+           IDirectFBSurface             *thiz,
+           const void                   *glyph[],
+           const DFBMonoGlyphAttributes *attributes,
+           const DFBPoint               *dest_points,
+           unsigned int                  num
+     );
+
+
+   /** Blitting control **/
+
+     /*
+      * Set the source color matrix.
+      *
+      * Enable usage of this matrix by setting DSBLIT_SRC_COLORMATRIX via IDirectFBSurface::SetBlittingFlags().
+      *
+      * The matrix consists of 4x3 fixed point 16.16 values.
+      * The order in the array is from left to right and from top to bottom.
+      *
+      * All RGB values will be transformed:
+      *
+      * <pre>
+      *        R' = R * v0 + G * v1 + B * v2  + v3
+      *        G' = R * v4 + G * v5 + B * v6  + v7
+      *        B' = R * v8 + G * v9 + B * v10 + v11
+      * </pre>
+      */
+     DFBResult (*SetSrcColorMatrix) (
+          IDirectFBSurface         *thiz,
+          const s32                *matrix
+     );
+
+     /*
+      * Set the source convolution filter.
+      *
+      * Enable usage of this filter by setting DSBLIT_SRC_CONVOLUTION via IDirectFBSurface::SetBlittingFlags().
+      */
+     DFBResult (*SetSrcConvolution) (
+          IDirectFBSurface              *thiz,
+          const DFBConvolutionFilter    *filter
+     );
+
+
+   /** Retrieving information **/
+
+     /*
+      * Get the unique surface ID.
+      */
+     DFBResult (*GetID) (
+          IDirectFBSurface              *thiz,
+          DFBSurfaceID                  *ret_surface_id
+     );
+
+
+   /** Process security **/
+
+     /*
+      * Allow access.
+      */
+     DFBResult (*AllowAccess) (
+          IDirectFBSurface              *thiz,
+          const char                    *executable
+     );
+
+
+  /** Event buffers **/
+
+     /*
+      * Create an event buffer for this surface and attach it.
+      */
+     DFBResult (*CreateEventBuffer) (
+          IDirectFBSurface             *thiz,
+          IDirectFBEventBuffer        **ret_buffer
+     );
+
+     /*
+      * Attach an existing event buffer to this surface.
+      *
+      * NOTE: Attaching multiple times generates multiple events.
+      */
+     DFBResult (*AttachEventBuffer) (
+          IDirectFBSurface             *thiz,
+          IDirectFBEventBuffer         *buffer
+     );
+
+     /*
+      * Detach an event buffer from this surface.
+      */
+     DFBResult (*DetachEventBuffer) (
+          IDirectFBSurface             *thiz,
+          IDirectFBEventBuffer         *buffer
+     );
+
+
+   /** Blitting functions **/
+     /*
+      * Blit a bunch of areas scaled from the source to the destination
+      * rectangles.
+      *
+      * <b>source_rects</b> and <b>dest_rects</b> will be modified!
+      */
+     DFBResult (*BatchStretchBlit) (
+          IDirectFBSurface         *thiz,
+          IDirectFBSurface         *source,
+          const DFBRectangle       *source_rects,
+          const DFBRectangle       *dest_rects,
+          int                       num
+     );
+
+
+   /** Client **/
+
+     /*
+      * Put in client mode for frame synchronization.
+      */
+     DFBResult (*MakeClient) (
+          IDirectFBSurface              *thiz
+     );
+
+     /*
+      * Put in client mode for frame synchronization.
+      */
+     DFBResult (*FrameAck) (
+          IDirectFBSurface              *thiz,
+          u32                            flip_count
+     );
+
+
+   /** Debug **/
+
+     /*
+      * Dump the contents of the surface to one or two files in raw format.
+      *
+      * Creates a RAW file containing the ARGB data.
+      *
+      * The complete filename will be:
+      * <b>directory</b>/<b>prefix</b>_<i>####</i>.raw for ARGB.
+      * Example: "/directory/prefix_0000.raw". No existing files
+      * will be overwritten.
+      */
+     DFBResult (*DumpRaw) (
+          IDirectFBSurface         *thiz,
+          const char               *directory,
+          const char               *prefix
+     );
+
+
+   /** Timing **/
+
+     /*
+      * Retrieve timestamp for next frame to be rendered.
+      *
+      * This can well lie in the future, meaning that buffers are already queued
+      * and the application can generate the next frame in advance...
+      *
+      * The returned micro seconds are from DIRECT_CLOCK_MONOTONIC.
+      */
+     DFBResult (*GetFrameTime) (
+          IDirectFBSurface              *thiz,
+          long long                     *ret_micros
+     );
+
+     /*
+      * Set configuration for GetFrameTime
+      *
+      * This can be called on renderer and/or client side.
+      */
+     DFBResult (*SetFrameTimeConfig) (
+          IDirectFBSurface              *thiz,
+          const DFBFrameTimeConfig      *config
+     );
 )
 
 
@@ -4230,7 +4877,7 @@ DEFINE_INTERFACE(   IDirectFBSurface,
 /*
  * <i>No summary yet...</i>
  */
-DEFINE_INTERFACE(   IDirectFBPalette,
+D_DEFINE_INTERFACE(   IDirectFBPalette,
 
    /** Retrieving information **/
 
@@ -4387,6 +5034,26 @@ typedef enum {
      DIMM_HYPER     = (1 << DIMKI_HYPER)     /* Hyper key is pressed */
 } DFBInputDeviceModifierMask;
 
+/*
+ * Input device configuration flags
+ */
+typedef enum {
+     DIDCONF_NONE        = 0x00000000,
+
+     DIDCONF_SENSITIVITY = 0x00000001,
+
+     DIDCONF_ALL         = 0x00000001
+} DFBInputDeviceConfigFlags;
+
+/*
+ * Input device configuration
+ */
+typedef struct {
+     DFBInputDeviceConfigFlags     flags;
+
+     int                           sensitivity;   /* Sensitivity value for X/Y axes (8.8 fixed point), default 0x100 */
+} DFBInputDeviceConfig;
+
 
 /************************
  * IDirectFBInputDevice *
@@ -4395,7 +5062,7 @@ typedef enum {
 /*
  * <i>No summary yet...</i>
  */
-DEFINE_INTERFACE(   IDirectFBInputDevice,
+D_DEFINE_INTERFACE(   IDirectFBInputDevice,
 
    /** Retrieving information **/
 
@@ -4549,6 +5216,17 @@ DEFINE_INTERFACE(   IDirectFBInputDevice,
           int                           *ret_x,
           int                           *ret_y
      );
+
+
+   /** Configuration **/
+
+     /*
+      * Change config values for the input device.
+      */
+     DFBResult (*SetConfiguration) (
+          IDirectFBInputDevice          *thiz,
+          const DFBInputDeviceConfig    *config
+     );
 )
 
 
@@ -4561,7 +5239,8 @@ typedef enum {
      DFEC_WINDOW         = 0x02,   /* windowing event */
      DFEC_USER           = 0x03,   /* custom event for the user of this library */
      DFEC_UNIVERSAL      = 0x04,   /* universal event for custom usage with variable size */
-     DFEC_VIDEOPROVIDER  = 0x05    /* video provider event */
+     DFEC_VIDEOPROVIDER  = 0x05,   /* video provider event */
+     DFEC_SURFACE        = 0x06    /* surface event */
 } DFBEventClass;
 
 /*
@@ -4607,7 +5286,7 @@ typedef enum {
      DIEF_FOLLOW         = 0x0800,   /* another event will follow immediately, e.g. x/y axis */
 
      DIEF_MIN            = 0x1000,   /* minimum value is set, e.g. for absolute axis motion */
-     DIEF_MAX            = 0x2000,   /* maximum value is set, e.g. for absolute axis motion */
+     DIEF_MAX            = 0x2000    /* maximum value is set, e.g. for absolute axis motion */
 } DFBInputEventFlags;
 
 /*
@@ -4716,8 +5395,9 @@ typedef enum {
      DWEF_RETURNED       = 0x00000001,  /* This is a returned event, e.g. unconsumed key. */
      DWEF_RELATIVE       = 0x00000002,  /* This is a relative motion event (using DWCF_RELATIVE) */
      DWEF_REPEAT         = 0x00000010,  /* repeat event, e.g. repeating key */
+     DWEF_DEVICE_ID      = 0x00000020,  /* device_id field of DFBInputEvent is valid */
 
-     DWEF_ALL            = 0x00000013   /* all of these */
+     DWEF_ALL            = 0x00000033   /* all of these */
 } DFBWindowEventFlags;
 
 /*
@@ -4742,6 +5422,17 @@ typedef enum {
      DVPET_BUFFERTIMEHIGH = 0x00004000,  /* The stream buffer has more than requested playout time buffered. */
      DVPET_ALL            = 0x00007FFF   /* All event types */
 } DFBVideoProviderEventType;
+
+/*
+ * Surface Event Types - can also be used as flags for event filters.
+ */
+typedef enum {
+     DSEVT_NONE           = 0x00000000,
+     DSEVT_DESTROYED      = 0x00000001,  /* surface got destroyed by global deinitialization function or the application itself */
+     DSEVT_UPDATE         = 0x00000002,  /*  */
+     DSEVT_DISPLAY        = 0x00000004,  /*  */
+     DSEVT_ALL            = 0x00000007   /* All event types */
+} DFBSurfaceEventType;
 
 /*
  * Event from the windowing system.
@@ -4798,6 +5489,8 @@ typedef struct {
                                                     pressed buttons */
 
      struct timeval                  timestamp;  /* always set */
+
+     DFBInputDeviceID                device_id;
 } DFBWindowEvent;
 
 /*
@@ -4808,7 +5501,7 @@ typedef enum {
      DVPEDST_AUDIO        = 0x00000001, /* Event is valid for Audio Data     */
      DVPEDST_VIDEO        = 0x00000002, /* Event is valid for Video Data     */
      DVPEDST_DATA         = 0x00000004, /* Event is valid for Data types     */
-     DVPEDST_ALL          = 0x00000007, /* Event is valid for all Data types */
+     DVPEDST_ALL          = 0x00000007  /* Event is valid for all Data types */
 
 } DFBVideoProviderEventDataSubType;
 
@@ -4824,6 +5517,26 @@ typedef struct {
      int                              data[4];    /* custom data - large enough for 4 ints so that in most cases
                                                      memory allocation will not be needed */
 } DFBVideoProviderEvent;
+
+/*
+ * Event from surface
+ */
+typedef struct {
+     DFBEventClass                    clazz;      /* clazz of event */
+
+     // all types
+     DFBSurfaceEventType              type;       /* type of event */
+     DFBSurfaceID                     surface_id; /* source of event */
+     long long                        time_stamp; /* Micro seconds from DIRECT_CLOCK_MONOTONIC */
+
+     // DSEVT_UPDATE
+     DFBRegion                        update;
+     DFBRegion                        update_right;
+     unsigned int                     flip_count; /* Serial number of frame, modulo number of buffers = buffer index */
+
+     // DSEVT_DISPLAY
+     unsigned int                     index;      /* Serial number of frame, modulo number of buffers = buffer index */
+} DFBSurfaceEvent;
 
 /*
  * Event for usage by the user of this library.
@@ -4857,6 +5570,7 @@ typedef union {
      DFBUserEvent                    user;          /* field for user-defined events */
      DFBUniversalEvent               universal;     /* field for universal events */
      DFBVideoProviderEvent           videoprovider; /* field for video provider */
+     DFBSurfaceEvent                 surface;       /* field for surface events */
 } DFBEvent;
 
 #define DFB_EVENT(e)          ((DFBEvent *) (e))
@@ -4920,7 +5634,7 @@ typedef struct {
 /*
  * <i>No summary yet...</i>
  */
-DEFINE_INTERFACE(   IDirectFBEventBuffer,
+D_DEFINE_INTERFACE(   IDirectFBEventBuffer,
 
 
    /** Buffer handling **/
@@ -5084,6 +5798,10 @@ typedef enum {
      DWCF_ALL            = 0x0000003F
 } DFBWindowCursorFlags;
 
+
+#define DWSO_FIXED_LIMIT      0x80      /* Fixed stereo depth value must be between +DWSO_FIXED_LIMIT
+                                           and -DWSO_FIXED_LIMIT. */
+
 /*******************
  * IDirectFBWindow *
  *******************/
@@ -5091,7 +5809,7 @@ typedef enum {
 /*
  * <i>No summary yet...</i>
  */
-DEFINE_INTERFACE(   IDirectFBWindow,
+D_DEFINE_INTERFACE(   IDirectFBWindow,
 
    /** Retrieving information **/
 
@@ -5587,6 +6305,27 @@ DEFINE_INTERFACE(   IDirectFBWindow,
           const DFBWindowGeometry       *geometry
      );
 
+     /*
+      * Get stereo depth.
+      */
+     DFBResult (*GetStereoDepth) (
+         IDirectFBWindow                *thiz,
+         int                            *z
+     );
+
+     /*
+      * Set stereo depth.
+      *
+      * The depth value specified will cause the left eye buffer content to be shifted on the
+      * x-axis by +z and the right eye buffer to be shifted by -z value. A positive
+      * z value will cause the layer to appear closer than the TV plane while a negative
+      * z value will make the layer appear farther away. The depth is limited to a value
+      * between +DLSO_FIXED_LIMIT and -DLSO_FIXED_LIMIT.
+      */
+     DFBResult (*SetStereoDepth) (
+         IDirectFBWindow                *thiz,
+         int                             z
+     );
 
    /** Properties **/
 
@@ -5714,6 +6453,21 @@ DEFINE_INTERFACE(   IDirectFBWindow,
           int                            x,
           int                            y
      );
+
+
+   /** Geometry **/
+
+     /*
+      * Set area of surface to be shown in window.
+      * Set destination location of window within its bounds.
+      *
+      * Default and maximum is to show whole surface.
+      */
+     DFBResult (*SetGeometry) (
+          IDirectFBWindow               *thiz,
+          const DFBWindowGeometry       *src,
+          const DFBWindowGeometry       *dst
+     );
 )
 
 
@@ -5733,7 +6487,7 @@ typedef DFBEnumerationResult (*DFBTextEncodingCallback) (
 /*
  * <i>No summary yet...</i>
  */
-DEFINE_INTERFACE(   IDirectFBFont,
+D_DEFINE_INTERFACE(   IDirectFBFont,
 
    /** Retrieving information **/
 
@@ -5977,6 +6731,26 @@ DEFINE_INTERFACE(   IDirectFBFont,
           int                      *ret_xadvance,
           int                      *ret_yadvance
      );
+
+     /*
+      * Get the position and thickness of the underline.
+      */
+     DFBResult (*GetUnderline) (
+          IDirectFBFont            *thiz,
+          int                      *ret_underline_position,
+          int                      *ret_underline_thichness
+     );
+
+
+   /** Retrieving information **/
+
+     /*
+      * Get the description of the font.
+      */
+     DFBResult (*GetDescription) (
+          IDirectFBFont            *thiz,
+          DFBFontDescription       *ret_description
+     );
 )
 
 /*
@@ -6021,7 +6795,7 @@ typedef DIRenderCallbackResult (*DIRenderCallback)(DFBRectangle *rect, void *ctx
 /*
  * <i>No summary yet...</i>
  */
-DEFINE_INTERFACE(   IDirectFBImageProvider,
+D_DEFINE_INTERFACE(   IDirectFBImageProvider,
 
    /** Retrieving information **/
 
@@ -6083,6 +6857,15 @@ DEFINE_INTERFACE(   IDirectFBImageProvider,
           void                     *callback_data
      );
 
+     /*
+      * Sets hint for preferred image decoding method
+      *
+      * This is optional and might be unsupported by some image providers
+      */
+     DFBResult (*SetRenderFlags) (
+          IDirectFBImageProvider   *thiz,
+          DIRenderFlags            flags
+     );
 
    /** Encoding **/
 
@@ -6155,7 +6938,7 @@ typedef struct {
  */
 typedef enum {
      DSF_ES         = 0x00000000, /* ES.  */
-     DSF_PES        = 0x00000001, /* PES. */
+     DSF_PES        = 0x00000001  /* PES. */
 } DFBStreamFormat;
 
 /*
@@ -6228,7 +7011,7 @@ typedef void (*DVFrameCallback)(void *ctx);
 /*
  * <i>No summary yet...</i>
  */
-DEFINE_INTERFACE(   IDirectFBVideoProvider,
+D_DEFINE_INTERFACE(   IDirectFBVideoProvider,
 
    /** Retrieving information **/
 
@@ -6522,6 +7305,19 @@ DEFINE_INTERFACE(   IDirectFBVideoProvider,
           IDirectFBVideoProvider   *thiz,
           DFBBufferThresholds      *ret_thresh
      );
+
+   /** Playback **/
+
+     /*
+      * Update the video rendering into the specified rectangle
+      * of the destination surface.
+      */
+     DFBResult (*SetDestination) (
+          IDirectFBVideoProvider   *thiz,
+          IDirectFBSurface         *destination,
+          const DFBRectangle       *destination_rect
+     );
+
 )
 
 /***********************
@@ -6531,7 +7327,7 @@ DEFINE_INTERFACE(   IDirectFBVideoProvider,
 /*
  * <i>No summary yet...</i>
  */
-DEFINE_INTERFACE(   IDirectFBDataBuffer,
+D_DEFINE_INTERFACE(   IDirectFBDataBuffer,
 
 
    /** Buffer handling **/
@@ -6689,7 +7485,7 @@ DEFINE_INTERFACE(   IDirectFBDataBuffer,
       */
      DFBResult (*CreateImageProvider) (
           IDirectFBDataBuffer      *thiz,
-          IDirectFBImageProvider  **interface
+          IDirectFBImageProvider  **interface_ptr
      );
 
      /*
@@ -6697,7 +7493,7 @@ DEFINE_INTERFACE(   IDirectFBDataBuffer,
       */
      DFBResult (*CreateVideoProvider) (
           IDirectFBDataBuffer      *thiz,
-          IDirectFBVideoProvider  **interface
+          IDirectFBVideoProvider  **interface_ptr
      );
 
      /*
@@ -6707,7 +7503,7 @@ DEFINE_INTERFACE(   IDirectFBDataBuffer,
      DFBResult (*CreateFont) (
           IDirectFBDataBuffer       *thiz,
           const DFBFontDescription  *desc,
-          IDirectFBFont            **interface
+          IDirectFBFont            **interface_ptr
      );
 )
 

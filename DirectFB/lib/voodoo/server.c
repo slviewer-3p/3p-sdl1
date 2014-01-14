@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -57,8 +61,10 @@
 #include <direct/util.h>
 
 #include <voodoo/conf.h>
-#include <voodoo/server.h>
 #include <voodoo/internal.h>
+#include <voodoo/link.h>
+#include <voodoo/manager.h>
+#include <voodoo/server.h>
 
 #ifndef htons
 #if WORDS_BIGENDIAN
@@ -72,13 +78,13 @@
 typedef struct {
      sem_t          sem;
 
-     pid_t          gfxpid;
+     pid_t          single_pid;
 } ServerShared;
 
 typedef struct {
      DirectLink     link;
 
-     int            fd;
+     VoodooLink     vl;
      VoodooManager *manager;
 } Connection;
 
@@ -95,6 +101,7 @@ typedef struct {
 struct __V_VoodooServer {
      int         fd;
 
+     bool        fork;
      bool        quit;
      DirectLink *connections;
 
@@ -117,7 +124,10 @@ static const int one = 1;
 /**********************************************************************************************************************/
 
 DirectResult
-voodoo_server_create( VoodooServer **ret_server )
+voodoo_server_create( const char    *_addr,
+                      int            port,
+                      bool           fork,
+                      VoodooServer **ret_server )
 {
      DirectResult        ret;
      struct sockaddr_in  addr;
@@ -140,10 +150,10 @@ voodoo_server_create( VoodooServer **ret_server )
 
      /* Bind the socket to the local port. */
      addr.sin_family      = AF_INET;
-     addr.sin_addr.s_addr = inet_addr( "0.0.0.0" );
-     addr.sin_port        = htons( 2323 );
+     addr.sin_addr.s_addr = inet_addr( _addr ?: "0.0.0.0" );
+     addr.sin_port        = htons( port ?: 2323 );
 
-     if (bind( fd, &addr, sizeof(addr) )) {
+     if (bind( fd, (struct sockaddr*)&addr, sizeof(addr) )) {
           ret = errno2result( errno );
           D_PERROR( "Voodoo/Server: Could not bind() the socket!\n" );
           goto error;
@@ -165,7 +175,8 @@ voodoo_server_create( VoodooServer **ret_server )
      }
 
      /* Initialize server structure. */
-     server->fd = fd;
+     server->fd   = fd;
+     server->fork = fork;
 
      {
           int zfd;
@@ -279,17 +290,17 @@ voodoo_server_construct( VoodooServer      *server,
           return DR_UNSUPPORTED;
      }
 
-     if (!strcmp( name, "IDirectFB" )) {
+     if (voodoo_config->server_single && !strcmp( name, voodoo_config->server_single )) {
           sem_wait( &server->shared->sem );
 
-          if (server->shared->gfxpid) {
-               D_INFO( "Voodoo/Server: Killing previous graphics process with pid %d\n", server->shared->gfxpid );
-               kill( server->shared->gfxpid, SIGTERM );
+          if (server->shared->single_pid) {
+               D_INFO( "Voodoo/Server: Killing previous single process with pid %d\n", server->shared->single_pid );
+               kill( server->shared->single_pid, SIGTERM );
           }
 
-          server->shared->gfxpid = getpid();
+          server->shared->single_pid = getpid();
 
-          D_INFO( "Voodoo/Server: New graphics process has pid %d\n", server->shared->gfxpid );
+          D_INFO( "Voodoo/Server: New single process has pid %d\n", server->shared->single_pid );
 
           sem_post( &server->shared->sem );
      }
@@ -325,9 +336,9 @@ voodoo_server_run( VoodooServer *server )
 
                     sem_wait( &server->shared->sem );
 
-                    if (server->shared->gfxpid == getpid()) {
-                         D_INFO( "Voodoo/Server: Closing graphics process with pid %d\n", server->shared->gfxpid );
-                         server->shared->gfxpid = 0;
+                    if (server->shared->single_pid == getpid()) {
+                         D_INFO( "Voodoo/Server: Closing single process with pid %d\n", server->shared->single_pid );
+                         server->shared->single_pid = 0;
                     }
 
                     sem_post( &server->shared->sem );
@@ -335,7 +346,7 @@ voodoo_server_run( VoodooServer *server )
 
                     voodoo_manager_destroy( connection->manager );
 
-                    close( connection->fd );
+                    //connection->vl.Close( &connection->vl );
 
                     direct_list_remove( &server->connections, l );
 
@@ -343,8 +354,8 @@ voodoo_server_run( VoodooServer *server )
 
                     D_FREE( connection );
 
-                    if (!server->connections)
-                         return DR_OK;
+                    //if (!server->connections)
+                    //     return DR_OK;
                }
           }
 
@@ -357,9 +368,9 @@ voodoo_server_run( VoodooServer *server )
                pf.fd     = server->fd;
                pf.events = POLLIN;
 
-               switch (poll( &pf, 1, 20000 )) {
+               switch (poll( &pf, 1, 100 )) {
                     default:
-                         fd = accept( server->fd, &addr, &addrlen );
+                         fd = accept( server->fd, (struct sockaddr*)&addr, &addrlen );
                          if (fd < 0) {
                               D_PERROR( "Voodoo/Server: Could not accept() incoming connection!\n" );
                               break;
@@ -369,7 +380,7 @@ voodoo_server_run( VoodooServer *server )
 
                          D_INFO( "Voodoo/Server: Accepted connection from '%s'\n", buf );
 
-                         if (voodoo_config->server_fork) {
+                         if (server->fork) {
                               pid_t pid;
 
                               D_DEBUG_AT( Voodoo_Server, "  -> forking...\n" );
@@ -408,7 +419,7 @@ voodoo_server_run( VoodooServer *server )
                     case 0:
                          waitpid( -1, NULL, WNOHANG );
 
-                         D_DEBUG_AT( Voodoo_Server, "  -> Timeout during poll()\n" );
+                         //D_DEBUG_AT( Voodoo_Server, "  -> Timeout during poll()\n" );
                          break;
 
                     case -1:
@@ -419,8 +430,12 @@ voodoo_server_run( VoodooServer *server )
                          break;
                }
           }
-          else
-               usleep( 200000 );
+          else {
+               if (server->connections)
+                    usleep( 200000 );
+               else
+                    return DR_OK;
+          }
      }
 
      return DR_OK;
@@ -441,10 +456,13 @@ voodoo_server_destroy( VoodooServer *server )
 
           voodoo_manager_destroy( connection->manager );
 
-          close( connection->fd );
+          //connection->vl.Close( &connection->vl );
 
           D_FREE( connection );
      }
+
+     if (server->shared)
+          munmap( server->shared, sizeof(ServerShared) );
 
      D_FREE( server );
 
@@ -456,8 +474,9 @@ voodoo_server_destroy( VoodooServer *server )
 static DirectResult
 accept_connection( VoodooServer *server, int fd )
 {
-     DirectResult     ret;
-     Connection      *connection;
+     DirectResult  ret;
+     int           fds[2] = { fd, fd };
+     Connection   *connection;
 
      connection = D_CALLOC( 1, sizeof(Connection) );
      if (!connection) {
@@ -465,11 +484,15 @@ accept_connection( VoodooServer *server, int fd )
           return DR_NOLOCALMEMORY;
      }
 
-     connection->fd = fd;
-
-     ret = voodoo_manager_create( connection->fd, NULL, server, &connection->manager );
+     ret = voodoo_link_init_fd( &connection->vl, fds );
      if (ret) {
-          close( connection->fd );
+          D_PERROR( "Voodoo/Server: accept_connection: failed to init fd!\n" );
+          return ret;
+     }
+
+     ret = voodoo_manager_create( &connection->vl, NULL, server, &connection->manager );
+     if (ret) {
+          connection->vl.Close( &connection->vl );
           D_FREE( connection );
           return ret;
      }

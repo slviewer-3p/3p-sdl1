@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <string.h>
@@ -37,6 +41,9 @@
 #include <misc/util.h>
 
 #include <gfx/clip.h>
+#include <gfx/util.h>
+
+D_DEBUG_DOMAIN( Core_Clipping,    "Core/Clipping",    "DirectFB Software Clipping" );
 
 #define REGION_CODE(x,y,cx1,cx2,cy1,cy2) ( ( (y) > (cy2) ? 8 : 0) | \
                                            ( (y) < (cy1) ? 4 : 0) | \
@@ -216,7 +223,7 @@ dfb_clip_triangle( const DFBRegion *clip, const DFBTriangle *tri, DFBPoint p[6],
      int       num_edges;
      int       i, n;
      DFBPoint  p1 = {0, 0}, p2 = {0, 0};
-     
+
      /* Initialize edges. */
      edges[0].x1 = tri->x1; edges[0].y1 = tri->y1;
      edges[0].x2 = tri->x2; edges[0].y2 = tri->y2;
@@ -225,7 +232,7 @@ dfb_clip_triangle( const DFBRegion *clip, const DFBTriangle *tri, DFBPoint p[6],
      edges[2].x1 = tri->x3; edges[2].y1 = tri->y3;
      edges[2].x2 = tri->x1; edges[2].y2 = tri->y1;
      num_edges = 3;
-     
+
      for (i = 0; i < num_edges; i++) {
           DFBRegion *reg = &edges[i];
           DFBRegion  line;
@@ -237,15 +244,15 @@ dfb_clip_triangle( const DFBRegion *clip, const DFBTriangle *tri, DFBPoint p[6],
                *reg = line;
                continue;
           }
-          
+
           /* If the edge doesn't intersect clipping region, then
            * intersect the edge with the diagonals of the clipping
            * rectangle. If intersection point exits, add the nearest
            * corner of the clipping region to the list of vertices.
            */
-         
+
           /* Diagonal (x1,y1) (x2,y2). */
-          line = (DFBRegion) { clip->x1, clip->y1, clip->x2, clip->y2 };   
+          line = (DFBRegion) { clip->x1, clip->y1, clip->x2, clip->y2 };
           i1 = dfb_line_segment_intersect( &line, reg, &p1.x, &p1.y );
           if (i1) {
                /* Get nearest corner. */
@@ -257,7 +264,7 @@ dfb_clip_triangle( const DFBRegion *clip, const DFBTriangle *tri, DFBPoint p[6],
                     p1.y = clip->y2;
                }
           }
-          
+
           /* Diagonal (x2,y1) (x1,y2). */
           line = (DFBRegion) { clip->x2, clip->y1, clip->x1, clip->y2 };
           i2 = dfb_line_segment_intersect( &line, reg, &p2.x, &p2.y );
@@ -270,8 +277,8 @@ dfb_clip_triangle( const DFBRegion *clip, const DFBTriangle *tri, DFBPoint p[6],
                     p2.x = clip->x1;
                     p2.y = clip->y2;
                }
-          }  
-          
+          }
+
           if (i1 && i2) {
                reg->x1 = p1.x;
                reg->y1 = p1.y;
@@ -293,12 +300,12 @@ dfb_clip_triangle( const DFBRegion *clip, const DFBTriangle *tri, DFBPoint p[6],
                i--;
           }
      }
-     
+
      if (num_edges < 1) {
           *num = 0;
           return DFB_FALSE;
      }
-     
+
      /* Get vertices from edges. */
      p[0].x = edges[0].x1; p[0].y = edges[0].y1;
      n = 1;
@@ -306,7 +313,7 @@ dfb_clip_triangle( const DFBRegion *clip, const DFBTriangle *tri, DFBPoint p[6],
           p[1].x = edges[0].x2; p[1].y = edges[0].y2;
           n++;
      }
-     
+
      for (i = 1; i < num_edges; i++) {
           if (edges[i].x1 != p[n-1].x || edges[i].y1 != p[n-1].y) {
                p[n].x = edges[i].x1; p[n].y = edges[i].y1;
@@ -317,16 +324,76 @@ dfb_clip_triangle( const DFBRegion *clip, const DFBTriangle *tri, DFBPoint p[6],
                n++;
           }
      }
-     
+
      if (p[n-1].x == p[0].x && p[n-1].y == p[0].y)
           n--;
-     
+
      *num = n;
-     
+
      /* Actually fail if the number of vertices is below 3. */
      return (n >= 3);
 }
 
+void
+dfb_build_clipped_rectangle_outlines( DFBRectangle    *rect,
+                                      const DFBRegion *clip,
+                                      DFBRectangle    *ret_outlines,
+                                      int             *ret_num )
+{
+     DFBEdgeFlags edges = dfb_clip_edges( clip, rect );
+     int          t     = (edges & DFEF_TOP ? 1 : 0);
+     int          tb    = t + (edges & DFEF_BOTTOM ? 1 : 0);
+     int          num   = 0;
+
+     DFB_RECTANGLE_ASSERT( rect );
+
+     D_ASSERT( ret_outlines != NULL );
+     D_ASSERT( ret_num != NULL );
+
+     if (edges & DFEF_TOP) {
+          DFBRectangle *out = &ret_outlines[num++];
+
+          out->x = rect->x;
+          out->y = rect->y;
+          out->w = rect->w;
+          out->h = 1;
+     }
+
+     if (rect->h > t) {
+          if (edges & DFEF_BOTTOM) {
+               DFBRectangle *out = &ret_outlines[num++];
+
+               out->x = rect->x;
+               out->y = rect->y + rect->h - 1;
+               out->w = rect->w;
+               out->h = 1;
+          }
+
+          if (rect->h > tb) {
+               if (edges & DFEF_LEFT) {
+                    DFBRectangle *out = &ret_outlines[num++];
+
+                    out->x = rect->x;
+                    out->y = rect->y + t;
+                    out->w = 1;
+                    out->h = rect->h - tb;
+               }
+
+               if (rect->w > 1 || !(edges & DFEF_LEFT)) {
+                    if (edges & DFEF_RIGHT) {
+                         DFBRectangle *out = &ret_outlines[num++];
+
+                         out->x = rect->x + rect->w - 1;
+                         out->y = rect->y + t;
+                         out->w = 1;
+                         out->h = rect->h - tb;
+                    }
+               }
+          }
+     }
+
+     *ret_num = num;
+}
 
 void
 dfb_clip_blit( const DFBRegion *clip,
@@ -377,3 +444,73 @@ dfb_clip_stretchblit( const DFBRegion *clip,
           srect->h = (int)( srect->h * (drect->h / (float)orig_dst.h) );
 }
 
+
+void
+dfb_clip_blit_flipped_rotated( const DFBRegion *clip,
+                         DFBRectangle *srect, DFBRectangle *drect, DFBSurfaceBlittingFlags flags )
+{
+
+     DFBRegion dest    = DFB_REGION_INIT_FROM_RECTANGLE( drect );
+     DFBRegion clipped = dest;
+
+     D_ASSERT( !(flags & (DSBLIT_ROTATE270 | DSBLIT_ROTATE180)) );
+
+     if (flags & DSBLIT_ROTATE90) {
+          D_ASSERT( srect->w == drect->h );
+          D_ASSERT( srect->h == drect->w );
+     }
+     else {
+          D_ASSERT( srect->w == drect->w );
+          D_ASSERT( srect->h == drect->h );
+     }
+
+     dfb_region_region_intersect( &clipped, clip );
+     dfb_rectangle_from_region( drect, &clipped );
+
+     switch (flags & (DSBLIT_FLIP_HORIZONTAL | DSBLIT_FLIP_VERTICAL | DSBLIT_ROTATE90)) {
+          case DSBLIT_NOFX:
+               srect->x += clipped.x1 - dest.x1;
+               srect->y += clipped.y1 - dest.y1;
+               break;
+          case DSBLIT_FLIP_HORIZONTAL:
+               srect->x += dest.x2 - clipped.x2;
+               srect->y += clipped.y1 - dest.y1;
+               break;
+          case DSBLIT_FLIP_VERTICAL:
+               srect->x += clipped.x1 - dest.x1;
+               srect->y += dest.y2 - clipped.y2;
+               break;
+          case DSBLIT_ROTATE90:
+               srect->x += dest.y2 - clipped.y2;
+               srect->y += clipped.x1 - dest.x1;
+               break;
+          case (DSBLIT_FLIP_HORIZONTAL | DSBLIT_FLIP_VERTICAL): // ROTATE180
+               srect->x += dest.x2 - clipped.x2;
+               srect->y += dest.y2 - clipped.y2;
+               break;
+          case (DSBLIT_ROTATE90 | DSBLIT_FLIP_VERTICAL | DSBLIT_FLIP_HORIZONTAL): // ROTATE270
+               srect->x += clipped.y1 - dest.y1;
+               srect->y += dest.x2 - clipped.x2;
+               break;
+          case (DSBLIT_ROTATE90 | DSBLIT_FLIP_HORIZONTAL):
+               srect->x += clipped.y1 - dest.y1;
+               srect->y += clipped.x1 - dest.x1;
+               break;
+          case (DSBLIT_ROTATE90 | DSBLIT_FLIP_VERTICAL):
+               srect->x += dest.y2 - clipped.y2;
+               srect->y += dest.x2 - clipped.x2;
+               break;
+     }
+
+     if (flags & DSBLIT_ROTATE90) {
+          srect->w  = drect->h;
+          srect->h  = drect->w;
+     }
+     else {
+          srect->w = drect->w;
+          srect->h = drect->h;
+     }
+
+     D_DEBUG_AT( Core_Clipping, "  => %4d,%4d-%4dx%4d -> %4d,%4d-%4dx%4d\n",
+                 DFB_RECTANGLE_VALS(srect), DFB_RECTANGLE_VALS(drect) );
+}

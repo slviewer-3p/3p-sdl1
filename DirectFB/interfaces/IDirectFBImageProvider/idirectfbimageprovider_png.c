@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -49,6 +53,9 @@
 #include <core/palette.h>
 #include <core/surface.h>
 
+#include <core/CoreSurface.h>
+#include <core/Debug.h>
+
 #include <misc/gfx_util.h>
 #include <misc/util.h>
 
@@ -63,10 +70,12 @@
 
 #include "config.h"
 
-#if PNG_LIBPNG_VER < 10400 
+D_DEBUG_DOMAIN( imageProviderPNG,  "ImageProvider/PNG",  "libPNG based image decoder" );
+
+#if PNG_LIBPNG_VER < 10400
 #define trans_color  trans_values
 #define trans_alpha  trans
-#endif 
+#endif
 
 static DFBResult
 Probe( IDirectFBImageProvider_ProbeContext *ctx );
@@ -101,8 +110,8 @@ typedef struct {
      png_structp          png_ptr;
      png_infop            info_ptr;
 
-     png_uint_32          width;
-     png_uint_32          height;
+     png_int_32           width;
+     png_int_32           height;
      int                  bpp;
      int                  color_type;
      png_uint_32          color_key;
@@ -188,6 +197,8 @@ Construct( IDirectFBImageProvider *thiz,
      CoreDFB             *core;
      va_list              tag;
 
+     D_DEBUG_AT( imageProviderPNG, "%s(%d)\n", __FUNCTION__, __LINE__ );
+
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBImageProvider_PNG)
 
      va_start( tag, thiz );
@@ -199,6 +210,7 @@ Construct( IDirectFBImageProvider *thiz,
      data->base.buffer = buffer;
      data->base.core   = core;
 
+     /* Increase the data buffer reference counter. */
      buffer->AddRef( buffer );
 
      /* Create the PNG read handle. */
@@ -207,7 +219,7 @@ Construct( IDirectFBImageProvider *thiz,
      if (!data->png_ptr)
           goto error;
 
-     if (setjmp( data->png_ptr->jmpbuf )) {
+     if (setjmp( png_jmpbuf(data->png_ptr) )) {
           D_ERROR( "ImageProvider/PNG: Error reading header!\n" );
           goto error;
      }
@@ -263,13 +275,12 @@ IDirectFBImageProvider_PNG_RenderTo( IDirectFBImageProvider *thiz,
      CoreSurface           *dst_surface;
      DFBRegion              clip;
      DFBRectangle           rect;
-     png_infop              info;
      int                    x, y;
      DFBRectangle           clipped;
 
      DIRECT_INTERFACE_GET_DATA (IDirectFBImageProvider_PNG)
 
-     info = data->info_ptr;
+     D_DEBUG_AT( imageProviderPNG, "%s(%d)\n", __FUNCTION__, __LINE__ );
 
      dst_data = (IDirectFBSurface_data*) destination->priv;
      if (!dst_data)
@@ -279,20 +290,31 @@ IDirectFBImageProvider_PNG_RenderTo( IDirectFBImageProvider *thiz,
      if (!dst_surface)
           return DFB_DESTROYED;
 
+     D_DEBUG_AT( imageProviderPNG, "  -> dst_surface %s\n", ToString_CoreSurface(dst_surface) );
+
      dfb_region_from_rectangle( &clip, &dst_data->area.current );
 
      if (dest_rect) {
+          D_DEBUG_AT( imageProviderPNG, "  -> dest_rect %4d,%4d-%4dx%4d\n", DFB_RECTANGLE_VALS(dest_rect) );
+
           if (dest_rect->w < 1 || dest_rect->h < 1)
                return DFB_INVARG;
           rect = *dest_rect;
-          rect.x += dst_data->area.wanted.x;
-          rect.y += dst_data->area.wanted.y;
+
+          if (dst_data->area.wanted.x || dst_data->area.wanted.y) {
+               rect.x += dst_data->area.wanted.x;
+               rect.y += dst_data->area.wanted.y;
+
+               D_DEBUG_AT( imageProviderPNG, "  -> dest_rect %4d,%4d-%4dx%4d\n", DFB_RECTANGLE_VALS(&rect) );
+          }
      }
      else {
           rect = dst_data->area.wanted;
+
+          D_DEBUG_AT( imageProviderPNG, "  -> dest_rect %4d,%4d-%4dx%4d (from dst)\n", DFB_RECTANGLE_VALS(&rect) );
      }
 
-     if (setjmp( data->png_ptr->jmpbuf )) {
+     if (setjmp( png_jmpbuf(data->png_ptr) )) {
           D_ERROR( "ImageProvider/PNG: Error during decoding!\n" );
 
           if (data->stage < STAGE_IMAGE)
@@ -310,23 +332,30 @@ IDirectFBImageProvider_PNG_RenderTo( IDirectFBImageProvider *thiz,
 
      clipped = rect;
 
+     D_DEBUG_AT( imageProviderPNG, "  -> clip      %4d,%4d-%4dx%4d\n", DFB_RECTANGLE_VALS_FROM_REGION(&clip) );
+
      if (!dfb_rectangle_intersect_by_region( &clipped, &clip ))
           return DFB_INVAREA;
 
+     D_DEBUG_AT( imageProviderPNG, "  -> clipped   %4d,%4d-%4dx%4d\n", DFB_RECTANGLE_VALS(&clipped) );
+
      /* actual rendering */
-     if (rect.w == data->width && rect.h == data->height &&
+     if (0    &&   // FIXME
+           rect.w == data->width && rect.h == data->height &&
          (data->color_type == PNG_COLOR_TYPE_RGB || data->color_type == PNG_COLOR_TYPE_RGBA) &&
          (dst_surface->config.format == DSPF_RGB32 || dst_surface->config.format == DSPF_ARGB) &&
          !(dst_surface->config.caps & DSCAPS_PREMULTIPLIED))
      {
-          ret = dfb_surface_write_buffer( dst_surface, CSBR_BACK,
-                                          data->image +
-                                             (clipped.x - rect.x) * 4 +
-                                             (clipped.y - rect.y) * data->width * 4,
-                                          data->width * 4, &clipped );
+          //ret = dfb_surface_write_buffer( dst_surface, CSBR_BACK,
+          //                                data->image +
+          //                                   (clipped.x - rect.x) * 4 +
+          //                                   (clipped.y - rect.y) * data->width * 4,
+          //                                data->width * 4, &clipped );
      }
      else {
           CoreSurfaceBufferLock lock;
+
+          int bit_depth = bit_depth = png_get_bit_depth(data->png_ptr,data->info_ptr);
 
           ret = dfb_surface_lock_buffer( dst_surface, CSBR_BACK, CSAID_CPU, CSAF_WRITE, &lock );
           if (ret)
@@ -334,7 +363,7 @@ IDirectFBImageProvider_PNG_RenderTo( IDirectFBImageProvider *thiz,
 
           switch (data->color_type) {
                case PNG_COLOR_TYPE_PALETTE:
-                    if (dst_surface->config.format == DSPF_LUT8 && data->info_ptr->bit_depth == 8) {
+                   if (dst_surface->config.format == DSPF_LUT8 && bit_depth == 8) {
                          /*
                           * Special indexed PNG to LUT8 loading.
                           */
@@ -347,9 +376,9 @@ IDirectFBImageProvider_PNG_RenderTo( IDirectFBImageProvider *thiz,
                              rect.w == data->width         &&
                              rect.h == data->height)
                          {
-                              for (y=0; y<data->height; y++)
-                                   direct_memcpy( lock.addr + lock.pitch * y,
-                                                  data->image + data->pitch * y,
+                              for (y = 0; y < data->height; y++)
+                                   direct_memcpy( (u8*)lock.addr + lock.pitch * y,
+                                                  (u8*)data->image + data->pitch * y,
                                                   data->width );
 
                               break;
@@ -361,10 +390,20 @@ IDirectFBImageProvider_PNG_RenderTo( IDirectFBImageProvider *thiz,
                     /*
                      * Convert to ARGB and use generic loading code.
                      */
+                    if (data->bpp == 16) {
+                         /* in 16 bit grayscale,  conversion to RGB32 is already done! */
+
+                         for (x = 0; x < 256; x++)
+                              data->palette[x] = 0xff000000 | (x << 16) | (x << 8) | x;
+
+                         dfb_scale_linear_32( data->image, data->width, data->height,
+                                              lock.addr, lock.pitch, &rect, dst_surface, &clip );
+                         break;
+                    }
 
                     // FIXME: allocates four additional bytes because the scaling functions
                     //        in src/misc/gfx_util.c have an off-by-one bug which causes
-                    //        segfaults on darwin/osx (not on linux)                
+                    //        segfaults on darwin/osx (not on linux)
                     int size = data->width * data->height * 4 + 4;
 
                     /* allocate image data */
@@ -377,32 +416,32 @@ IDirectFBImageProvider_PNG_RenderTo( IDirectFBImageProvider *thiz,
                     }
                     else {
                          if (data->color_type == PNG_COLOR_TYPE_GRAY) {
-                              int num = 1 << data->info_ptr->bit_depth;
+                              int num = 1 << bit_depth;
 
-                              for (x=0; x<num; x++) {
+                              for (x = 0; x < num; x++) {
                                    int value = x * 255 / (num - 1);
 
                                    data->palette[x] = 0xff000000 | (value << 16) | (value << 8) | value;
                               }
                          }
 
-                         switch (data->info_ptr->bit_depth) {
+                         switch (bit_depth) {
                               case 8:
-                                   for (y=0; y<data->height; y++) {
-                                        u8  *S = data->image + data->pitch * y;
-                                        u32 *D = image_argb  + data->width * y * 4;
+                                   for (y = 0; y < data->height; y++) {
+                                        u8  *S = (u8*)data->image + data->pitch * y;
+                                        u32 *D = (u32*)((u8*)image_argb  + data->width * y * 4);
 
-                                        for (x=0; x<data->width; x++)
+                                        for (x = 0; x < data->width; x++)
                                              D[x] = data->palette[ S[x] ];
                                    }
                                    break;
 
                               case 4:
-                                   for (y=0; y<data->height; y++) {
-                                        u8  *S = data->image + data->pitch * y;
-                                        u32 *D = image_argb  + data->width * y * 4;
+                                   for (y = 0; y < data->height; y++) {
+                                        u8  *S = (u8*)data->image + data->pitch * y;
+                                        u32 *D = (u32*)((u8*)image_argb  + data->width * y * 4);
 
-                                        for (x=0; x<data->width; x++) {
+                                        for (x = 0; x < data->width; x++) {
                                              if (x & 1)
                                                   D[x] = data->palette[ S[x>>1] & 0xf ];
                                              else
@@ -412,12 +451,12 @@ IDirectFBImageProvider_PNG_RenderTo( IDirectFBImageProvider *thiz,
                                    break;
 
                               case 2:
-                                   for (y=0; y<data->height; y++) {
+                                   for (y = 0; y < data->height; y++) {
                                         int  n = 6;
-                                        u8  *S = data->image + data->pitch * y;
-                                        u32 *D = image_argb  + data->width * y * 4;
+                                        u8  *S = (u8*)data->image + data->pitch * y;
+                                        u32 *D = (u32*)((u8*)image_argb  + data->width * y * 4);
 
-                                        for (x=0; x<data->width; x++) {
+                                        for (x = 0; x < data->width; x++) {
                                              D[x] = data->palette[ (S[x>>2] >> n) & 3 ];
 
                                              n = (n ? n - 2 : 6);
@@ -426,12 +465,12 @@ IDirectFBImageProvider_PNG_RenderTo( IDirectFBImageProvider *thiz,
                                    break;
 
                               case 1:
-                                   for (y=0; y<data->height; y++) {
+                                   for (y = 0; y < data->height; y++) {
                                         int  n = 7;
-                                        u8  *S = data->image + data->pitch * y;
-                                        u32 *D = image_argb  + data->width * y * 4;
+                                        u8  *S = (u8*)data->image + data->pitch * y;
+                                        u32 *D = (u32*)((u8*)image_argb  + data->width * y * 4);
 
-                                        for (x=0; x<data->width; x++) {
+                                        for (x = 0; x < data->width; x++) {
                                              D[x] = data->palette[ (S[x>>3] >> n) & 1 ];
 
                                              n = (n ? n - 1 : 7);
@@ -441,12 +480,12 @@ IDirectFBImageProvider_PNG_RenderTo( IDirectFBImageProvider *thiz,
 
                               default:
                                    D_ERROR( "ImageProvider/PNG: Unsupported indexed bit depth %d!\n",
-                                            data->info_ptr->bit_depth );
+                                            bit_depth );
                          }
 
                          dfb_scale_linear_32( image_argb, data->width, data->height,
                                               lock.addr, lock.pitch, &rect, dst_surface, &clip );
- 
+
                          D_FREE( image_argb );
                     }
                     break;
@@ -471,7 +510,7 @@ IDirectFBImageProvider_PNG_RenderTo( IDirectFBImageProvider *thiz,
 
 static DFBResult
 IDirectFBImageProvider_PNG_GetSurfaceDescription( IDirectFBImageProvider *thiz,
-                                                  DFBSurfaceDescription *dsc )
+                                                  DFBSurfaceDescription  *dsc )
 {
      DFBSurfacePixelFormat primary_format = dfb_primary_layer_pixelformat();
 
@@ -481,13 +520,18 @@ IDirectFBImageProvider_PNG_GetSurfaceDescription( IDirectFBImageProvider *thiz,
      dsc->width  = data->width;
      dsc->height = data->height;
 
-     if (data->color_type & PNG_COLOR_MASK_ALPHA)
-          dsc->pixelformat = DFB_PIXELFORMAT_HAS_ALPHA(primary_format) ? primary_format : DSPF_ARGB;
-     else
-          dsc->pixelformat = primary_format;
+     if (dfb_config->image_format) {
+          dsc->pixelformat = dfb_config->image_format;
+     }
+     else {
+          if (data->color_type & PNG_COLOR_MASK_ALPHA)
+               dsc->pixelformat = DFB_PIXELFORMAT_HAS_ALPHA(primary_format) ? primary_format : DSPF_ARGB;
+          else
+               dsc->pixelformat = primary_format;
+     }
 
      if (data->color_type == PNG_COLOR_TYPE_PALETTE) {
-          dsc->flags  |= DSDESC_PALETTE;
+          dsc->flags |= DSDESC_PALETTE;
 
           dsc->palette.entries = data->colors;  /* FIXME */
           dsc->palette.size    = 256;
@@ -577,8 +621,16 @@ static void
 png_info_callback( png_structp png_read_ptr,
                    png_infop   png_info_ptr )
 {
-     int                              i;
+     int                              i,ret;
      IDirectFBImageProvider_PNG_data *data;
+
+     u32 bpp1[2] = {0, 0xff};
+     u32 bpp2[4] = {0, 0x55, 0xaa, 0xff};
+     u32 bpp4[16] = {0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+
+     D_UNUSED_P( png_info_ptr );
+
+     D_DEBUG_AT( imageProviderPNG, "%s(%d)\n", __FUNCTION__, __LINE__ );
 
      data = png_get_progressive_ptr( png_read_ptr );
 
@@ -589,59 +641,153 @@ png_info_callback( png_structp png_read_ptr,
      /* set info stage */
      data->stage = STAGE_INFO;
 
-     png_get_IHDR( data->png_ptr, data->info_ptr,
-                   &data->width, &data->height, &data->bpp, &data->color_type,
-                   NULL, NULL, NULL );
+     ret = png_get_IHDR( data->png_ptr, data->info_ptr,
+                         (png_uint_32 *)&data->width, (png_uint_32 *)&data->height, &data->bpp, &data->color_type,
+                         NULL, NULL, NULL );
+
+     /* Let's not do anything with badly sized or corrupted images */
+     if ( (data->height == 0) || (data->width == 0) || (ret != 1) )
+         return;
 
      if (png_get_valid( data->png_ptr, data->info_ptr, PNG_INFO_tRNS )) {
           data->color_keyed = true;
 
           /* generate color key based on palette... */
           if (data->color_type == PNG_COLOR_TYPE_PALETTE) {
-               u32        key;
-               png_colorp palette    = data->info_ptr->palette;
-               png_bytep  trans      = data->info_ptr->trans_alpha;
-               int        num_colors = MIN( MAXCOLORMAPSIZE,
-                                            data->info_ptr->num_palette );
-               u8         cmap[3][num_colors];
+               u32            key;
+               png_colorp     palette;
+               png_bytep      trans_alpha;
+               png_color_16p  trans_color;
+               u8             cmap[3][MAXCOLORMAPSIZE];
+               int            num_palette = 0, num_colors = 0, num_trans = 0;
 
-               for (i=0; i<num_colors; i++) {
-                    cmap[0][i] = palette[i].red;
-                    cmap[1][i] = palette[i].green;
-                    cmap[2][i] = palette[i].blue;
-               }
+               D_DEBUG_AT( imageProviderPNG, "%s(%d) - num_trans %d\n",
+                           __FUNCTION__, __LINE__, num_trans );
 
-               key = FindColorKey( num_colors, &cmap[0][0] );
+               if (png_get_PLTE( data->png_ptr, data->info_ptr, &palette, &num_palette )) {
+                    if (png_get_tRNS( data->png_ptr, data->info_ptr,
+                                      &trans_alpha, &num_trans, &trans_color )) {
+                         num_colors = MIN( MAXCOLORMAPSIZE,num_palette );
 
-               for (i=0; i<data->info_ptr->num_trans; i++) {
-                    if (!trans[i]) {
-                         palette[i].red   = (key & 0xff0000) >> 16;
-                         palette[i].green = (key & 0x00ff00) >>  8;
-                         palette[i].blue  = (key & 0x0000ff);
+                         for (i = 0; i < num_colors; i++) {
+                              cmap[0][i] = palette[i].red;
+                              cmap[1][i] = palette[i].green;
+                              cmap[2][i] = palette[i].blue;
+                         }
+
+                         key = FindColorKey( num_colors, &cmap[0][0] );
+
+                         for (i = 0; i < num_trans; i++) {
+                              if (!trans_alpha[i]) {
+                                   palette[i].red   = (key & 0xff0000) >> 16;
+                                   palette[i].green = (key & 0x00ff00) >>  8;
+                                   palette[i].blue  = (key & 0x0000ff);
+                              }
+                         }
+
+                         data->color_key = key;
                     }
                }
 
-               data->color_key = key;
+          }
+          else if (data->color_type == PNG_COLOR_TYPE_GRAY) {
+               /* ...or based on trans gray value */
+               png_bytep     trans_alpha;
+               png_color_16p trans_color;
+               int           num_trans = 0;
+
+               D_DEBUG_AT( imageProviderPNG, "%s(%d)\n", __FUNCTION__, __LINE__ );
+
+               if (png_get_tRNS( data->png_ptr, data->info_ptr,
+                                 &trans_alpha, &num_trans, &trans_color )) {
+                    switch (data->bpp) {
+                         case 1:
+                              data->color_key = (((bpp1[trans_color[0].gray]) << 16) |
+                                                 ((bpp1[trans_color[0].gray]) << 8) |
+                                                 ((bpp1[trans_color[0].gray])));
+                              break;
+                         case 2:
+                              data->color_key = (((bpp2[trans_color[0].gray]) << 16) |
+                                                 ((bpp2[trans_color[0].gray]) << 8) |
+                                                 ((bpp2[trans_color[0].gray])));
+                              break;
+                         case 4:
+                              data->color_key = (((bpp4[trans_color[0].gray]) << 16) |
+                                                 ((bpp4[trans_color[0].gray]) << 8) |
+                                                 ((bpp4[trans_color[0].gray])));
+                              break;
+                         case 8:
+                              data->color_key = (((trans_color[0].gray & 0x00ff) << 16) |
+                                                 ((trans_color[0].gray & 0x00ff) << 8) |
+                                                 ((trans_color[0].gray & 0x00ff)));
+                              break;
+                         case 16:
+                         default:
+                              data->color_key = (((trans_color[0].gray & 0xff00) << 8) |
+                                                 ((trans_color[0].gray & 0xff00)) |
+                                                 ((trans_color[0].gray & 0xff00) >> 8));
+                              break;
+                    }
+               }
           }
           else {
                /* ...or based on trans rgb value */
-               png_color_16p trans = &data->info_ptr->trans_color;
+               png_bytep     trans_alpha;
+               png_color_16p trans_color;
+               int           num_trans = 0;
 
-               data->color_key = (((trans->red & 0xff00) << 8) |
-                                  ((trans->green & 0xff00)) |
-                                  ((trans->blue & 0xff00) >> 8));
+               D_DEBUG_AT( imageProviderPNG, "%s(%d)\n", __FUNCTION__, __LINE__ );
+
+               if (png_get_tRNS( data->png_ptr, data->info_ptr,
+                                 &trans_alpha, &num_trans, &trans_color )) {
+                    switch(data->bpp) {
+                         case 1:
+                              data->color_key = (((bpp1[trans_color[0].red]) << 16) |
+                                                 ((bpp1[trans_color[0].green]) << 8) |
+                                                 ((bpp1[trans_color[0].blue])));
+                              break;
+                         case 2:
+                              data->color_key = (((bpp2[trans_color[0].red]) << 16) |
+                                                 ((bpp2[trans_color[0].green]) << 8) |
+                                                 ((bpp2[trans_color[0].blue])));
+                              break;
+                         case 4:
+                              data->color_key = (((bpp4[trans_color[0].red]) << 16) |
+                                                 ((bpp4[trans_color[0].green]) << 8) |
+                                                 ((bpp4[trans_color[0].blue])));
+                              break;
+                         case 8:
+                              data->color_key = (((trans_color[0].red & 0x00ff) << 16) |
+                                                 ((trans_color[0].green & 0x00ff) << 8) |
+                                                 ((trans_color[0].blue & 0x00ff)));
+                              break;
+                         case 16:
+                         default:
+                              data->color_key = (((trans_color[0].red & 0xff00) << 8) |
+                                                 ((trans_color[0].green & 0xff00)) |
+                                                 ((trans_color[0].blue & 0xff00) >> 8));
+                              break;
+                    }
+               }
           }
      }
 
      switch (data->color_type) {
           case PNG_COLOR_TYPE_PALETTE: {
-               png_colorp palette    = data->info_ptr->palette;
-               png_bytep  trans      = data->info_ptr->trans_alpha;
-               int        num_trans  = data->info_ptr->num_trans;
-               int        num_colors = MIN( MAXCOLORMAPSIZE, data->info_ptr->num_palette );
+               png_colorp     palette;
+               png_bytep      trans_alpha;
+               png_color_16p  trans_color;
+               int            num_palette = 0, num_colors = 0, num_trans = 0;
 
-               for (i=0; i<num_colors; i++) {
-                    data->colors[i].a = (i < num_trans) ? trans[i] : 0xff;
+               png_get_PLTE( data->png_ptr, data->info_ptr, &palette, &num_palette );
+
+               png_get_tRNS( data->png_ptr, data->info_ptr,
+                             &trans_alpha, &num_trans, &trans_color );
+
+               num_colors = MIN( MAXCOLORMAPSIZE, num_palette );
+
+               for (i = 0; i < num_colors; i++) {
+                    data->colors[i].a = (i < num_trans) ? trans_alpha[i] : 0xff;
                     data->colors[i].r = palette[i].red;
                     data->colors[i].g = palette[i].green;
                     data->colors[i].b = palette[i].blue;
@@ -657,22 +803,21 @@ png_info_callback( png_structp png_read_ptr,
           }
 
           case PNG_COLOR_TYPE_GRAY:
-               data->pitch = data->width;
+               if (data->bpp < 16) {
+                    data->pitch = data->width;
+                    break;
+               }
 
-               if (data->bpp == 16)
-                    png_set_strip_16( data->png_ptr );
-
-               break;
-
+               /* fall through */
           case PNG_COLOR_TYPE_GRAY_ALPHA:
                png_set_gray_to_rgb( data->png_ptr );
-               /* fall through */
 
+               /* fall through */
           default:
                data->pitch = data->width * 4;
 
-               if (data->bpp == 16)
-                    png_set_strip_16( data->png_ptr );
+               if (!data->color_keyed)
+                    png_set_strip_16( data->png_ptr ); /* if it is color keyed we will handle conversion ourselves */
 
 #ifdef WORDS_BIGENDIAN
                if (!(data->color_type & PNG_COLOR_MASK_ALPHA))
@@ -704,11 +849,15 @@ png_row_callback( png_structp png_read_ptr,
 {
      IDirectFBImageProvider_PNG_data *data;
 
+     D_DEBUG_AT( imageProviderPNG, "%s(%d)\n", __FUNCTION__, __LINE__ );
+
      data = png_get_progressive_ptr( png_read_ptr );
 
      /* error stage? */
      if (data->stage < 0)
           return;
+
+     D_UNUSED_P( pass_num );
 
      /* set image decoding stage */
      data->stage = STAGE_IMAGE;
@@ -717,14 +866,14 @@ png_row_callback( png_structp png_read_ptr,
      if (!data->image) {
           // FIXME: allocates four additional bytes because the scaling functions
           //        in src/misc/gfx_util.c have an off-by-one bug which causes
-          //        segfaults on darwin/osx (not on linux)                
+          //        segfaults on darwin/osx (not on linux)
           int size = data->pitch * data->height + 4;
 
           /* allocate image data */
           data->image = D_CALLOC( 1, size );
           if (!data->image) {
-               D_ERROR("DirectFB/ImageProvider_PNG: Could not "
-                        "allocate %d bytes of system memory!\n", size);
+               D_ERROR( "DirectFB/ImageProvider_PNG: Could not "
+                        "allocate %d bytes of system memory!\n", size );
 
                /* set error stage */
                data->stage = STAGE_ERROR;
@@ -734,8 +883,97 @@ png_row_callback( png_structp png_read_ptr,
      }
 
      /* write to image data */
-     png_progressive_combine_row( data->png_ptr, (png_bytep) (data->image +
-                                  row_num * data->pitch), new_row );
+     if (data->bpp == 16 && data->color_keyed) {
+          u8 *dst = (u8*)((u8*)data->image + row_num * data->pitch);
+          u8 *src = (u8*)new_row;
+
+          if (src) {
+               int src_advance = 8;
+               int src16_advance = 4;
+               int dst32_advance = 1;
+               int src16_initial_offset = 0;
+               int dst32_initial_offset = 0;
+
+               if (!(row_num % 2)) { /* even lines 0,2,4 ... */
+                    switch (pass_num) {
+                         case 1:
+                              dst32_initial_offset = 4;
+                              src16_initial_offset = 16;
+                              src_advance = 64;
+                              src16_advance = 32;
+                              dst32_advance = 8;
+                              break;
+                         case 3:
+                              dst32_initial_offset = 2;
+                              src16_initial_offset = 8;
+                              src_advance = 32;
+                              src16_advance = 16;
+                              dst32_advance = 4;
+                              break;
+                         case 5:
+                              dst32_initial_offset = 1;
+                              src16_initial_offset = 4;
+                              src_advance = 16;
+                              src16_advance = 8;
+                              dst32_advance = 2;
+                              break;
+                         default:
+                              break;
+                    }
+               }
+
+
+               png_bytep      trans;
+               png_color_16p  trans_color;
+               int            num_trans = 0;
+
+               png_get_tRNS( data->png_ptr, data->info_ptr,
+                             &trans, &num_trans, &trans_color );
+
+               u16 *src16 = (u16*)src + src16_initial_offset;
+               u32 *dst32 = (u32*)dst + dst32_initial_offset;
+
+               int remaining = data->width - dst32_initial_offset;
+
+               while (remaining > 0) {
+                    int keyed = 0;
+#ifdef WORDS_BIGENDIAN
+                    u16 comp_r = src16[1];
+                    u16 comp_g = src16[2];
+                    u16 comp_b = src16[3];
+                    u32 pixel32 = src[1] << 24 | src[3] << 16 | src[5] << 8 | src[7];
+#else
+                    u16 comp_r = src16[2];
+                    u16 comp_g = src16[1];
+                    u16 comp_b = src16[0];
+
+                    u32 pixel32 = src[6] << 24 | src[4] << 16 | src[2] << 8 | src[0];
+#endif
+                    /* is the pixel supposted to match the color key in 16 bit per channel resolution? */
+                    if (((comp_r == trans_color[0].gray) && (data->color_type == PNG_COLOR_TYPE_GRAY)) ||
+                        ((comp_g == trans_color[0].green) && (comp_b == trans_color[0].blue) && (comp_r == trans_color[0].red)))
+                         keyed = 1;
+
+                    /*
+                     *  if the pixel was not supposed to get keyed but the colorkey matches in the reduced
+                     *  color space, then toggle the least significant blue bit
+                     */
+                    if (!keyed && (pixel32 == (0xff000000 | data->color_key))) {
+                         D_ONCE( "ImageProvider/PNG: adjusting pixel data to protect it from being keyed!\n" );
+                         pixel32 ^= 0x00000001;
+                    }
+
+                    *dst32 = pixel32;
+
+                    src16 += src16_advance;
+                    src   += src_advance;
+                    dst32 += dst32_advance;
+                    remaining-= dst32_advance;
+               }
+          }
+     }
+     else
+         png_progressive_combine_row( data->png_ptr, (png_bytep)((u8*)data->image + row_num * data->pitch), new_row );
 
      /* increase row counter, FIXME: interlaced? */
      data->rows++;
@@ -747,7 +985,7 @@ png_row_callback( png_structp png_read_ptr,
           r = data->base.render_callback( &rect,
                                           data->base.render_callback_context );
           if (r != DIRCR_OK)
-              data->stage = STAGE_ABORT;
+               data->stage = STAGE_ABORT;
      }
 }
 
@@ -757,6 +995,10 @@ png_end_callback   (png_structp png_read_ptr,
                     png_infop   png_info_ptr)
 {
      IDirectFBImageProvider_PNG_data *data;
+
+     D_UNUSED_P( png_info_ptr );
+
+     D_DEBUG_AT( imageProviderPNG, "%s(%d)\n", __FUNCTION__, __LINE__ );
 
      data = png_get_progressive_ptr( png_read_ptr );
 
@@ -785,29 +1027,31 @@ push_data_until_stage (IDirectFBImageProvider_PNG_data *data,
                return DFB_FAILURE;
 
           while (buffer->HasData( buffer ) == DFB_OK) {
-               D_DEBUG( "ImageProvider/PNG: Retrieving data (up to %d bytes)...\n", buffer_size );
+               D_DEBUG_AT( imageProviderPNG,
+                           "Retrieving data (up to %d bytes)...\n",
+                           buffer_size );
 
                ret = buffer->GetData( buffer, buffer_size, buf, &len );
                if (ret)
                     return ret;
 
-               D_DEBUG( "ImageProvider/PNG: Got %d bytes...\n", len );
+               D_DEBUG_AT( imageProviderPNG, "  -> got %d bytes\n", len );
 
                png_process_data( data->png_ptr, data->info_ptr, buf, len );
 
-               D_DEBUG( "ImageProvider/PNG: ...processed %d bytes.\n", len );
+               D_DEBUG_AT( imageProviderPNG, "  -> processed %d bytes\n", len );
 
                /* are we there yet? */
                if (data->stage < 0 || data->stage >= stage) {
-                   switch (data->stage) {
-                        case STAGE_ABORT: return DFB_INTERRUPTED;
-                        case STAGE_ERROR: return DFB_FAILURE;
-                        default:          return DFB_OK;
-                   }
+                    switch (data->stage) {
+                         case STAGE_ABORT: return DFB_INTERRUPTED;
+                         case STAGE_ERROR: return DFB_FAILURE;
+                         default:          return DFB_OK;
+                    }
                }
           }
 
-          D_DEBUG( "ImageProvider/PNG: Waiting for data...\n" );
+          D_DEBUG_AT( imageProviderPNG, "Waiting for data...\n" );
 
           if (buffer->WaitForData( buffer, 1 ) == DFB_EOF)
                return DFB_FAILURE;

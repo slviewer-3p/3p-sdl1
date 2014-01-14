@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -120,6 +122,7 @@ int main (int         argc,
      bool        rawmode        = 0;
      bool        dither565      = 0;
      DFBColor   *transparent    = NULL;
+     int         res;
 
      /*  parse command line  */
 
@@ -220,7 +223,8 @@ int main (int         argc,
                f = fopen(filename[0], "r");
                if (f)
                {
-                    fread(data, statbuf.st_size, 1, f);
+                    res = fread(data, statbuf.st_size, 1, f);
+                    (void)res;
                     fclose(f);
                }
 
@@ -338,7 +342,7 @@ static DFBResult load_image (const char            *filename,
      if (!png_ptr)
           goto cleanup;
 
-     if (setjmp (png_ptr->jmpbuf)) {
+     if (setjmp (png_jmpbuf(png_ptr))) {
           if (desc->preallocated[0].data) {
                free (desc->preallocated[0].data);
                desc->preallocated[0].data = NULL;
@@ -406,16 +410,22 @@ static DFBResult load_image (const char            *filename,
 
      switch (src_format) {
           case DSPF_LUT8:
-               if (info_ptr->num_palette) {
+          {
+               png_colorp info_palette;
+               int num_palette;
+
+               png_get_PLTE(png_ptr,info_ptr,&info_palette,&num_palette);
+
+               if (num_palette) {
                     png_byte *alpha;
                     int       i, num;
 
-                    *palette_size = MIN (info_ptr->num_palette, 256);
+                    *palette_size = MIN (num_palette, 256);
                     for (i = 0; i < *palette_size; i++) {
                          palette[i].a = 0xFF;
-                         palette[i].r = info_ptr->palette[i].red;
-                         palette[i].g = info_ptr->palette[i].green;
-                         palette[i].b = info_ptr->palette[i].blue;
+                         palette[i].r = info_palette[i].red;
+                         palette[i].g = info_palette[i].green;
+                         palette[i].b = info_palette[i].blue;
                     }
                     if (png_get_valid (png_ptr, info_ptr, PNG_INFO_tRNS)) {
                          png_get_tRNS (png_ptr, info_ptr, &alpha, &num, NULL);
@@ -424,6 +434,7 @@ static DFBResult load_image (const char            *filename,
                     }
                }
                break;
+          }
           case DSPF_RGB32:
                 png_set_filler (png_ptr, 0xFF,
 #ifdef WORDS_BIGENDIAN
@@ -448,7 +459,7 @@ static DFBResult load_image (const char            *filename,
 
      data  = malloc (height * pitch);
      if (!data) {
-          fprintf (stderr, "Failed to allocate %ld bytes.\n", height * pitch);
+          fprintf (stderr, "Failed to allocate %lu bytes.\n", (unsigned long)(height * pitch));
           goto cleanup;
      }
 
@@ -493,8 +504,7 @@ static DFBResult load_image (const char            *filename,
 
           dest = malloc (height * d_pitch);
           if (!dest) {
-               fprintf (stderr, "Failed to allocate %ld bytes.\n",
-                        height * d_pitch);
+               fprintf (stderr, "Failed to allocate %lu bytes.\n", (unsigned long)(height * d_pitch));
                goto cleanup;
           }
 

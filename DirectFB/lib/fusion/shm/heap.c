@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 /* Heap management adapted from libc
    Copyright 1990, 1991, 1992 Free Software Foundation, Inc.
@@ -596,23 +600,24 @@ __shmalloc_init_heap( FusionSHM  *shm,
                       const char *filename,
                       void       *addr_base,
                       int         space,
-                      int        *ret_fd,
                       int        *ret_size )
 {
      DirectResult     ret;
+     int              res;
      int              size;
      FusionSHMShared *shared;
      int              heapsize = (space + BLOCKSIZE-1) / BLOCKSIZE;
      int              fd       = -1;
      shmalloc_heap   *heap     = NULL;
 
-     D_DEBUG_AT( Fusion_SHMHeap, "%s( %p, '%s', %p, %d, %p, %p )\n",
-                 __FUNCTION__, shm, filename, addr_base, space, ret_fd, ret_size );
+     (void)shared;
+
+     D_DEBUG_AT( Fusion_SHMHeap, "%s( %p, '%s', %p, %d, %p )\n",
+                 __FUNCTION__, shm, filename, addr_base, space, ret_size );
 
      D_MAGIC_ASSERT( shm, FusionSHM );
      D_ASSERT( filename != NULL );
      D_ASSERT( addr_base != NULL );
-     D_ASSERT( ret_fd != NULL );
      D_ASSERT( ret_size != NULL );
 
      shared = shm->shared;
@@ -639,8 +644,18 @@ __shmalloc_init_heap( FusionSHM  *shm,
                D_WARN( "Fusion/SHM: Changing owner on %s failed... continuing on.", filename );
      }
 
-     fchmod( fd, 0660 );
-     ftruncate( fd, size );
+     fchmod( fd, fusion_config->secure_fusion ? 0640 : 0660 );
+
+     if (fusion_config->madv_remove)
+          res = ftruncate( fd, size + space );
+     else
+          res = ftruncate( fd, size );
+
+     if (res) {
+          D_PERROR( "Fusion/SHM: Could not truncate shared memory file '%s'!\n", filename );
+          ret = errno2result(errno);
+          goto error;
+     }
 
      D_DEBUG_AT( Fusion_SHMHeap, "  -> mmaping shared memory file... (%d bytes)\n", size );
 
@@ -658,6 +673,8 @@ __shmalloc_init_heap( FusionSHM  *shm,
           goto error;
      }
 
+     close( fd );
+
      D_DEBUG_AT( Fusion_SHMHeap, "  -> done.\n" );
 
      heap->size     = size;
@@ -665,9 +682,10 @@ __shmalloc_init_heap( FusionSHM  *shm,
      heap->heapinfo = (void*) heap + BLOCKALIGN(sizeof(shmalloc_heap));
      heap->heapbase = (char*) heap->heapinfo;
 
+     direct_snputs( heap->filename, filename, sizeof(heap->filename) );
+
      D_MAGIC_SET( heap, shmalloc_heap );
 
-     *ret_fd   = fd;
      *ret_size = size;
 
      return DR_OK;
@@ -690,21 +708,29 @@ __shmalloc_join_heap( FusionSHM  *shm,
                       const char *filename,
                       void       *addr_base,
                       int         size,
-                      int        *ret_fd )
+                      bool        write )
 {
      DirectResult     ret;
      FusionSHMShared *shared;
      int              fd   = -1;
      shmalloc_heap   *heap = NULL;
+     int              open_flags = write ? O_RDWR : O_RDONLY;
+     int              prot_flags = PROT_READ;
+     int              heapsize   = (size + BLOCKSIZE-1) / BLOCKSIZE;
 
-     D_DEBUG_AT( Fusion_SHMHeap, "%s( %p, '%s', %p, %d, %p )\n",
-                 __FUNCTION__, shm, filename, addr_base, size, ret_fd );
+     (void)shared;
+
+     if (write)
+          prot_flags |= PROT_WRITE;
+
+     D_DEBUG_AT( Fusion_SHMHeap, "%s( %p, '%s', %p, %d )\n",
+                 __FUNCTION__, shm, filename, addr_base, size );
 
      D_MAGIC_ASSERT( shm, FusionSHM );
      D_ASSERT( filename != NULL );
      D_ASSERT( addr_base != NULL );
-     D_ASSERT( size >= sizeof(shmalloc_heap) );
-     D_ASSERT( ret_fd != NULL );
+
+     size += BLOCKALIGN(sizeof(shmalloc_heap)) + BLOCKALIGN( heapsize * sizeof(shmalloc_info) );
 
      shared = shm->shared;
 
@@ -714,7 +740,7 @@ __shmalloc_join_heap( FusionSHM  *shm,
      D_DEBUG_AT( Fusion_SHMHeap, "  -> opening shared memory file '%s'...\n", filename );
 
      /* open the virtual file */
-     fd = open( filename, O_RDWR );
+     fd = open( filename, open_flags );
      if (fd < 0) {
           ret = errno2result(errno);
           D_PERROR( "Fusion/SHM: Could not open shared memory file '%s'!\n", filename );
@@ -724,7 +750,7 @@ __shmalloc_join_heap( FusionSHM  *shm,
      D_DEBUG_AT( Fusion_SHMHeap, "  -> mmaping shared memory file... (%d bytes)\n", size );
 
      /* map it shared */
-     heap = mmap( addr_base, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, 0 );
+     heap = mmap( addr_base, size, prot_flags, MAP_SHARED | MAP_FIXED, fd, 0 );
      if (heap == MAP_FAILED) {
           ret = errno2result(errno);
           D_PERROR( "Fusion/SHM: Could not mmap shared memory file '%s'!\n", filename );
@@ -737,11 +763,11 @@ __shmalloc_join_heap( FusionSHM  *shm,
           goto error;
      }
 
+     close( fd );
+
      D_MAGIC_ASSERT( heap, shmalloc_heap );
 
      D_DEBUG_AT( Fusion_SHMHeap, "  -> done.\n" );
-
-     *ret_fd = fd;
 
      return DR_OK;
 
@@ -759,9 +785,6 @@ error:
 void *
 __shmalloc_brk( shmalloc_heap *heap, int increment )
 {
-     FusionSHMShared     *shm;
-     FusionWorld         *world;
-     FusionSHMPool       *pool;
      FusionSHMPoolShared *shared;
 
      D_DEBUG_AT( Fusion_SHMHeap, "%s( %p, %d )\n", __FUNCTION__, heap, increment );
@@ -770,15 +793,6 @@ __shmalloc_brk( shmalloc_heap *heap, int increment )
 
      shared = heap->pool;
      D_MAGIC_ASSERT( shared, FusionSHMPoolShared );
-
-     shm = shared->shm;
-     D_MAGIC_ASSERT( shm, FusionSHMShared );
-
-     world = _fusion_world( shm->world );
-     D_MAGIC_ASSERT( world, FusionWorld );
-
-     pool = &world->shm.pools[shared->index];
-     D_MAGIC_ASSERT( pool, FusionSHMPool );
 
      if (increment) {
           int new_size = heap->size + increment;
@@ -789,7 +803,7 @@ __shmalloc_brk( shmalloc_heap *heap, int increment )
                return NULL;
           }
 
-          if (ftruncate( pool->fd, new_size ) < 0) {
+          if (!fusion_config->madv_remove && truncate( heap->filename, new_size ) < 0) {
                D_PERROR( "Fusion/SHM: ftruncating shared memory file failed!\n" );
                return NULL;
           }

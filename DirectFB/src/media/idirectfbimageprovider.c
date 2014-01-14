@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stddef.h>
@@ -38,7 +42,10 @@
 #include <direct/interface.h>
 #include <direct/mem.h>
 
+#include <fusion/conf.h>
+
 #include <media/idirectfbimageprovider.h>
+#include <media/idirectfbimageprovider_client.h>
 #include <media/idirectfbdatabuffer.h>
 
 
@@ -117,6 +124,13 @@ IDirectFBImageProvider_SetRenderCallback( IDirectFBImageProvider *thiz,
 }
 
 static DFBResult
+IDirectFBImageProvider_SetRenderFlags( IDirectFBImageProvider *thiz,
+                                       DIRenderFlags           flags )
+{
+     return DFB_UNIMPLEMENTED;
+}
+
+static DFBResult
 IDirectFBImageProvider_WriteBack( IDirectFBImageProvider *thiz,
                                   IDirectFBSurface       *surface,
                                   const DFBRectangle     *src_rect,
@@ -134,12 +148,14 @@ IDirectFBImageProvider_Construct( IDirectFBImageProvider *thiz )
      thiz->GetImageDescription   = IDirectFBImageProvider_GetImageDescription;
      thiz->RenderTo              = IDirectFBImageProvider_RenderTo;
      thiz->SetRenderCallback     = IDirectFBImageProvider_SetRenderCallback;
+     thiz->SetRenderFlags        = IDirectFBImageProvider_SetRenderFlags;
      thiz->WriteBack             = IDirectFBImageProvider_WriteBack;
 }
      
 DFBResult
 IDirectFBImageProvider_CreateFromBuffer( IDirectFBDataBuffer     *buffer,
                                          CoreDFB                 *core,
+                                         IDirectFB               *idirectfb,
                                          IDirectFBImageProvider **interface )
 {
      DFBResult                            ret;
@@ -147,6 +163,7 @@ IDirectFBImageProvider_CreateFromBuffer( IDirectFBDataBuffer     *buffer,
      IDirectFBDataBuffer_data            *buffer_data;
      IDirectFBImageProvider              *imageprovider;
      IDirectFBImageProvider_ProbeContext  ctx;
+     IDirectFBImageProvider_data         *data;
 
      /* Get the private information of the data buffer. */
      buffer_data = (IDirectFBDataBuffer_data*) buffer->priv;
@@ -167,6 +184,27 @@ IDirectFBImageProvider_CreateFromBuffer( IDirectFBDataBuffer     *buffer,
      /* Read the first 32 bytes. */
      buffer->PeekData( buffer, 32, 0, ctx.header, NULL );
 
+     /* For secure fusion slaves we use a special client to use providers from master,
+        to allow for hardware accelerated implementations that can run in master only.
+        For other formats the benefit is that master writes data directly to surface
+        buffer of hardware, which might otherwise go via shared memory allocation.
+
+        An exception is made for DFIFF which does not work with fileless data buffer.
+      */
+     if (strncmp( (const char*) ctx.header, "DFIFF", 5 ) &&
+         fusion_config->secure_fusion && !dfb_core_is_master(core))
+     {
+          DIRECT_ALLOCATE_INTERFACE( imageprovider, IDirectFBImageProvider );
+
+          ret = IDirectFBImageProvider_Client_Construct( imageprovider, buffer, core );
+          if (ret)
+               return ret;
+
+          *interface = imageprovider;
+
+          return DFB_OK;
+     }
+
      /* Find a suitable implementation. */
      ret = DirectGetInterface( &funcs, "IDirectFBImageProvider", NULL, DirectProbeInterface, &ctx );
      if (ret)
@@ -181,6 +219,10 @@ IDirectFBImageProvider_CreateFromBuffer( IDirectFBDataBuffer     *buffer,
      ret = funcs->Construct( imageprovider, buffer, core );
      if (ret)
           return ret;
+
+     data = imageprovider->priv;
+
+     data->idirectfb = idirectfb;
 
      *interface = imageprovider;
 

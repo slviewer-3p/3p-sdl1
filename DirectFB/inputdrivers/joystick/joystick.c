@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -191,7 +195,8 @@ driver_open_device( CoreInputDevice      *device,
                     InputDeviceInfo  *info,
                     void            **driver_data )
 {
-     int           fd, buttons, axes;
+     int           fd;
+     char          buttons, axes;
      JoystickData *data;
      char          devicename[20];
 
@@ -212,8 +217,10 @@ driver_open_device( CoreInputDevice      *device,
      }
 
      /* query number of buttons and axes */
-     ioctl( fd, JSIOCGBUTTONS, &buttons );
-     ioctl( fd, JSIOCGAXES, &axes );
+     if (ioctl( fd, JSIOCGBUTTONS, &buttons ) == -1)
+          buttons = 0;
+     if (ioctl( fd, JSIOCGAXES, &axes ) == -1)
+          axes = 0;
 
      /* fill device info structure */
      snprintf( info->desc.name,
@@ -225,7 +232,11 @@ driver_open_device( CoreInputDevice      *device,
      info->prefered_id     = DIDID_JOYSTICK;
 
      info->desc.type       = DIDTF_JOYSTICK;
+#ifndef DIRECTFB_DISABLE_DEPRECATED
      info->desc.caps       = DICAPS_AXES | DICAPS_BUTTONS;
+#else
+     info->desc.caps       = DIDCAPS_AXES | DIDCAPS_BUTTONS;
+#endif
      info->desc.max_button = buttons - 1;
      info->desc.max_axis   = axes - 1;
 

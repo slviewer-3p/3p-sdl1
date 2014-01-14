@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __GENERIC_H__
 #define __GENERIC_H__
@@ -72,23 +76,30 @@ struct _GenefxState {
       */
      void *dst_org[3];
      void *src_org[3];
+     void *mask_org[3];
      int dst_pitch;
      int src_pitch;
+     int mask_pitch;
 
      int dst_bpp;
      int src_bpp;
+     int mask_bpp;
 
      DFBSurfaceCapabilities dst_caps;
      DFBSurfaceCapabilities src_caps;
+     DFBSurfaceCapabilities mask_caps;
 
-     DFBSurfacePixelFormat src_format;
      DFBSurfacePixelFormat dst_format;
+     DFBSurfacePixelFormat src_format;
+     DFBSurfacePixelFormat mask_format;
 
      int dst_height;
      int src_height;
+     int mask_height;
 
      int dst_field_offset;
      int src_field_offset;
+     int mask_field_offset;
 
      DFBColor color;
 
@@ -97,6 +108,7 @@ struct _GenefxState {
       */
      void *Aop[3];
      void *Bop[3];
+     void *Mop[3];
      u32   Cop;
 
      int   Astep;
@@ -108,9 +120,14 @@ struct _GenefxState {
 
      int Aop_field;
      int Bop_field;
-     
+     int Mop_field;
+
      int AopY;
      int BopY;
+     int MopY;
+
+     int s;
+     int t;
 
      /*
       * color keys
@@ -148,7 +165,8 @@ struct _GenefxState {
 
      int Ostep; /* controls horizontal blitting direction */
 
-     int SperD;     /* for scaled routines only */
+     int SperD;     /* for scaled/texture routines only */
+     int TperD;     /* for texture routines only */
      int Xphase;    /* initial value for fractional steps (zero if not clipped) */
 
      bool need_accumulator;
@@ -157,12 +175,27 @@ struct _GenefxState {
      int  num_trans;
 };
 
+/**********************************************************************************************************************/
+
+
+typedef struct {
+     int x;
+     int y;
+     int s;
+     int t;
+} GenefxVertexAffine;
+
+/**********************************************************************************************************************/
 
 void gGetDriverInfo( GraphicsDriverInfo *info );
 void gGetDeviceInfo( GraphicsDeviceInfo *info );
 
-bool gAcquire  ( CardState *state, DFBAccelerationMask accel );
+bool gAcquire ( CardState *state, DFBAccelerationMask accel );
+bool gAcquire2( CardState *state, DFBAccelerationMask accel );
 void gRelease ( CardState *state );
+
+bool gAcquireCheck( CardState *state, DFBAccelerationMask accel );
+bool gAcquireSetup( CardState *state, DFBAccelerationMask accel );
 
 void gFillRectangle ( CardState *state, DFBRectangle *rect );
 void gDrawLine      ( CardState *state, DFBRegion    *line );
@@ -170,5 +203,99 @@ void gDrawLine      ( CardState *state, DFBRegion    *line );
 void gBlit          ( CardState *state, DFBRectangle *rect, int dx, int dy );
 void gStretchBlit   ( CardState *state, DFBRectangle *srect, DFBRectangle *drect );
 
+
+void Genefx_TextureTriangles( CardState            *state,
+                              DFBVertex            *vertices,
+                              int                   num,
+                              DFBTriangleFormation  formation,
+                              const DFBRegion      *clip );
+
+void Genefx_TextureTrianglesAffine( CardState            *state,
+                                    GenefxVertexAffine   *vertices,
+                                    int                   num,
+                                    DFBTriangleFormation  formation,
+                                    const DFBRegion      *clip );
+
+/**********************************************************************************************************************/
+/**********************************************************************************************************************/
+
+void Genefx_TextureTriangleAffine( GenefxState        *gfxs,
+                                   GenefxVertexAffine *v0,
+                                   GenefxVertexAffine *v1,
+                                   GenefxVertexAffine *v2,
+                                   const DFBRegion    *clip );
+
+
+/**********************************************************************************************************************/
+/**********************************************************************************************************************/
+
+
+#define CHECK_PIPELINE()                                                             \
+     {                                                                               \
+          if (!gfxs->funcs[0])                                                       \
+               return;                                                               \
+                                                                                     \
+          if (dfb_config->software_trace) {                                          \
+               int         i;                                                        \
+               GenefxFunc *funcs = gfxs->funcs;                                      \
+               DirectLog  *log = direct_log_default();                               \
+                                                                                     \
+               direct_log_lock( log );                                               \
+               direct_log_printf( log, "  Software Fallback Pipeline:\n" );          \
+                                                                                     \
+               for (i=0; funcs[i]; ++i)                                              \
+                    direct_log_printf( log, "    [%2d] %s\n", i,                     \
+                                       direct_trace_lookup_symbol_at( funcs[i] ) );  \
+                                                                                     \
+               direct_log_printf( log, "\n" );                                       \
+               direct_log_unlock( log );                                             \
+          }                                                                          \
+     }
+
+#define RUN_PIPELINE()                     \
+     {                                     \
+          int         i;                   \
+          GenefxFunc *funcs = gfxs->funcs; \
+                                           \
+          for (i=0; funcs[i]; ++i)         \
+               funcs[i]( gfxs );           \
+     }
+
+
+
+/**********************************************************************************************************************/
+
+typedef void (*XopAdvanceFunc)( GenefxState *gfxs );
+
+
+void Genefx_Aop_xy( GenefxState *gfxs, int x, int y );
+
+void Genefx_Aop_crab( GenefxState *gfxs );
+
+void Genefx_Aop_prev_crab( GenefxState *gfxs );
+
+void Genefx_Aop_next( GenefxState *gfxs );
+
+void Genefx_Aop_prev( GenefxState *gfxs );
+
+
+void Genefx_Bop_xy( GenefxState *gfxs, int x, int y );
+
+void Genefx_Bop_next( GenefxState *gfxs );
+
+void Genefx_Bop_prev( GenefxState *gfxs );
+
+
+void Genefx_Mop_xy( GenefxState *gfxs, int x, int y );
+
+void Genefx_Mop_next( GenefxState *gfxs );
+
+void Genefx_Mop_prev( GenefxState *gfxs );
+
+/**********************************************************************************************************************/
+
+bool Genefx_ABacc_prepare( GenefxState *gfxs, int width );
+
+void Genefx_ABacc_flush( GenefxState *gfxs );
 
 #endif

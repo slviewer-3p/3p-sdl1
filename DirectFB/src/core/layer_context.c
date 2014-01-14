@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <unistd.h>
@@ -37,6 +41,7 @@
 #include <direct/messages.h>
 #include <direct/util.h>
 
+#include <fusion/conf.h>
 #include <fusion/shmalloc.h>
 
 #include <core/coredefs.h>
@@ -52,6 +57,9 @@
 #include <core/windows.h>
 #include <core/windowstack.h>
 #include <core/wm.h>
+
+#include <core/CoreLayerContext.h>
+#include <core/Task.h>
 
 #include <core/layers_internal.h>
 #include <core/windows_internal.h>
@@ -71,17 +79,6 @@ static void      build_updated_config( CoreLayer                   *layer,
                                        const DFBDisplayLayerConfig *update,
                                        CoreLayerRegionConfig       *ret_config,
                                        CoreLayerRegionConfigFlags  *ret_flags );
-
-static DFBResult allocate_surface    ( CoreLayer                   *layer,
-                                       CoreLayerRegion             *region,
-                                       CoreLayerRegionConfig       *config );
-
-static DFBResult reallocate_surface  ( CoreLayer                   *layer,
-                                       CoreLayerRegion             *region,
-                                       CoreLayerRegionConfig       *config );
-
-static DFBResult deallocate_surface  ( CoreLayer                   *layer,
-                                       CoreLayerRegion             *region );
 
 static void      screen_rectangle    ( CoreLayerContext            *context,
                                        const DFBLocation           *location,
@@ -103,6 +100,8 @@ context_destructor( FusionObject *object, bool zombie, void *ctx )
                  zombie ? " - ZOMBIE" : "");
 
      D_MAGIC_ASSERT( context, CoreLayerContext );
+
+     CoreLayerContext_Deinit_Dispatch( &context->call );
 
      /* Remove the context from the layer's context stack. */
      dfb_layer_remove_context( layer, context );
@@ -195,9 +194,12 @@ update_stack_geometry( CoreLayerContext *context )
           dfb_windowstack_resize( context->stack, size.w, size.h, rotation );
 }
 
+/**********************************************************************************************************************/
+
 DFBResult
 dfb_layer_context_init( CoreLayerContext *context,
-                        CoreLayer        *layer )
+                        CoreLayer        *layer,
+                        bool              stack )
 {
      CoreLayerShared *shared;
 
@@ -212,7 +214,7 @@ dfb_layer_context_init( CoreLayerContext *context,
      context->shmpool = shared->shmpool;
 
      /* Initialize the lock. */
-     if (fusion_skirmish_init( &context->lock, "Layer Context", dfb_core_world(layer->core) )) {
+     if (fusion_skirmish_init2( &context->lock, "Layer Context", dfb_core_world(layer->core), fusion_config->secure_fusion )) {
           fusion_object_destroy( &context->object );
           return DFB_FUSION;
      }
@@ -252,7 +254,7 @@ dfb_layer_context_init( CoreLayerContext *context,
      dfb_layer_context_lock( context );
 
      /* Create the window stack. */
-     if (layer->shared->description.caps & DLCAPS_SURFACE) {
+     if (stack && layer->shared->description.caps & DLCAPS_SURFACE) {
           context->stack = dfb_windowstack_create( context );
           if (!context->stack) {
                dfb_layer_context_unlock( context );
@@ -263,6 +265,8 @@ dfb_layer_context_init( CoreLayerContext *context,
 
      /* Tell the window stack about its size. */
      update_stack_geometry( context );
+
+     CoreLayerContext_Init_Dispatch( layer->core, context, &context->call );
 
      dfb_layer_context_unlock( context );
 
@@ -275,6 +279,7 @@ dfb_layer_context_activate( CoreLayerContext *context )
      DFBResult        ret;
      int              index;
      CoreLayer       *layer;
+     CoreLayerShared *shared;
      CoreLayerRegion *region;
 
      D_DEBUG_AT( Core_LayerContext, "%s( %p )\n", __FUNCTION__, context );
@@ -285,6 +290,9 @@ dfb_layer_context_activate( CoreLayerContext *context )
 
      D_ASSERT( layer != NULL );
      D_ASSERT( layer->funcs != NULL );
+
+     shared = layer->shared;
+     D_ASSERT( shared != NULL );
 
      /* Lock the context. */
      if (dfb_layer_context_lock( context ))
@@ -300,10 +308,8 @@ dfb_layer_context_activate( CoreLayerContext *context )
      /* Iterate through all regions. */
      fusion_vector_foreach (region, index, context->regions) {
           /* first reallocate.. */
-          if (region->surface) {
-               D_ASSERT( region->surface_lock.buffer == NULL );
-
-               ret = reallocate_surface( layer, region, &region->config );
+          if (region->surface && region->surface->num_buffers == 0) {
+               ret = dfb_layer_context_reallocate_surface( layer, context, region, &region->config );
                if (ret)
                     D_DERROR( ret, "Core/Layers: Reallocation of layer surface failed!\n" );
           }
@@ -314,6 +320,9 @@ dfb_layer_context_activate( CoreLayerContext *context )
      }
 
      context->active = true;
+
+     /* Remember new primary pixel format. */
+     shared->pixelformat = context->primary.config.format;
 
      /* set new adjustment */
      if (layer->funcs->SetColorAdjustment)
@@ -496,7 +505,7 @@ restart:
                    return DFB_TEMPUNAVAIL;
 
               //sched_yield();
-              usleep( 10000 );
+              direct_thread_sleep( 10000 );
 
               if (dfb_layer_context_lock( context ))
                    return DFB_FUSION;
@@ -718,11 +727,20 @@ dfb_layer_context_set_configuration( CoreLayerContext            *context,
                return DFB_FUSION;
           }
 
+wait:
+          if (region->display_tasks)
+               TaskList_WaitEmpty( region->display_tasks );
+
           /* Lock the region. */
           if (dfb_layer_region_lock( region )) {
                dfb_layer_region_unref( region );
                dfb_layer_context_unlock( context );
                return DFB_FUSION;
+          }
+
+          if (region->display_tasks && !TaskList_IsEmpty( region->display_tasks )) {
+               dfb_layer_region_unlock( region );
+               goto wait;
           }
 
           /* Normal buffer mode? */
@@ -743,29 +761,17 @@ dfb_layer_context_set_configuration( CoreLayerContext            *context,
 
                D_FLAGS_CLEAR( region->state, CLRSF_CONFIGURED );
 
-               /* Unlock the region surface */
-               if (region->surface) {
-                    if (D_FLAGS_IS_SET( region->state, CLRSF_REALIZED )) {
-                         // The region surface is now being left in an unlocked
-                         // state, so the buffer (region->surface_lock.buffer)
-                         // can be NULL even when not frozen.
-
-                         if (region->surface_lock.buffer)
-                              dfb_surface_unlock_buffer( region->surface, &region->surface_lock );
-                    }
-               }
-
                /* (Re)allocate the region's surface. */
                if (surface) {
                     flags |= CLRCF_SURFACE | CLRCF_PALETTE;
 
                     if (region->surface) {
-                         ret = reallocate_surface( layer, region, &region_config );
+                         ret = dfb_layer_context_reallocate_surface( layer, context, region, &region_config );
                          if (ret)
                               D_DERROR( ret, "Core/Layers: Reallocation of layer surface failed!\n" );
                     }
                     else {
-                         ret = allocate_surface( layer, region, &region_config );
+                         ret = dfb_layer_context_allocate_surface( layer, context, region, &region_config );
                          if (ret)
                               D_DERROR( ret, "Core/Layers: Allocation of layer surface failed!\n" );
                     }
@@ -778,12 +784,12 @@ dfb_layer_context_set_configuration( CoreLayerContext            *context,
                     }
                }
                else if (region->surface)
-                    deallocate_surface( layer, region );
+                    dfb_layer_context_deallocate_surface( layer, context, region );
 
                region->state |= configured;
 
                /* Set the new region configuration. */
-               dfb_layer_region_set_configuration( region, &region_config, flags );
+               dfb_layer_region_set_configuration( region, &region_config, flags | CLRCF_FREEZE );
 
                /* Enable the primary region. */
                if (! D_FLAGS_IS_SET( region->state, CLRSF_ENABLED ))
@@ -795,7 +801,7 @@ dfb_layer_context_set_configuration( CoreLayerContext            *context,
                     dfb_layer_region_disable( region );
 
                     if (region->surface)
-                         deallocate_surface( layer, region );
+                         dfb_layer_context_deallocate_surface( layer, context, region );
                }
           }
 
@@ -806,6 +812,9 @@ dfb_layer_context_set_configuration( CoreLayerContext            *context,
 
      /* Remember new region config. */
      context->primary.config = region_config;
+
+     /* Remember new primary pixel format. */
+     shared->pixelformat = region_config.format;
 
      /*
       * Write back modified entries.
@@ -818,6 +827,9 @@ dfb_layer_context_set_configuration( CoreLayerContext            *context,
 
      if (config->flags & DLCONF_PIXELFORMAT)
           context->config.pixelformat = config->pixelformat;
+
+     if (config->flags & DLCONF_COLORSPACE)
+          context->config.colorspace = config->colorspace;
 
      if (config->flags & DLCONF_BUFFERMODE)
           context->config.buffermode = config->buffermode;
@@ -897,7 +909,7 @@ update_primary_region_config( CoreLayerContext           *context,
 
      if (context->primary.region) {
           /* Set the new configuration. */
-          ret = dfb_layer_region_set_configuration( context->primary.region, config, flags );
+          ret = dfb_layer_region_set_configuration( context->primary.region, config, flags | CLRCF_FREEZE );
      }
      else {
           CoreLayer *layer = dfb_layer_at( context->layer_id );
@@ -1308,6 +1320,57 @@ dfb_layer_context_get_coloradjustment( CoreLayerContext   *context,
 }
 
 DFBResult
+dfb_layer_context_set_stereo_depth( CoreLayerContext         *context,
+                                    bool                      follow_video,
+                                    int                       z )
+{
+     DFBResult           ret;
+     CoreLayer          *layer;
+
+     D_DEBUG_AT( Core_LayerContext, "%s( %p, %d, %d )\n", __FUNCTION__, context, follow_video, z );
+
+     D_MAGIC_ASSERT( context, CoreLayerContext );
+
+     layer = dfb_layer_at( context->layer_id );
+
+     D_ASSERT( layer != NULL );
+     D_ASSERT( layer->funcs != NULL );
+
+     if (!layer->funcs->SetStereoDepth)
+          return DFB_UNSUPPORTED;
+
+     /* set new adjustment */
+     ret = layer->funcs->SetStereoDepth( layer, layer->driver_data, layer->layer_data, 
+                                         follow_video, z );
+     if (ret)
+          return ret;
+
+     /* keep new offset info */
+     context->follow_video = follow_video;
+     context->z = z;
+
+     return DFB_OK;
+}
+
+DFBResult
+dfb_layer_context_get_stereo_depth( CoreLayerContext   *context,
+                                    bool               *ret_follow_video,
+                                    int                *ret_z )
+{
+     D_DEBUG_AT( Core_LayerContext, "%s( %p, %p, %p )\n", __FUNCTION__, context, 
+          ret_follow_video, ret_z );
+
+     D_MAGIC_ASSERT( context, CoreLayerContext );
+     D_ASSERT( ret_z != NULL );
+     D_ASSERT( ret_follow_video != NULL );
+
+     *ret_follow_video = context->follow_video;
+     *ret_z = context->z;
+
+     return DFB_OK;
+}
+
+DFBResult
 dfb_layer_context_set_field_parity( CoreLayerContext *context,
                                     int               field )
 {
@@ -1415,22 +1478,30 @@ dfb_layer_context_create_window( CoreDFB                     *core,
 
      layer = dfb_layer_at( context->layer_id );
 
-     if ((layer->shared->description.caps & DLCAPS_SURFACE) == 0)
+     if ((layer->shared->description.caps & DLCAPS_SURFACE) == 0) {
+          D_DEBUG_AT( Core_LayerContext, "  -> NO DLCAPS_SURFACE\n" );
           return DFB_UNSUPPORTED;
+     }
 
-     D_ASSERT( context->stack != NULL );
+     if (!context->stack) {
+          D_DEBUG_AT( Core_LayerContext, "  -> NO STACK\n" );
+          return DFB_UNSUPPORTED;
+     }
 
      D_ASSERT( layer != NULL );
      D_ASSERT( layer->funcs != NULL );
 
-     if (dfb_layer_context_lock( context ))
-         return DFB_FUSION;
+     if (dfb_layer_context_lock( context )) {
+          D_DEBUG_AT( Core_LayerContext, "  -> LAYER CONTEXT LOCK FAILED\n" );
+          return DFB_FUSION;
+     }
 
      stack = context->stack;
 
      if (!stack->cursor.set) {
           ret = dfb_windowstack_cursor_enable( core, stack, true );
           if (ret) {
+               D_DEBUG_AT( Core_LayerContext, "  -> CURSOR ENABLE FAILED (%s)\n", DirectResultString(ret) );
                dfb_layer_context_unlock( context );
                return ret;
           }
@@ -1438,6 +1509,7 @@ dfb_layer_context_create_window( CoreDFB                     *core,
 
      ret = dfb_window_create( stack, desc, &window );
      if (ret) {
+          D_DEBUG_AT( Core_LayerContext, "  -> WINDOW CREATE FAILED (%s)\n", DirectResultString(ret) );
           dfb_layer_context_unlock( context );
           return ret;
      }
@@ -1547,6 +1619,7 @@ init_region_config( CoreLayerContext      *context,
      config->width        = context->config.width;
      config->height       = context->config.height;
      config->format       = context->config.pixelformat;
+     config->colorspace   = context->config.colorspace;
      config->buffermode   = context->config.buffermode;
      config->options      = context->config.options;
      config->source_id    = context->config.source;
@@ -1655,6 +1728,16 @@ build_updated_config( CoreLayer                   *layer,
      if (update->flags & DLCONF_PIXELFORMAT) {
           flags |= CLRCF_FORMAT;
           ret_config->format = update->pixelformat;
+
+          flags |= CLRCF_COLORSPACE;
+          ret_config->colorspace = DFB_COLORSPACE_DEFAULT(ret_config->format);
+     }
+
+     /* Change color space. */
+     if (update->flags & DLCONF_COLORSPACE) {
+          flags |= CLRCF_COLORSPACE;
+          ret_config->colorspace = DFB_COLORSPACE_IS_COMPATIBLE(update->colorspace, ret_config->format) ?
+               update->colorspace : DFB_COLORSPACE_DEFAULT(ret_config->format);
      }
 
      /* Change buffer mode. */
@@ -1689,14 +1772,14 @@ build_updated_config( CoreLayer                   *layer,
 /*
  * region surface (re/de)allocation
  */
-static DFBResult
-allocate_surface( CoreLayer             *layer,
-                  CoreLayerRegion       *region,
-                  CoreLayerRegionConfig *config )
+DFBResult
+dfb_layer_context_allocate_surface( CoreLayer             *layer,
+                                    CoreLayerContext      *context,
+                                    CoreLayerRegion       *region,
+                                    CoreLayerRegionConfig *config )
 {
      DFBResult                ret;
      const DisplayLayerFuncs *funcs;
-     CoreLayerContext        *context;
      CoreSurface             *surface = NULL;
      CoreSurfaceTypeFlags     type    = CSTF_LAYER;
      CoreSurfaceConfig        scon;
@@ -1711,7 +1794,6 @@ allocate_surface( CoreLayer             *layer,
      D_ASSERT( config != NULL );
      D_ASSERT( config->buffermode != DLBM_WINDOWS );
 
-     context = region->context;
      D_MAGIC_ASSERT( context, CoreLayerContext );
 
      funcs = layer->funcs;
@@ -1760,18 +1842,22 @@ allocate_surface( CoreLayer             *layer,
           if (config->options & DLOP_DEINTERLACING)
                caps |= DSCAPS_INTERLACED;
 
+          if (config->options & DLOP_STEREO)
+               caps |= DSCAPS_STEREO;
+
           /* Add available surface capabilities. */
           caps |= config->surface_caps & (DSCAPS_INTERLACED |
                                           DSCAPS_SEPARATED  |
                                           DSCAPS_PREMULTIPLIED);
 
-          scon.flags  = CSCONF_SIZE | CSCONF_FORMAT | CSCONF_CAPS;
-          scon.size.w = config->width;
-          scon.size.h = config->height;
-          scon.format = config->format;
-          scon.caps   = caps;
+          scon.flags          = CSCONF_SIZE | CSCONF_FORMAT | CSCONF_COLORSPACE | CSCONF_CAPS;
+          scon.size.w         = config->width;
+          scon.size.h         = config->height;
+          scon.format         = config->format;
+          scon.colorspace     = config->colorspace;
+          scon.caps           = caps;
 
-          if (shared->contexts.primary == region->context)
+          if (shared->contexts.primary == context)
                type |= CSTF_SHARED;
 
           /* Use the default surface creation. */
@@ -1781,14 +1867,21 @@ allocate_surface( CoreLayer             *layer,
                return ret;
           }
 
-          if (config->buffermode == DLBM_BACKSYSTEM)
-               surface->buffers[1]->policy = CSP_SYSTEMONLY;
+          if (config->buffermode == DLBM_BACKSYSTEM) {
+               surface->left_buffers[1]->policy = CSP_SYSTEMONLY;
+
+               if (config->options & DLOP_STEREO)
+                    surface->right_buffers[1]->policy = CSP_SYSTEMONLY;
+          }
      }
 
      if (surface->config.caps & DSCAPS_ROTATED)
           surface->rotation = context->rotation;
      else
           surface->rotation = (context->rotation == 180) ? 180 : 0;
+
+     if (dfb_config->layers_clear && !dfb_config->surface_clear)
+          dfb_surface_clear_buffers( surface );
 
      /* Tell the region about its new surface (adds a global reference). */
      ret = dfb_layer_region_set_surface( region, surface );
@@ -1799,14 +1892,14 @@ allocate_surface( CoreLayer             *layer,
      return ret;
 }
 
-static DFBResult
-reallocate_surface( CoreLayer             *layer,
-                    CoreLayerRegion       *region,
-                    CoreLayerRegionConfig *config )
+DFBResult
+dfb_layer_context_reallocate_surface( CoreLayer             *layer,
+                                      CoreLayerContext      *context,
+                                      CoreLayerRegion       *region,
+                                      CoreLayerRegionConfig *config )
 {
      DFBResult                ret;
      const DisplayLayerFuncs *funcs;
-     CoreLayerContext        *context;
      CoreSurface             *surface;
      CoreSurfaceConfig        sconfig;
 
@@ -1819,7 +1912,6 @@ reallocate_surface( CoreLayer             *layer,
      D_ASSERT( config != NULL );
      D_ASSERT( config->buffermode != DLBM_WINDOWS );
 
-     context = region->context;
      D_MAGIC_ASSERT( context, CoreLayerContext );
 
      funcs   = layer->funcs;
@@ -1831,10 +1923,11 @@ reallocate_surface( CoreLayer             *layer,
                                            region->region_data,
                                            config, surface );
 
-     sconfig.flags = CSCONF_SIZE | CSCONF_FORMAT | CSCONF_CAPS;
+     sconfig.flags = CSCONF_SIZE | CSCONF_FORMAT | CSCONF_COLORSPACE | CSCONF_CAPS;
 
      sconfig.caps = surface->config.caps & ~(DSCAPS_FLIPPING  | DSCAPS_INTERLACED |
-                                             DSCAPS_SEPARATED | DSCAPS_PREMULTIPLIED | DSCAPS_ROTATED);
+                                             DSCAPS_SEPARATED | DSCAPS_PREMULTIPLIED | 
+                                             DSCAPS_ROTATED | DSCAPS_STEREO);
 
      switch (config->buffermode) {
           case DLBM_TRIPLE:
@@ -1865,13 +1958,22 @@ reallocate_surface( CoreLayer             *layer,
      if (config->options & DLOP_DEINTERLACING)
           sconfig.caps |= DSCAPS_INTERLACED;
 
-     sconfig.size.w = config->width;
-     sconfig.size.h = config->height;
-     sconfig.format = config->format;
+     if (config->options & DLOP_STEREO)
+          sconfig.caps |= DSCAPS_STEREO;
+
+     sconfig.size.w      = config->width;
+     sconfig.size.h      = config->height;
+     sconfig.format      = config->format;
+     sconfig.colorspace  = config->colorspace;
 
      ret = dfb_surface_lock( surface );
      if (ret)
           return ret;
+
+     if (config->buffermode == DLBM_BACKSYSTEM)
+          surface->flips = 0;
+     else if (!(surface->config.caps & DSCAPS_FLIPPING))
+          surface->flips++;
 
      ret = dfb_surface_reconfig( surface, &sconfig );
      if (ret) {
@@ -1886,15 +1988,15 @@ reallocate_surface( CoreLayer             *layer,
      }
 
      switch (config->buffermode) {
+          case DLBM_BACKSYSTEM:
+               surface->left_buffers[1]->policy = CSP_SYSTEMONLY;
+
+               if (config->options & DLOP_STEREO)
+                    surface->right_buffers[1]->policy = CSP_SYSTEMONLY;
+               break;
+
           case DLBM_TRIPLE:
           case DLBM_BACKVIDEO:
-               surface->buffers[1]->policy = CSP_VIDEOONLY;
-               break;
-
-          case DLBM_BACKSYSTEM:
-               surface->buffers[1]->policy = CSP_SYSTEMONLY;
-               break;
-
           case DLBM_FRONTONLY:
                break;
 
@@ -1908,13 +2010,18 @@ reallocate_surface( CoreLayer             *layer,
      else
           surface->rotation = (context->rotation == 180) ? 180 : 0;
 
+     if (dfb_config->layers_clear && !dfb_config->surface_clear)
+          dfb_surface_clear_buffers( surface );
+
      dfb_surface_unlock( surface );
      
      return DFB_OK;
 }
 
-static DFBResult
-deallocate_surface( CoreLayer *layer, CoreLayerRegion *region )
+DFBResult
+dfb_layer_context_deallocate_surface( CoreLayer        *layer,
+                                      CoreLayerContext *context,
+                                      CoreLayerRegion  *region )
 {
      DFBResult                ret;
      const DisplayLayerFuncs *funcs;
@@ -1943,6 +2050,9 @@ deallocate_surface( CoreLayer *layer, CoreLayerRegion *region )
 
           /* Detach the global listener. */
           dfb_surface_detach_global( surface, &region->surface_reaction );
+
+
+          dfb_surface_deallocate_buffers( region->surface );
 
           /* Unlink from structure. */
           dfb_surface_unlink( &region->surface );

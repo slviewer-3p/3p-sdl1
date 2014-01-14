@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <fusion/types.h>
@@ -36,7 +40,6 @@
 
 #include <directfb.h>
 
-#include <fusion/arena.h>
 #include <fusion/shmalloc.h>
 #include <fusion/lock.h>
 
@@ -113,6 +116,22 @@ static FusionCallHandlerResult call_handler( int           caller,
 
 /**********************************************************************************************************************/
 
+static void
+sync_display( DFBX11 *x11 )
+{
+     D_DEBUG_AT( X11_Core, "%s()\n", __FUNCTION__ );
+
+     XSync( x11->display, False );
+}
+
+static void
+sync_display_noop( DFBX11 *x11 )
+{
+     D_DEBUG_AT( X11_Core, "%s()\n", __FUNCTION__ );
+}
+
+/**********************************************************************************************************************/
+
 static DFBX11Shared *shared_for_error_handler;
 
 static int
@@ -137,6 +156,11 @@ InitLocal( DFBX11 *x11, DFBX11Shared *shared, CoreDFB *core )
      int i, n, d;
 
      XInitThreads();
+
+     if (direct_config_get_int_value( "x11-sync" ))
+          x11->Sync = sync_display;
+     else
+          x11->Sync = sync_display_noop;
 
      x11->shared = shared;
      x11->core   = core;
@@ -219,8 +243,9 @@ InitLocal( DFBX11 *x11, DFBX11Shared *shared, CoreDFB *core )
 static void
 system_get_info( CoreSystemInfo *info )
 {
-     info->type = CORE_X11;   
-     info->caps = CSCAPS_ACCELERATION;
+     info->type = CORE_X11;
+     info->caps = CSCAPS_ACCELERATION  | CSCAPS_PREFER_SHM | CSCAPS_SYSMEM_EXTERNAL |
+                  CSCAPS_DISPLAY_TASKS | CSCAPS_NOTIFY_DISPLAY;
 
      D_DEBUG_AT( X11_Core, "%s()\n", __FUNCTION__ );
 
@@ -270,8 +295,6 @@ system_initialize( CoreDFB *core, void **data )
      shared->screen_size.w = x11->screenptr->width;
      shared->screen_size.h = x11->screenptr->height;
 
-     fusion_skirmish_init( &shared->lock, "X11 System", dfb_core_world(core) );
-
      fusion_call_init( &shared->call, call_handler, x11, dfb_core_world(core) );
 
 
@@ -300,7 +323,7 @@ system_initialize( CoreDFB *core, void **data )
      dfb_surface_pool_bridge_initialize( core, &x11SurfacePoolBridgeFuncs, x11, &shared->x11_pool_bridge );
 #endif
 
-     fusion_arena_add_shared_field( dfb_core_arena( core ), "x11", shared );
+     core_arena_add_shared_field( core, "x11", shared );
 
      return DFB_OK;
 }
@@ -319,7 +342,7 @@ system_join( CoreDFB *core, void **data )
      if (!x11)
           return D_OOM();
 
-     fusion_arena_get_shared_field( dfb_core_arena( core ), "x11", &ptr );
+     core_arena_get_shared_field( core, "x11", &ptr );
      shared = ptr;
 
 
@@ -392,8 +415,6 @@ system_shutdown( bool emergency )
       */
      fusion_call_destroy( &shared->call );
 
-     fusion_skirmish_prevail( &shared->lock );
-
      /* close remaining windows */
      for( i=0; i<dfb_layer_num(); i++ ) {
           CoreLayer    *layer;
@@ -401,14 +422,12 @@ system_shutdown( bool emergency )
 
           layer = dfb_layer_at( i );
           lds   = layer->layer_data;
-          if( lds->xw ) {
+          if( lds && lds->xw ) {
               dfb_x11_close_window( x11, lds->xw );
               lds->xw = 0;
               shared->window_count--;
           }
      }
-
-     fusion_skirmish_destroy( &shared->lock );
 
 
      SHFREE( dfb_core_shmpool( x11->core ), shared );

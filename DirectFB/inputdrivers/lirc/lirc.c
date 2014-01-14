@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -242,8 +246,15 @@ driver_get_available( void )
           return 0;
 
      if (connect( fd, (struct sockaddr*)&addr, sizeof(addr) ) < 0) {
-          close( fd );
-          return 0;
+          /*
+           *  for LIRC version >= 0.8.6 the Unix socket is no more created
+           *  under /dev/lircd but under /var/run/lirc/lircd
+           */
+          direct_snputs( addr.sun_path, "/var/run/lirc/lircd", sizeof(addr.sun_path) );
+          if (connect( fd, (struct sockaddr*)&addr, sizeof(addr) ) < 0) {
+               close( fd );
+               return 0;
+          }
      }
 
      close( fd );
@@ -287,9 +298,16 @@ driver_open_device( CoreInputDevice      *device,
 
      /* initiate connection */
      if (connect( fd, (struct sockaddr*)&sa, sizeof(sa) ) < 0) {
-          D_PERROR( "DirectFB/LIRC: connect" );
-          close( fd );
-          return DFB_INIT;
+          /*
+           * try "/var/run/lirc/lircd"
+           */
+          direct_snputs( sa.sun_path, "/var/run/lirc/lircd", sizeof(sa.sun_path) );
+
+          if (connect( fd, (struct sockaddr*)&sa, sizeof(sa) ) < 0) {
+               D_PERROR( "DirectFB/LIRC: connect" );
+               close( fd );
+               return DFB_INIT;
+          }
      }
 
      /* fill driver info structure */
@@ -302,8 +320,11 @@ driver_open_device( CoreInputDevice      *device,
      info->prefered_id = DIDID_REMOTE;
 
      info->desc.type   = DIDTF_REMOTE;
+#ifndef DIRECTFB_DISABLE_DEPRECATED
      info->desc.caps   = DICAPS_KEYS;
-
+#else
+     info->desc.caps   = DIDCAPS_KEYS;
+#endif
      /* allocate and fill private data */
      data = D_CALLOC( 1, sizeof(LircData) );
      if (!data) {

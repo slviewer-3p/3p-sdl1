@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -41,11 +43,13 @@
 
 int main( void )
 {
+     int res;
      u8  byt;
      u32 pixel32;
 
      do {
-          fread (&pixel32, 4, 1, stdin);
+          res = fread (&pixel32, 4, 1, stdin);
+          (void)res;
 
 #ifdef WORDS_BIGENDIAN
           pixel32 = (pixel32 << 16) | (pixel32 >> 16);

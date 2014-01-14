@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,25 +28,24 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 
 #include <string.h>
 
 #include <directfb.h>
-
-#include <core/coredefs.h>
-#include <core/layers.h>
-#include <core/screen.h>
 
 #include <direct/debug.h>
 #include <direct/interface.h>
 
 #include <voodoo/manager.h>
 #include <voodoo/message.h>
+
+#include <core/coredefs.h>
 
 #include "idirectfbscreen_dispatcher.h"
 
@@ -70,6 +71,9 @@ typedef struct {
      int                    ref;      /* reference counter */
 
      IDirectFBScreen       *real;
+
+     VoodooInstanceID       self;         /* The instance of this dispatcher itself. */
+     VoodooInstanceID       super;        /* The instance of the creator. */
 } IDirectFBScreen_Dispatcher_data;
 
 /**************************************************************************************************/
@@ -77,7 +81,11 @@ typedef struct {
 static void
 IDirectFBScreen_Dispatcher_Destruct( IDirectFBScreen *thiz )
 {
+     IDirectFBScreen_Dispatcher_data *data = thiz->priv;
+
      D_DEBUG( "%s (%p)\n", __FUNCTION__, thiz );
+
+     data->real->Release( data->real );
 
      DIRECT_DEALLOCATE_INTERFACE( thiz );
 }
@@ -331,6 +339,15 @@ IDirectFBScreen_Dispatcher_SetOutputConfiguration( IDirectFBScreen             *
 /**************************************************************************************************/
 
 static DirectResult
+Dispatch_Release( IDirectFBScreen *thiz, IDirectFBScreen *real,
+                  VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DIRECT_INTERFACE_GET_DATA(IDirectFBScreen_Dispatcher)
+
+     return voodoo_manager_unregister_local( manager, data->self );
+}
+
+static DirectResult
 Dispatch_GetID( IDirectFBScreen *thiz, IDirectFBScreen *real,
                 VoodooManager *manager, VoodooRequestMessage *msg )
 {
@@ -437,7 +454,6 @@ static DirectResult
 Dispatch_SetPowerMode( IDirectFBScreen *thiz, IDirectFBScreen *real,
                        VoodooManager *manager, VoodooRequestMessage *msg )
 {
-     DirectResult        ret;
      VoodooMessageParser parser;
      DFBScreenPowerMode  mode;
 
@@ -447,22 +463,16 @@ Dispatch_SetPowerMode( IDirectFBScreen *thiz, IDirectFBScreen *real,
      VOODOO_PARSER_GET_INT( parser, mode );
      VOODOO_PARSER_END( parser );
 
-     ret = real->SetPowerMode( real, mode );
-     
-     return DFB_OK;
+     return real->SetPowerMode( real, mode );
 }
 
 static DirectResult
 Dispatch_WaitForSync( IDirectFBScreen *thiz, IDirectFBScreen *real,
                        VoodooManager *manager, VoodooRequestMessage *msg )
 {
-     DirectResult ret;
-
      DIRECT_INTERFACE_GET_DATA(IDirectFBScreen_Dispatcher)
 
-     ret = real->WaitForSync( real );
-     
-     return DFB_OK;
+     return real->WaitForSync( real );
 }
 
 
@@ -473,6 +483,9 @@ Dispatch( void *dispatcher, void *real, VoodooManager *manager, VoodooRequestMes
               "Handling request for instance %u with method %u...\n", msg->instance, msg->method );
 
      switch (msg->method) {
+          case IDIRECTFBSCREEN_METHOD_ID_Release:
+               return Dispatch_Release( dispatcher, real, manager, msg );
+
           case IDIRECTFBSCREEN_METHOD_ID_GetID:
                return Dispatch_GetID( dispatcher, real, manager, msg );
                
@@ -512,18 +525,23 @@ Construct( IDirectFBScreen  *thiz,
            void             *arg,      /* Optional arguments to constructor */
            VoodooInstanceID *ret_instance )
 {
-     DFBResult ret;
+     DFBResult        ret;
+     VoodooInstanceID instance;
 
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBScreen_Dispatcher)
 
-     ret = voodoo_manager_register_local( manager, false, thiz, real, Dispatch, ret_instance );
+     ret = voodoo_manager_register_local( manager, super, thiz, real, Dispatch, &instance );
      if (ret) {
           DIRECT_DEALLOCATE_INTERFACE( thiz );
           return ret;
      }
 
-     data->ref  = 1;
-     data->real = real;
+     *ret_instance = instance;
+
+     data->ref   = 1;
+     data->real  = real;
+     data->self  = instance;
+     data->super = super;
 
      thiz->AddRef                   = IDirectFBScreen_Dispatcher_AddRef;
      thiz->Release                  = IDirectFBScreen_Dispatcher_Release;

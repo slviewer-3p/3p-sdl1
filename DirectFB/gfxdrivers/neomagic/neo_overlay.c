@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -202,7 +206,8 @@ ovlSetRegion( CoreLayer                  *layer,
               CoreLayerRegionConfigFlags  updated,
               CoreSurface                *surface,
               CorePalette                *palette,
-              CoreSurfaceBufferLock      *lock )
+              CoreSurfaceBufferLock      *left_lock,
+              CoreSurfaceBufferLock      *right_lock )
 {
      NeoDriverData       *ndrv = (NeoDriverData*) driver_data;
      NeoOverlayLayerData *novl = (NeoOverlayLayerData*) layer_data;
@@ -210,7 +215,7 @@ ovlSetRegion( CoreLayer                  *layer,
      /* remember configuration */
      novl->config = *config;
 
-     ovl_calc_regs( ndrv, novl, config, surface, lock );
+     ovl_calc_regs( ndrv, novl, config, surface, left_lock );
      ovl_set_regs( ndrv, novl );
 
      /* enable overlay */
@@ -241,7 +246,10 @@ ovlFlipRegion(  CoreLayer             *layer,
                 void                  *region_data,
                 CoreSurface           *surface,
                 DFBSurfaceFlipFlags    flags,
-                CoreSurfaceBufferLock *lock )
+                const DFBRegion       *left_update,
+                CoreSurfaceBufferLock *left_lock,
+                const DFBRegion       *right_update,
+                CoreSurfaceBufferLock *right_lock )
 {
      NeoDriverData       *ndrv = (NeoDriverData*) driver_data;
      NeoOverlayLayerData *novl = (NeoOverlayLayerData*) layer_data;
@@ -254,7 +262,7 @@ ovlFlipRegion(  CoreLayer             *layer,
 
      dfb_surface_flip( surface, false );
 
-     ovl_calc_regs( ndrv, novl, &novl->config, surface, lock );
+     ovl_calc_regs( ndrv, novl, &novl->config, surface, left_lock );
      ovl_set_regs( ndrv, novl );
 
      return DFB_OK;

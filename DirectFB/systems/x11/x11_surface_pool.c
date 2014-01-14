@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 //#define DIRECT_ENABLE_DEBUG
 
@@ -97,7 +101,7 @@ x11InitPool( CoreDFB                    *core,
 
      ret_desc->caps              = CSPCAPS_VIRTUAL;
      ret_desc->access[CSAID_CPU] = CSAF_READ | CSAF_WRITE | CSAF_SHARED;
-     ret_desc->types             = CSTF_LAYER | CSTF_WINDOW | CSTF_CURSOR | CSTF_FONT | CSTF_SHARED | CSTF_EXTERNAL;
+     ret_desc->types             = CSTF_LAYER | CSTF_WINDOW | CSTF_CURSOR | CSTF_FONT | CSTF_SHARED | CSTF_EXTERNAL | CSTF_INTERNAL;
      ret_desc->priority          = CSPP_ULTIMATE;
 
      /* For showing our X11 window */
@@ -194,8 +198,8 @@ x11TestConfig( CoreSurfacePool         *pool,
      DFBX11Shared     *shared = x11->shared;
 
      /* Provide a fallback only if no virtual physical pool is allocated... */
-     if (!shared->vpsmem_length)
-          return DFB_OK;
+     //if (!shared->vpsmem_length)
+     //     return DFB_OK;
           
      /* Pass NULL image for probing */
      return x11ImageInit( x11, NULL, config->size.w, config->size.h, config->format );
@@ -246,13 +250,21 @@ x11DeallocateBuffer( CoreSurfacePool       *pool,
      x11PoolLocalData  *local  = pool_local;
      DFBX11            *x11    = local->x11;
      DFBX11Shared      *shared = x11->shared;
+     void              *addr;
 
      D_DEBUG_AT( X11_Surfaces, "%s()\n", __FUNCTION__ );
 
      D_MAGIC_ASSERT( pool, CoreSurfacePool );
-     D_MAGIC_ASSERT( buffer, CoreSurfaceBuffer );
 
      CORE_SURFACE_ALLOCATION_ASSERT( allocation );
+
+     // FIXME: also detach in other processes! (e.g. via reactor)
+     addr = direct_hash_lookup( local->hash, alloc->image.seginfo.shmid );
+     if (addr) {
+          x11ImageDetach( &alloc->image, addr );
+
+          direct_hash_remove( local->hash, alloc->image.seginfo.shmid );
+     }
 
      if (alloc->real)
           return x11ImageDestroy( x11, &alloc->image );
@@ -276,20 +288,12 @@ x11Lock( CoreSurfacePool       *pool,
      x11AllocationData *alloc  = alloc_data;
      DFBX11            *x11    = local->x11;
      DFBX11Shared      *shared = x11->shared;
-     CoreSurfaceBuffer *buffer;
-     CoreSurface       *surface;
 
      D_DEBUG_AT( X11_Surfaces, "%s( %p )\n", __FUNCTION__, allocation );
 
      D_MAGIC_ASSERT( pool, CoreSurfacePool );
      D_MAGIC_ASSERT( allocation, CoreSurfaceAllocation );
      D_MAGIC_ASSERT( lock, CoreSurfaceBufferLock );
-
-     buffer = allocation->buffer;
-     D_MAGIC_ASSERT( buffer, CoreSurfaceBuffer );
-
-     surface = buffer->surface;
-     D_MAGIC_ASSERT( surface, CoreSurface );
 
      D_ASSERT( local->hash != NULL );
 
@@ -316,9 +320,13 @@ x11Lock( CoreSurfacePool       *pool,
      }
      else {
           if (!alloc->ptr) {
+               D_DEBUG_AT( X11_Surfaces, "  -> allocating memory in data_shmpool (%d bytes)\n", allocation->size );
+
                alloc->ptr = SHCALLOC( shared->data_shmpool, 1, allocation->size );
-               if (!alloc->ptr)
+               if (!alloc->ptr) {
+                    pthread_mutex_unlock( &local->lock );
                     return D_OOSHM();
+               }
           }
 
           lock->addr = alloc->ptr;

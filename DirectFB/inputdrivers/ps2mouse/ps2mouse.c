@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -250,6 +254,8 @@ ps2WriteChar( int fd, unsigned char c, bool verbose )
 {
      struct timeval tv;
      fd_set fds;
+     int res;
+     (void)res;
 
      tv.tv_sec = 0;
      tv.tv_usec = 200000;       /*  timeout 200 ms  */
@@ -257,7 +263,7 @@ ps2WriteChar( int fd, unsigned char c, bool verbose )
      FD_ZERO( &fds );
      FD_SET( fd, &fds );
 
-     write( fd, &c, 1 );
+     res = write( fd, &c, 1 );
 
      if ( select(fd+1, &fds, NULL, NULL, &tv) == 0 ) {
           if ( verbose )
@@ -265,7 +271,7 @@ ps2WriteChar( int fd, unsigned char c, bool verbose )
           return -1;
      }
 
-     read( fd, &c, 1 );
+     res = read( fd, &c, 1 );
 
      if ( c != PS2_ACK )
           return -2;
@@ -278,11 +284,13 @@ static int
 ps2GetId( int fd, bool verbose )
 {
      unsigned char c;
+     int res;
 
      if ( ps2WriteChar(fd, PS2_SEND_ID, verbose) < 0 )
           return PS2_ID_ERROR;
 
-     read( fd, &c, 1 );
+     res = read( fd, &c, 1 );
+     (void)res;
 
      return( c );
 }
@@ -323,6 +331,8 @@ init_ps2( int fd, bool verbose )
      struct timeval tv;
      fd_set fds;
      int count = 100;
+     int res;
+     (void)res;
 
      /* read all data from the file descriptor before initializing the mouse */
      while (true) {
@@ -335,7 +345,7 @@ init_ps2( int fd, bool verbose )
           FD_SET( fd, &fds );
 
           if (select( fd+1, &fds, NULL, NULL, &tv ))
-               read( fd, buf, sizeof(buf) );
+               res = read( fd, buf, sizeof(buf) );
           else
                break;
 
@@ -522,7 +532,11 @@ driver_open_device( CoreInputDevice  *device,
 
      info->prefered_id     = DIDID_MOUSE;
      info->desc.type       = DIDTF_MOUSE;
+#ifndef DIRECTFB_DISABLE_DEPRECATED
      info->desc.caps       = DICAPS_AXES | DICAPS_BUTTONS;
+#else
+     info->desc.caps       = DIDCAPS_AXES | DIDCAPS_BUTTONS;
+#endif
      info->desc.max_axis   = (mouseId == PS2_ID_IMPS2) ? DIAI_Z : DIAI_Y;
      info->desc.max_button = DIBI_MIDDLE;     /* TODO: probe!? */
 

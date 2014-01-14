@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __CONF_H__
 #define __CONF_H__
@@ -68,7 +72,7 @@ typedef enum {
 
      DCWF_ALLOCATE_BUFFER               = 0x00000010,
 
-     DCWF_ALL                           = 0x00000013,
+     DCWF_ALL                           = 0x00000013
 } DFBConfigWarnFlags;
 
 typedef struct
@@ -163,7 +167,7 @@ typedef struct
 
      struct {
           char *host;                             /* Remote host to connect to. */
-          int   session;                          /* Remote session number. */
+          int   port;                             /* Remote port number. */
      } remote;
 
      char      *wm;                               /* Window manager to use. */
@@ -226,6 +230,13 @@ typedef struct
      int           surface_shmpool_size;          /* Set the size of the shared memory pool used for
                                                      shared system memory surfaces. */
 
+     unsigned int  system_surface_align_base;     /* If GPU supports system memory, byte alignment for system
+                                                     surface's base address (must be a positive power of two
+                                                     that is four or greater), or zero for no alignment. */
+     unsigned int  system_surface_align_pitch;    /* If GPU supports system memory, byte alignment for system
+                                                     surface's pitch (must be a positive power of two), or
+                                                     zero for no alignment. */
+
      bool          no_cursor_updates;             /* Never show the cursor etc. */
 
      struct {
@@ -248,19 +259,81 @@ typedef struct
 
      bool          cursor_automation;
 
+     bool          wm_fullscreen_updates;
 
      int           max_font_rows;
      int           max_font_row_width;
+
+     bool          core_sighandler;
+
+     bool          linux_input_force;              /* use linux-input with all system modules */
+
+     u64           resource_id;
+
+     bool          no_singleton;
+
+     bool          x11_borderless;
+     DFBPoint      x11_position;
+
+     bool          gfx_emit_early;
+
+     bool          flip_notify;
+
+     char         *resource_manager;
+
+     u32           input_hub_qid;
+
+     unsigned long font_resource_id;
+
+     unsigned int  flip_notify_max_latency;
+
+     DFBWindowCursorFlags default_cursor_flags;
+
+     bool                 discard_repeat_events;
+
+     DFBSurfaceID         primary_id;              /* id for primary surface */
+
+     bool                 layers_clear;
+
+     FusionCallExecFlags  call_nodirect;
+
+     u32           input_hub_service_qid;
+
+     bool          cursor_videoonly;
+     u64           cursor_resource_id;
+
+     bool          task_manager;
+     unsigned int  software_cores;
+
+     DFBSurfacePixelFormat image_format;
+
+     bool          linux_input_touch_abs;
+
+     bool          surface_clear;
+
+     unsigned int  graphics_state_call_limit;
+
+     bool          always_flush_callbuffer;
+     unsigned int  layers_fps;
+
+     bool          single_window;
+
+     long long     screen_frame_interval;
+
+     unsigned int  gfxcard_stats;
+
+     unsigned int  max_render_tasks;
+     long long     max_frame_advance;
 } DFBConfig;
 
-extern DFBConfig *dfb_config;
+extern DFBConfig DIRECTFB_API *dfb_config;
 
 /*
  * Allocate Config struct, fill with defaults and parse command line options
  * for overrides. Options identified as DirectFB options are stripped out
  * of the array.
  */
-DFBResult dfb_config_init( int *argc, char *(*argv[]) );
+DFBResult DIRECTFB_API dfb_config_init( int *argc, char *(*argv[]) );
 
 /*
  * Read configuration options from file. Called by config_init().
@@ -270,18 +343,18 @@ DFBResult dfb_config_init( int *argc, char *(*argv[]) );
  * Returns DFB_INVARG if an invalid option assignment is done,
  * e.g. "--desktop-buffer-mode=somethingwrong".
  */
-DFBResult dfb_config_read( const char *filename );
+DFBResult DIRECTFB_API dfb_config_read( const char *filename );
 
 
 /*
  * Set indiviual option. Used by config_init(), config_read() and
  * DirectFBSetOption()
  */
-DFBResult dfb_config_set( const char *name, const char *value );
+DFBResult DIRECTFB_API dfb_config_set( const char *name, const char *value );
 
-const char *dfb_config_usage( void );
+const char DIRECTFB_API *dfb_config_usage( void );
 
-DFBSurfacePixelFormat dfb_config_parse_pixelformat( const char *format );
+DFBSurfacePixelFormat DIRECTFB_API dfb_config_parse_pixelformat( const char *format );
 
 #endif
 

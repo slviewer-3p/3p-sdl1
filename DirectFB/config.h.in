@@ -6,8 +6,20 @@
 /* Define to 1 if you are compiling for ARM. */
 #undef ARCH_ARM
 
+/* Define to 1 if you are compiling for ARMv7. */
+#undef ARCH_ARMv7
+
+/* Define to 1 if you are compiling for MIPS. */
+#undef ARCH_MIPS
+
 /* Define to 1 if you are compiling for PowerPC. */
 #undef ARCH_PPC
+
+/* Define to 1 if you are compiling for SuperH. */
+#undef ARCH_SH
+
+/* Define to 1 if you are compiling for SH3. */
+#undef ARCH_SH3
 
 /* Define to 1 if you are compiling for SH4. */
 #undef ARCH_SH4
@@ -39,8 +51,23 @@
 /* The DirectFB version */
 #undef DIRECTFB_VERSION
 
+/* Vendor specific version */
+#undef DIRECTFB_VERSION_VENDOR
+
+/* Define to 1 to enable linear filter. */
+#undef FS_ENABLE_LINEAR_FILTER
+
+/* Define to 1 to enable precision. */
+#undef FS_ENABLE_PRECISION
+
+/* Define to 1 to enable IEEE floats for mixing routines. */
+#undef FS_USE_IEEE_FLOATS
+
 /* Define to 1 if you have the <asm/page.h> header file. */
 #undef HAVE_ASM_PAGE_H
+
+/* Define to 1 if you have libcddb. */
+#undef HAVE_CDDB
 
 /* Define to 1 if you have the declaration of `PTHREAD_MUTEX_RECURSIVE', and
    to 0 if you don't. */
@@ -55,6 +82,12 @@
 
 /* Define to 1 if you have the `fork' function. */
 #undef HAVE_FORK
+
+/* Define to 1 if you want FusionSound support. */
+#undef HAVE_FUSIONSOUND
+
+/* Define to 1 if sh772x */
+#undef HAVE_GFX_SH772X
 
 /* Define to 1 if inb, outb and iopl are available. */
 #undef HAVE_INB_OUTB_IOPL
@@ -73,6 +106,9 @@
 
 /* Define to 1 if you have the `pthread' library (-lpthread). */
 #undef HAVE_LIBPTHREAD
+
+/* Define to 1 if you have the `rt' library (-lrt). */
+#undef HAVE_LIBRT
 
 /* Define to 1 if you have the <linux/compiler.h> header file. */
 #undef HAVE_LINUX_COMPILER_H
@@ -109,10 +145,6 @@
 
 /* Define to 1 if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
-
-/* Define to 1 if Linux Input driver should use FBDev system module for
-   console keymap queries. */
-#undef LINUX_INPUT_USE_FBDEV
 
 /* Define to the sub-directory in which libtool stores uninstalled libraries.
    */
@@ -169,8 +201,8 @@
 /* Define to 1 if SSE assembly is available. */
 #undef USE_SSE
 
-/* Define to 1 to build with sysfs support. */
-#undef USE_SYSFS
+/* Define to 1 to use Tremor Ogg/Vorbis decoder. */
+#undef USE_TREMOR
 
 /* Define to 1 to build with zlib compression. */
 #undef USE_ZLIB

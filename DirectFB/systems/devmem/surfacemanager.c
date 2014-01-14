@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -254,6 +258,8 @@ DFBResult dfb_surfacemanager_displace( CoreDFB           *core,
      CoreGraphicsDevice    *device;
      CoreSurfaceAllocation *smallest = NULL;
 
+     (void)device;
+
      D_MAGIC_ASSERT( manager, SurfaceManager );
      D_MAGIC_ASSERT( buffer, CoreSurfaceBuffer );
      D_MAGIC_ASSERT( buffer->surface, CoreSurface );
@@ -281,7 +287,7 @@ DFBResult dfb_surfacemanager_displace( CoreDFB           *core,
           allocation = chunk->allocation;
           if (allocation) {
                CoreSurfaceBuffer *other;
-               int                size;
+               int                size, locks;
 
                D_MAGIC_ASSERT( allocation, CoreSurfaceAllocation );
                D_ASSERT( chunk->buffer == allocation->buffer );
@@ -290,8 +296,9 @@ DFBResult dfb_surfacemanager_displace( CoreDFB           *core,
                other = allocation->buffer;
                D_MAGIC_ASSERT( other, CoreSurfaceBuffer );
 
-               if (other->locked) {
-                    D_DEBUG_AT( SurfMan, "  ++ %7d locked %dx\n", allocation->size, other->locked );
+               locks = dfb_surface_allocation_locks( allocation );
+               if (locks) {
+                    D_DEBUG_AT( SurfMan, "  ++ %7d locked %dx\n", allocation->size, locks );
                     goto next_reset;
                }
 
@@ -435,6 +442,8 @@ DFBResult dfb_surfacemanager_deallocate( SurfaceManager *manager,
                                          Chunk          *chunk )
 {
      CoreSurfaceBuffer *buffer;
+
+     (void)buffer;
 
      D_MAGIC_ASSERT( manager, SurfaceManager );
      D_MAGIC_ASSERT( chunk, Chunk );

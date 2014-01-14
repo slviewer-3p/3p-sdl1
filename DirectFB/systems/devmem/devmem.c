@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <fcntl.h>
@@ -35,7 +39,6 @@
 
 #include <direct/mem.h>
 
-#include <fusion/arena.h>
 #include <fusion/shmalloc.h>
 
 #include <core/core.h>
@@ -48,6 +51,10 @@
 
 
 #include <core/core_system.h>
+
+#ifdef HAVE_GFX_SH772X
+#include <uiomux/uiomux.h>
+#endif
 
 DFB_CORE_SYSTEM( devmem )
 
@@ -87,6 +94,10 @@ MapMemAndReg( DevMemData    *data,
                return DFB_INIT;
           }
      }
+
+#ifdef HAVE_GFX_SH772X
+	uiomux_register (data->mem, mem_phys, mem_length);
+#endif
 
      close( fd );
 
@@ -165,7 +176,7 @@ system_initialize( CoreDFB *core, void **ret_data )
 
      dfb_surface_pool_initialize( core, &devmemSurfacePoolFuncs, &shared->pool );
 
-     fusion_arena_add_shared_field( dfb_core_arena( core ), "devmem", shared );
+     core_arena_add_shared_field( core, "devmem", shared );
 
      return DFB_OK;
 }
@@ -194,7 +205,7 @@ system_join( CoreDFB *core, void **ret_data )
      if (!data)
           return D_OOM();
 
-     ret = fusion_arena_get_shared_field( dfb_core_arena( core ), "devmem", &tmp );
+     ret = core_arena_get_shared_field( core, "devmem", &tmp );
      if (ret) {
           D_FREE( data );
           return ret;

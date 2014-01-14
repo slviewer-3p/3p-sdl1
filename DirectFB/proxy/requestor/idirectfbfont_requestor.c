@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -61,7 +65,15 @@ DIRECT_INTERFACE_IMPLEMENTATION( IDirectFBFont, Requestor )
 static void
 IDirectFBFont_Requestor_Destruct( IDirectFBFont *thiz )
 {
+     IDirectFBFont_Requestor_data *data = thiz->priv;
+
      D_DEBUG( "%s (%p)\n", __FUNCTION__, thiz );
+
+     data->buffer->Release( data->buffer );
+
+     voodoo_manager_request( data->manager, data->instance,
+                             IDIRECTFBFONT_METHOD_ID_Release, VREQ_NONE, NULL,
+                             VMBT_NONE );
 
      DIRECT_DEALLOCATE_INTERFACE( thiz );
 }
@@ -491,11 +503,16 @@ Construct( IDirectFBFont    *thiz,
            VoodooInstanceID  instance,
            void             *arg )
 {
+     IDirectFBDataBuffer *buffer = arg;
+
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBFont_Requestor)
+
+     buffer->AddRef( buffer );
 
      data->ref      = 1;
      data->manager  = manager;
      data->instance = instance;
+     data->buffer   = buffer;
 
      thiz->AddRef           = IDirectFBFont_Requestor_AddRef;
      thiz->Release          = IDirectFBFont_Requestor_Release;

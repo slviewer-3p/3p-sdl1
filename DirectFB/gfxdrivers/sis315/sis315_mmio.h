@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,12 +28,14 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef _SIS315_MMIO_H
 #define _SIS315_MMIO_H
 
 #include <dfb_types.h>
 
-extern __inline__ u32 sis_rl(volatile u8 *mmio, unsigned int offset);
-extern __inline__ void sis_wl(volatile u8 *mmio, unsigned int offset, u32 value);
+u32 sis_rl(volatile u8 *mmio, unsigned int offset);
+void sis_wl(volatile u8 *mmio, unsigned int offset, u32 value);
 
 #endif

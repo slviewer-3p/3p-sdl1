@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __X11SYSTEM__X11_H__
 #define __X11SYSTEM__X11_H__
 
@@ -45,8 +49,11 @@ typedef struct {
 } SetModeData;
 
 typedef struct {
-     DFBRegion              region;
-     CoreSurfaceBufferLock *lock;
+     bool                   stereo;
+     DFBRegion              left_region;
+     DFBRegion              right_region;
+     CoreSurfaceBufferLock  left_lock;
+     CoreSurfaceBufferLock  right_lock;
      XWindow               *xw;
 } UpdateScreenData;
 
@@ -57,8 +64,8 @@ typedef struct {
 typedef struct {
      UpdateScreenData     update;
      SetModeData          setmode;
+     DestroyData          destroy;
                          
-     FusionSkirmish       lock;
      FusionCall           call;
 
      FusionSHMPoolShared *data_shmpool;
@@ -77,6 +84,9 @@ typedef struct {
      int                  window_count; /* merely for optimizing wait loop */
 
      Bool                 x_error;
+
+     bool                 stereo;
+     int                  stereo_width;
 } DFBX11Shared;
 
 struct __DFB_X11 {
@@ -92,8 +102,10 @@ struct __DFB_X11 {
      Display             *display;
      Screen              *screenptr;
      int                  screennum;
-                     
+
      Visual              *visuals[DFB_NUM_PIXELFORMATS];
+     
+     void               (*Sync)( DFBX11 *x11 );
 };
 
 typedef enum {

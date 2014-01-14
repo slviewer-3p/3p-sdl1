@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,15 +28,22 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __DIRECT__SYSTEM_H__
 #define __DIRECT__SYSTEM_H__
 
-#include <sys/types.h>
+#include <direct/os/system.h>
 
-pid_t direct_gettid( void );
-long  direct_pagesize( void );
 
-unsigned long direct_page_align( unsigned long value );
+DirectResult DIRECT_API direct_futex_wait      ( int *uaddr, int val );
+DirectResult DIRECT_API direct_futex_wait_timed( int *uaddr, int val, int ms );
+
+DirectResult DIRECT_API direct_futex_wake      ( int *uaddr, int num );
+
+// Temporarily for testing
+extern unsigned int DIRECT_API __Direct_Futex_Wait_Count;
+extern unsigned int DIRECT_API __Direct_Futex_Wake_Count;
 
 #endif
 

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __X11__PRIMARY_H__
 #define __X11__PRIMARY_H__
 
@@ -38,9 +42,17 @@ extern ScreenFuncs       *x11PrimaryScreenFuncs;
 extern DisplayLayerFuncs *x11PrimaryLayerFuncs;
 
 typedef struct {
-     int      layer_id;
-     XWindow *xw;
+     int                    layer_id;
+     XWindow               *xw;
+     CoreLayerRegionConfig  config;
+     CoreSurfaceBufferLock  lock_left;
+     CoreSurfaceBufferLock  lock_right;
+     CoreSurface           *surface;
 } X11LayerData;
+
+DFBResult
+dfb_x11_update_screen( DFBX11 *x11, X11LayerData *lds, const DFBRegion *left_region, const DFBRegion *right_region,
+                       CoreSurfaceBufferLock *left_lock, CoreSurfaceBufferLock *right_lock );
 
 #endif // __X11__PRIMARY_H__
 

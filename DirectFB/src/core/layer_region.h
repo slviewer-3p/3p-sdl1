@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __CORE__LAYER_REGION_H__
 #define __CORE__LAYER_REGION_H__
@@ -78,6 +82,19 @@ DFBResult dfb_layer_region_flip_update  ( CoreLayerRegion      *region,
                                           const DFBRegion      *update,
                                           DFBSurfaceFlipFlags   flags );
 
+DFBResult
+dfb_layer_region_flip_update_stereo     ( CoreLayerRegion      *region,
+                                          const DFBRegion      *left_update,
+                                          const DFBRegion      *right_update,
+                                          DFBSurfaceFlipFlags   flags );
+
+
+DFBResult dfb_layer_region_flip_update2  ( CoreLayerRegion      *region,
+                                           const DFBRegion      *left_update,
+                                           const DFBRegion      *right_update,
+                                           DFBSurfaceFlipFlags   flags,
+                                           long long             pts,
+                                           DFB_DisplayTask     **ret_task );
 
 /*
  * Configuration
@@ -95,6 +112,19 @@ DFBResult dfb_layer_region_get_configuration( CoreLayerRegion       *region,
  */
 DirectResult dfb_layer_region_lock  ( CoreLayerRegion   *region );
 DirectResult dfb_layer_region_unlock( CoreLayerRegion   *region );
+
+
+
+
+DFBResult dfb_layer_region_set( CoreLayerRegion            *region,
+                                CoreLayerRegionConfig      *config,
+                                CoreLayerRegionConfigFlags  flags,
+                                CoreSurface                *surface );
+
+DFBResult dfb_layer_region_realize( CoreLayerRegion *region,
+                                    bool             set );
+
+DFBResult dfb_layer_region_unrealize( CoreLayerRegion *region );
 
 #endif
 

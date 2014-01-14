@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __IDIRECTFBIMAGEPROVIDER_H__
 #define __IDIRECTFBIMAGEPROVIDER_H__
 
@@ -43,7 +47,8 @@ typedef struct {
 DFBResult
 IDirectFBImageProvider_CreateFromBuffer( IDirectFBDataBuffer     *buffer,
                                          CoreDFB                 *core,
-                                         IDirectFBImageProvider **interface );
+                                         IDirectFB               *idirectfb,
+                                         IDirectFBImageProvider **interface_ptr );
 
 /**********************************************************************************************************************/
 
@@ -57,6 +62,7 @@ typedef struct {
      IDirectFBDataBuffer *buffer;
 
      CoreDFB             *core;
+     IDirectFB           *idirectfb;
 
      DIRenderCallback     render_callback;
      void                *render_callback_context;

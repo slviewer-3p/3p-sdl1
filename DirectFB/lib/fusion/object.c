@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,17 +28,19 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <sys/param.h>
-
-#include <pthread.h>
 
 #include <direct/debug.h>
 #include <direct/messages.h>
 #include <direct/thread.h>
 
-#include <fusion/build.h>
+#include <fusion/Debug.h>
+
+#include <fusion/conf.h>
 #include <fusion/object.h>
 #include <fusion/hash.h>
 #include <fusion/shmalloc.h>
@@ -44,36 +48,37 @@
 #include "fusion_internal.h"
 
 D_DEBUG_DOMAIN( Fusion_Object, "Fusion/Object", "Fusion Objects and Pools" );
+D_DEBUG_DOMAIN( Fusion_Object_Owner, "Fusion/Object/Owner", "Fusion Objects and Pools" );
 
-struct __Fusion_FusionObjectPool {
-     int                     magic;
 
-     FusionWorldShared      *shared;
-
-     FusionSkirmish          lock;
-     DirectLink             *objects;
-     FusionObjectID          id_pool;
-
-     char                   *name;
-     int                     object_size;
-     int                     message_size;
-     FusionObjectDestructor  destructor;
-     void                   *ctx;
-
-     FusionCall              call;
-};
-
+#if 0
+static FusionCallHandlerResult
+object_reference_watcher( int           caller,   /* fusion id of the caller */
+                          int           call_arg, /* optional call parameter */
+                          void         *ptr, /* optional call parameter */
+                          unsigned int  length,
+                          void         *ctx,      /* optional handler context */
+                          unsigned int  serial,
+                          void         *ret_ptr,
+                          unsigned int  ret_size,
+                          unsigned int *ret_length )
+#else
 static FusionCallHandlerResult
 object_reference_watcher( int caller, int call_arg, void *call_ptr, void *ctx, unsigned int serial, int *ret_val )
+#endif
 {
      FusionObject     *object;
      FusionObjectPool *pool = ctx;
 
      D_DEBUG_AT( Fusion_Object, "%s( %d, %d, %p, %p, %u, %p )\n",
+#if 0
+                 __FUNCTION__, caller, call_arg, ptr, ctx, serial, ret_ptr );
+#else
                  __FUNCTION__, caller, call_arg, call_ptr, ctx, serial, ret_val );
+#endif
 
 #if FUSION_BUILD_KERNEL
-     if (caller) {
+     if (caller && !pool->secure) {
           D_BUG( "Call not from Fusion/Kernel (caller %d)", caller );
           return FCHR_RETURN;
      }
@@ -85,27 +90,44 @@ object_reference_watcher( int caller, int call_arg, void *call_ptr, void *ctx, u
      if (fusion_skirmish_prevail( &pool->lock ))
           return FCHR_RETURN;
 
-     /* Lookup the object. */
-     direct_list_foreach (object, pool->objects) {
-          if (object->id != call_arg)
-               continue;
+     D_MAGIC_ASSERT( pool, FusionObjectPool );
 
+     /* Lookup the object. */
+     object = fusion_hash_lookup( pool->objects, (void*)(long) call_arg );
+
+     D_DEBUG_AT( Fusion_Object, "  -> lookup as %p\n", object );
+
+     if (object) {
           D_MAGIC_ASSERT( object, FusionObject );
+
+          D_DEBUG_AT( Fusion_Object, "  -> %s\n", ToString_FusionObject( object ) );
+
+          if (object->ref.single.dead) {
+               object->ref.single.dead--;
+
+               if (object->ref.single.dead) {
+                    D_DEBUG_AT( Fusion_Object, "  -> died multiple times (%d more), skipping...\n", object->ref.single.dead );
+
+                    fusion_skirmish_dismiss( &pool->lock );
+                    return FCHR_RETURN;
+               }
+          }
+
 
           switch (fusion_ref_zero_trylock( &object->ref )) {
                case DR_OK:
                     break;
 
                case DR_DESTROYED:
-                    D_BUG( "already destroyed %p [%ld] in '%s'", object, object->id, pool->name );
+                    D_BUG( "already destroyed %p [%u] in '%s'", object, object->id, pool->name );
 
-                    direct_list_remove( &pool->objects, &object->link );
+                    fusion_hash_remove( pool->objects, (void*)(long) object->id, NULL, NULL );
                     fusion_skirmish_dismiss( &pool->lock );
                     return FCHR_RETURN;
 
 
                default:
-                    D_ERROR( "Fusion/ObjectPool: Error locking ref of %p [%lu] in '%s'\n",
+                    D_ERROR( "Fusion/ObjectPool: Error locking ref of %p [%u] in '%s'\n",
                              object, object->id, pool->name );
                     /* fall through */
 
@@ -115,12 +137,12 @@ object_reference_watcher( int caller, int call_arg, void *call_ptr, void *ctx, u
           }
 
           D_DEBUG_AT( Fusion_Object, "== %s ==\n", pool->name );
-          D_DEBUG_AT( Fusion_Object, "  -> dead object %p [%lu] (ref %d)\n", object, object->id, object->ref.multi.id );
+          D_DEBUG_AT( Fusion_Object, "  -> dead object %p [%u] (ref %x)\n", object, object->id, object->ref.multi.id );
 
           if (object->state == FOS_INIT) {
                D_BUG( "== %s == incomplete object: %d (%p)", pool->name, call_arg, object );
                D_WARN( "won't destroy incomplete object, leaking some memory" );
-               direct_list_remove( &pool->objects, &object->link );
+               fusion_hash_remove( pool->objects, (void*)(long) object->id, NULL, NULL );
                fusion_skirmish_dismiss( &pool->lock );
                return FCHR_RETURN;
           }
@@ -130,7 +152,7 @@ object_reference_watcher( int caller, int call_arg, void *call_ptr, void *ctx, u
 
           /* Remove the object from the pool. */
           object->pool = NULL;
-          direct_list_remove( &pool->objects, &object->link );
+          fusion_hash_remove( pool->objects, (void*)(long) object->id, NULL, NULL );
 
           /* Unlock the pool. */
           fusion_skirmish_dismiss( &pool->lock );
@@ -167,9 +189,10 @@ fusion_object_pool_create( const char             *name,
 
      D_ASSERT( name != NULL );
      D_ASSERT( object_size >= sizeof(FusionObject) );
-     D_ASSERT( message_size > 0 );
      D_ASSERT( destructor != NULL );
      D_MAGIC_ASSERT( world, FusionWorld );
+
+     D_DEBUG_AT( Fusion_Object, "%s( '%s' )\n", __FUNCTION__, name );
 
      shared = world->shared;
 
@@ -183,7 +206,9 @@ fusion_object_pool_create( const char             *name,
      }
 
      /* Initialize the pool lock. */
-     fusion_skirmish_init( &pool->lock, name, world );
+     fusion_skirmish_init2( &pool->lock, name, world, false );
+
+     fusion_skirmish_add_permissions( &pool->lock, 0, FUSION_SKIRMISH_PERMIT_PREVAIL | FUSION_SKIRMISH_PERMIT_DISMISS );
 
      /* Fill information. */
      pool->shared       = shared;
@@ -192,9 +217,13 @@ fusion_object_pool_create( const char             *name,
      pool->message_size = message_size;
      pool->destructor   = destructor;
      pool->ctx          = ctx;
+     pool->secure       = fusion_config->secure_fusion;
+
+     fusion_hash_create( shared->main_pool, HASH_INT, HASH_PTR, 17, &pool->objects );
 
      /* Destruction call from Fusion. */
      fusion_call_init( &pool->call, object_reference_watcher, pool, world );
+     fusion_call_set_name( &pool->call, "object_reference_watcher" );
 
      D_MAGIC_SET( pool, FusionObjectPool );
 
@@ -202,16 +231,18 @@ fusion_object_pool_create( const char             *name,
 }
 
 DirectResult
-fusion_object_pool_destroy( FusionObjectPool  *pool,
-                            const FusionWorld *world )
+fusion_object_pool_destroy( FusionObjectPool *pool,
+                            FusionWorld      *world )
 {
-     DirectResult       ret;
-     DirectLink        *n;
-     FusionObject      *object;
-     FusionWorldShared *shared;
+     DirectResult        ret;
+     FusionObject       *object;
+     FusionWorldShared  *shared;
+     FusionHashIterator  it;
 
-     D_ASSERT( pool != NULL );
+     D_MAGIC_ASSERT( pool, FusionObjectPool );
      D_MAGIC_ASSERT( world, FusionWorld );
+
+     D_DEBUG_AT( Fusion_Object, "%s( %p '%s' )\n", __FUNCTION__, pool, pool->name );
 
      shared = world->shared;
 
@@ -221,10 +252,12 @@ fusion_object_pool_destroy( FusionObjectPool  *pool,
      D_DEBUG_AT( Fusion_Object, "== %s ==\n", pool->name );
      D_DEBUG_AT( Fusion_Object, "  -> destroying pool...\n" );
 
+     fusion_world_flush_calls( world, 1 );
+
      D_DEBUG_AT( Fusion_Object, "  -> syncing...\n" );
 
      /* Wait for processing of pending messages. */
-     if (pool->objects)
+     if (fusion_hash_size(pool->objects))
           fusion_sync( world );
 
      D_DEBUG_AT( Fusion_Object, "  -> locking...\n" );
@@ -237,24 +270,25 @@ fusion_object_pool_destroy( FusionObjectPool  *pool,
      /* Destroy the call. */
      fusion_call_destroy( &pool->call );
 
-     if (pool->objects)
-          D_WARN( "still objects in '%s'", pool->name );
-
      /* Destroy zombies */
-     direct_list_foreach_safe (object, n, pool->objects) {
+     fusion_hash_foreach (object, it, pool->objects) {
           int refs;
 
           fusion_ref_stat( &object->ref, &refs );
 
+          if (refs > 0) {
+               if (direct_config_get_int_value( "shutdown-info" )) {
+                    D_WARN( "zombie %p [%u], refs %d (in %s) => ref id 0x%x", object, object->id, refs, pool->name, object->ref.multi.id );
+
+                    direct_trace_print_stack( object->create_stack );
+               }
+          }
+
           D_DEBUG_AT( Fusion_Object, "== %s ==\n", pool->name );
-          D_DEBUG_AT( Fusion_Object, "  -> zombie %p [%ld], refs %d\n", object, object->id, refs );
+          D_DEBUG_AT( Fusion_Object, "  -> %p [%u], refs %d\n", object, object->id, refs );
 
           /* Set "deinitializing" state. */
           object->state = FOS_DEINIT;
-
-          /* Remove the object from the pool. */
-          //direct_list_remove( &pool->objects, &object->link );
-          //object->pool = NULL;
 
           D_DEBUG_AT( Fusion_Object, "  -> calling destructor...\n" );
 
@@ -262,18 +296,17 @@ fusion_object_pool_destroy( FusionObjectPool  *pool,
           pool->destructor( object, refs > 0, pool->ctx );
 
           D_DEBUG_AT( Fusion_Object, "  -> destructor done.\n" );
-
-          D_ASSERT( ! direct_list_contains_element_EXPENSIVE( pool->objects, (DirectLink*) object ) );
      }
 
-     pool->objects = NULL;
+     fusion_hash_destroy( pool->objects );
 
-     /* Destroy the pool lock. */
-     fusion_skirmish_destroy( &pool->lock );
+     D_MAGIC_CLEAR( pool );
 
      D_DEBUG_AT( Fusion_Object, "  -> pool destroyed (%s)\n", pool->name );
 
-     D_MAGIC_CLEAR( pool );
+     /* Destroy the pool lock. */
+     fusion_skirmish_dismiss( &pool->lock );
+     fusion_skirmish_destroy( &pool->lock );
 
      /* Deallocate shared memory. */
      SHFREE( shared->main_pool, pool->name );
@@ -283,25 +316,57 @@ fusion_object_pool_destroy( FusionObjectPool  *pool,
 }
 
 DirectResult
+fusion_object_pool_set_describe( FusionObjectPool     *pool,
+                                 FusionObjectDescribe  func )
+{
+     D_MAGIC_ASSERT( pool, FusionObjectPool );
+
+     pool->describe = func;
+
+     return DR_OK;
+}
+
+typedef struct {
+     FusionObjectPool     *pool;
+     FusionObjectCallback  callback;
+     void                 *ctx;
+} ObjectIteratorContext;
+
+static bool
+object_iterator( FusionHash *hash,
+                 void       *key,
+                 void       *value,
+                 void       *ctx )
+{
+     ObjectIteratorContext *context = ctx;
+     FusionObject          *object  = value;
+
+     D_MAGIC_ASSERT( object, FusionObject );
+
+     return !context->callback( context->pool, object, context->ctx );
+}
+
+DirectResult
 fusion_object_pool_enum( FusionObjectPool     *pool,
                          FusionObjectCallback  callback,
                          void                 *ctx )
 {
-     FusionObject *object;
+     ObjectIteratorContext iterator_context;
 
      D_MAGIC_ASSERT( pool, FusionObjectPool );
      D_ASSERT( callback != NULL );
+
+     D_DEBUG_AT( Fusion_Object, "%s( %p '%s' )\n", __FUNCTION__, pool, pool->name );
 
      /* Lock the pool. */
      if (fusion_skirmish_prevail( &pool->lock ))
           return DR_FUSION;
 
-     direct_list_foreach (object, pool->objects) {
-          D_MAGIC_ASSERT( object, FusionObject );
+     iterator_context.pool     = pool;
+     iterator_context.callback = callback;
+     iterator_context.ctx      = ctx;
 
-          if (!callback( pool, object, ctx ))
-               break;
-     }
+     fusion_hash_iterate( pool->objects, object_iterator, &iterator_context );
 
      /* Unlock the pool. */
      fusion_skirmish_dismiss( &pool->lock );
@@ -311,13 +376,16 @@ fusion_object_pool_enum( FusionObjectPool     *pool,
 
 FusionObject *
 fusion_object_create( FusionObjectPool  *pool,
-                      const FusionWorld *world )
+                      const FusionWorld *world,
+                      FusionID           identity )
 {
      FusionObject      *object;
      FusionWorldShared *shared;
 
      D_MAGIC_ASSERT( pool, FusionObjectPool );
      D_MAGIC_ASSERT( world, FusionWorld );
+
+     D_DEBUG_AT( Fusion_Object, "%s( %p '%s', identity %lu )\n", __FUNCTION__, pool, pool->name, identity );
 
      shared = world->shared;
 
@@ -342,8 +410,13 @@ fusion_object_create( FusionObjectPool  *pool,
      /* Set object id. */
      object->id = ++pool->id_pool;
 
+     object->identity = identity;
+
+     if (pool->secure || world->fusion_id == FUSION_ID_MASTER)
+          object->create_stack = direct_trace_copy_buffer( NULL );
+
      /* Initialize the reference counter. */
-     if (fusion_ref_init( &object->ref, pool->name, world )) {
+     if (fusion_ref_init2( &object->ref, pool->name, pool->secure, world )) {
           SHFREE( shared->main_pool, object );
           fusion_skirmish_dismiss( &pool->lock );
           return NULL;
@@ -371,20 +444,18 @@ fusion_object_create( FusionObjectPool  *pool,
 
      fusion_reactor_set_lock( object->reactor, &pool->lock );
 
+     fusion_vector_init( &object->access, 1, shared->main_pool );
+     fusion_vector_init( &object->owners, 1, shared->main_pool );
+
      /* Set pool/world back pointer. */
      object->pool   = pool;
      object->shared = shared;
 
      /* Add the object to the pool. */
-     direct_list_prepend( &pool->objects, &object->link );
+     fusion_hash_insert( pool->objects, (void*)(long) object->id, object );
 
      D_DEBUG_AT( Fusion_Object, "== %s ==\n", pool->name );
-
-#if FUSION_BUILD_MULTI
-     D_DEBUG_AT( Fusion_Object, "  -> added %p with ref [0x%x]\n", object, object->ref.multi.id );
-#else
-     D_DEBUG_AT( Fusion_Object, "  -> added %p\n", object );
-#endif
+     D_DEBUG_AT( Fusion_Object, "  -> added object %p [%u] (ref %x)\n", object, object->id, object->ref.multi.id );
 
      D_MAGIC_SET( object, FusionObject );
 
@@ -399,27 +470,75 @@ fusion_object_get( FusionObjectPool  *pool,
                    FusionObjectID     object_id,
                    FusionObject     **ret_object )
 {
-     DirectResult  ret = DR_IDNOTFOUND;
-     FusionObject *object;
+     DirectResult  ret;
+     FusionObject *object = NULL;
 
      D_MAGIC_ASSERT( pool, FusionObjectPool );
      D_ASSERT( ret_object != NULL );
 
+     D_DEBUG_AT( Fusion_Object, "%s( %p '%s', object_id %u )\n", __FUNCTION__, pool, pool->name, object_id );
+
      /* Lock the pool. */
-     if (fusion_skirmish_prevail( &pool->lock ))
-          return DR_FUSION;
+     ret = fusion_skirmish_prevail( &pool->lock );
+     if (ret == DR_OK) {
+          object = fusion_hash_lookup( pool->objects, (void*)(long) object_id );
+          if (object) {
+               int refs;
 
-     direct_list_foreach (object, pool->objects) {
-          D_MAGIC_ASSERT( object, FusionObject );
+               D_DEBUG_AT( Fusion_Object, "  -> %s\n", ToString_FusionObject(object) );
 
-          if (object->id == object_id) {
-               ret = fusion_object_ref( object );
-               break;
+               ret = fusion_ref_stat( &object->ref, &refs );
+               if (ret == DR_OK) {
+                    D_DEBUG_AT( Fusion_Object, "  -> refs %d\n", refs );
+
+                    if (refs > 0)
+                         ret = fusion_object_ref( object );
+                    else
+                         ret = DR_DEAD;
+               }
+          }
+          else {
+               D_DEBUG_AT( Fusion_Object, "  -> NOT FOUND\n" );
+               ret = DR_IDNOTFOUND;
           }
      }
 
      if (ret == DR_OK)
           *ret_object = object;
+
+     /* Unlock the pool. */
+     fusion_skirmish_dismiss( &pool->lock );
+
+     return ret;
+}
+
+DirectResult
+fusion_object_lookup( FusionObjectPool  *pool,
+                      FusionObjectID     object_id,
+                      FusionObject     **ret_object )
+{
+     DirectResult  ret    = DR_IDNOTFOUND;
+     FusionObject *object = NULL;
+
+     D_MAGIC_ASSERT( pool, FusionObjectPool );
+     D_ASSERT( ret_object != NULL );
+
+     D_DEBUG_AT( Fusion_Object, "%s( %p '%s', object_id %u )\n", __FUNCTION__, pool, pool->name, object_id );
+
+     /* Lock the pool. */
+     if (fusion_skirmish_prevail( &pool->lock ))
+          return DR_FUSION;
+
+     object = fusion_hash_lookup( pool->objects, (void*)(long) object_id );
+     if (object) {
+          D_DEBUG_AT( Fusion_Object, "  -> %s\n", ToString_FusionObject(object) );
+
+          ret = DR_OK;
+     }
+     else
+          D_DEBUG_AT( Fusion_Object, "  -> NOT FOUND\n" );
+
+     *ret_object = object;
 
      /* Unlock the pool. */
      fusion_skirmish_dismiss( &pool->lock );
@@ -445,6 +564,8 @@ fusion_object_activate( FusionObject *object )
 {
      D_MAGIC_ASSERT( object, FusionObject );
 
+     D_DEBUG_AT( Fusion_Object, "%s( %s )\n", __FUNCTION__, ToString_FusionObject(object) );
+
      /* Set "active" state. */
      object->state = FOS_ACTIVE;
 
@@ -456,9 +577,13 @@ fusion_object_destroy( FusionObject *object )
 {
      FusionObjectPool  *pool;
      FusionWorldShared *shared;
+     char              *access;
+     int                index;
 
      D_MAGIC_ASSERT( object, FusionObject );
      D_ASSERT( object->state != FOS_ACTIVE );
+
+     D_DEBUG_AT( Fusion_Object, "%s( %s )\n", __FUNCTION__, ToString_FusionObject(object) );
 
      shared = object->shared;
 
@@ -489,12 +614,19 @@ fusion_object_destroy( FusionObject *object )
 
                object->pool = NULL;
 
-               direct_list_remove( &pool->objects, &object->link );
+               fusion_hash_remove( pool->objects, (void*)(long) object->id, NULL, NULL );
           }
 
           /* Unlock the pool. */
           fusion_skirmish_dismiss( &pool->lock );
      }
+
+     fusion_vector_foreach (access, index, object->access) {
+          SHFREE( object->shared->main_pool, access );
+     }
+
+     fusion_vector_destroy( &object->access );
+     fusion_vector_destroy( &object->owners );
 
      fusion_ref_destroy( &object->ref );
 
@@ -502,6 +634,9 @@ fusion_object_destroy( FusionObject *object )
 
      if ( object->properties )
           fusion_hash_destroy(object->properties);
+
+     if (object->create_stack)
+          direct_trace_free_buffer( object->create_stack );
 
      D_MAGIC_CLEAR( object );
      SHFREE( shared->main_pool, object );
@@ -636,5 +771,131 @@ fusion_object_remove_property( FusionObject  *object,
 
      if (fusion_hash_should_resize( object->properties ))
           fusion_hash_resize( object->properties );
+}
+
+DirectResult
+fusion_object_add_access( FusionObject *object,
+                          const char   *executable )
+{
+     DirectResult  ret;
+     char         *copy;
+
+     D_DEBUG_AT( Fusion_Object, "%s( %p, '%s' )\n", __FUNCTION__, object, executable );
+
+     D_MAGIC_ASSERT( object, FusionObject );
+     D_ASSERT( executable != NULL );
+
+     copy = SHSTRDUP( object->shared->main_pool, executable );
+     if (!copy)
+          return D_OOM();
+
+     ret = fusion_vector_add( &object->access, copy );
+     if (ret) {
+          SHFREE( object->shared->main_pool, copy );
+          return ret;
+     }
+
+     return DR_OK;
+}
+
+DirectResult
+fusion_object_has_access( FusionObject *object,
+                          const char   *executable )
+{
+     char *access;
+     int   index;
+
+     D_DEBUG_AT( Fusion_Object, "%s( %p, '%s' )\n", __FUNCTION__, object, executable );
+
+     D_MAGIC_ASSERT( object, FusionObject );
+     D_ASSERT( executable != NULL );
+
+     fusion_vector_foreach (access, index, object->access) {
+          int len = strlen( access );
+
+          if (access[len-1] == '*') {
+               if (!strncmp( access, executable, len-1 ))
+                    return DR_OK;
+          }
+          else
+               if (!strcmp( access, executable ))
+                    return DR_OK;
+     }
+
+     return DR_ACCESSDENIED;
+}
+
+DirectResult
+fusion_object_add_owner( FusionObject *object,
+                         FusionID      owner )
+{
+     FusionID  id;
+     int       i;
+
+     D_DEBUG_AT( Fusion_Object, "%s( %p, %lu )\n", __FUNCTION__, object, owner );
+
+     D_MAGIC_ASSERT( object, FusionObject );
+
+     fusion_vector_foreach (id, i, object->owners) {
+          if (id == owner)
+               return DR_OK;
+     }
+
+     D_DEBUG_AT( Fusion_Object_Owner, "  = add %lu (object %p id %u)\n", owner, object, object->id );
+
+     return fusion_vector_add( &object->owners, (void*) owner );
+}
+
+DirectResult
+fusion_object_check_owner( FusionObject *object,
+                           FusionID      owner,
+                           bool          succeed_if_not_owned )
+{
+     FusionID  id;
+     int       i;
+
+     D_DEBUG_AT( Fusion_Object, "%s( %p, %lu )\n", __FUNCTION__, object, owner );
+
+     D_MAGIC_ASSERT( object, FusionObject );
+
+     D_DEBUG_AT( Fusion_Object_Owner, "  = check %lu and %ssucceed if not owned (object %p id %u)\n",
+                 owner, succeed_if_not_owned ? "" : "DON'T ", object, object->id );
+
+     if (succeed_if_not_owned && object->owners.count == 0) {
+          D_DEBUG_AT( Fusion_Object_Owner, "   -> SUCCESS (no owner)\n" );
+          return DR_OK;
+     }
+
+     fusion_vector_foreach (id, i, object->owners) {
+          if (id == owner) {
+               D_DEBUG_AT( Fusion_Object_Owner, "   -> SUCCESS (found as owner with index %d)\n", i );
+               return DR_OK;
+          }
+     }
+
+     D_DEBUG_AT( Fusion_Object_Owner, "   -> FAIL (not found)\n" );
+
+     return DR_IDNOTFOUND;
+}
+
+DirectResult
+fusion_object_catch( FusionObject *object )
+{
+     DirectResult ret;
+
+     D_MAGIC_ASSERT( object, FusionObject );
+
+     ret = fusion_ref_up( &object->ref, false );
+     if (ret)
+          return ret;
+
+     ret = fusion_ref_catch( &object->ref );
+     if (ret) {
+          D_DERROR( ret, "Fusion/Object: Failed to catch reference 0x%08x!\n", object->ref.multi.id );
+          fusion_ref_down( &object->ref, false );
+          return ret;
+     }
+
+     return DR_OK;
 }
 

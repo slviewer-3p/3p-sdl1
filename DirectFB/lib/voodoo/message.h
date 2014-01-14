@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __VOODOO__MESSAGE_H__
 #define __VOODOO__MESSAGE_H__
@@ -57,7 +61,10 @@ typedef enum {
 typedef enum {
      VMSG_SUPER,
      VMSG_REQUEST,
-     VMSG_RESPONSE
+     VMSG_RESPONSE,
+
+     VMSG_DISCOVER, // temporary solution for compatibility
+     VMSG_SENDINFO, // temporary solution for compatibility
 } VoodooMessageType;
 
 
@@ -107,6 +114,8 @@ typedef struct {
      VoodooMessageParser    *_parser = &parser;             \
                                                             \
      D_MAGIC_ASSERT( _parser, VoodooMessageParser );        \
+                                                            \
+     (void)_vp_type;                                        \
                                                             \
      _vp_ptr = _parser->ptr;                                \
                                                             \
@@ -180,7 +189,7 @@ typedef struct {
      do {                                                             \
           __VOODOO_PARSER_PROLOG( parser, VMBT_DATA );                \
                                                                       \
-          D_ASSERT( _vp_length > 0 );                                 \
+          /*D_ASSERT( _vp_length > 0 );*/                                 \
                                                                       \
           /* Return pointer to data. */                               \
           (ret_data) = (__typeof__(ret_data))(_vp_ptr + 8);           \
@@ -192,7 +201,7 @@ typedef struct {
      do {                                                             \
           __VOODOO_PARSER_PROLOG( parser, VMBT_DATA );                \
                                                                       \
-          D_ASSERT( _vp_length > 0 );                                 \
+          /*D_ASSERT( _vp_length > 0 );*/                                 \
           D_ASSERT( _vp_length <= max_len );                          \
                                                                       \
           /* Copy data block. */                                      \
@@ -205,7 +214,7 @@ typedef struct {
      do {                                                             \
           __VOODOO_PARSER_PROLOG( parser, VMBT_DATA );                \
                                                                       \
-          D_ASSERT( _vp_length > 0 );                                 \
+          /*D_ASSERT( _vp_length > 0 );*/                                 \
                                                                       \
           /* Allocate memory on the stack. */                         \
           (ret_data) = alloca( _vp_length );                          \

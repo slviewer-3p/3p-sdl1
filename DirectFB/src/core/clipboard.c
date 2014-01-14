@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <directfb.h>
@@ -33,6 +37,7 @@
 #include <direct/debug.h>
 #include <direct/memcpy.h>
 
+#include <fusion/conf.h>
 #include <fusion/shmalloc.h>
 
 #include <core/core.h>
@@ -84,7 +89,7 @@ dfb_clipboard_core_initialize( CoreDFB                *core,
 
      shared->shmpool = dfb_core_shmpool( core );
 
-     fusion_skirmish_init( &shared->lock, "Clipboard Core", dfb_core_world(core) );
+     fusion_skirmish_init2( &shared->lock, "Clipboard Core", dfb_core_world(core), fusion_config->secure_fusion );
 
      D_MAGIC_SET( data, DFBClipboardCore );
      D_MAGIC_SET( shared, DFBClipboardCoreShared );

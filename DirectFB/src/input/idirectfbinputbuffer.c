@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,19 +28,21 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
+//#define DIRECT_ENABLE_DEBUG
+
 #include <config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 
 #include <string.h>
 #include <errno.h>
 
-#include <sys/time.h>
+#ifndef WIN32
 #include <sys/socket.h>
-
-#include <pthread.h>
+#endif
 
 #include <directfb.h>
 
@@ -53,13 +57,18 @@
 
 #include <fusion/reactor.h>
 
+#if !DIRECTFB_BUILD_PURE_VOODOO
 #include <core/coredefs.h>
 #include <core/coretypes.h>
+
+#include <core/CoreWindow.h>
 
 #include <core/input.h>
 #include <core/windows.h>
 #include <core/windows_internal.h>
+#endif
 
+#include <misc/conf.h>
 #include <misc/util.h>
 
 #include <idirectfb.h>
@@ -67,7 +76,8 @@
 #include "idirectfbinputbuffer.h"
 
 
-D_DEBUG_DOMAIN( IDFBEvBuf, "IDFBEventBuffer", "IDirectFBEventBuffer Interface" );
+D_DEBUG_DOMAIN( IDFBEvBuf,         "IDFBEventBuffer",         "IDirectFBEventBuffer Interface" );
+D_DEBUG_DOMAIN( IDFBEvBuf_Surface, "IDFBEventBuffer/Surface", "IDirectFBEventBuffer Interface Surface" );
 
 
 typedef struct {
@@ -75,6 +85,7 @@ typedef struct {
      DFBEvent     evt;
 } EventBufferItem;
 
+#if !DIRECTFB_BUILD_PURE_VOODOO
 typedef struct {
      DirectLink       link;
 
@@ -91,6 +102,14 @@ typedef struct {
      Reaction     reaction;
 } AttachedWindow;
 
+typedef struct {
+     DirectLink   link;
+
+     CoreSurface *surface;      /* pointer to core window struct */
+     Reaction     reaction;
+} AttachedSurface;
+#endif
+
 /*
  * private data struct of IDirectFBInputDevice
  */
@@ -103,12 +122,13 @@ typedef struct {
      DirectLink                   *devices;        /* attached devices */
 
      DirectLink                   *windows;        /* attached windows */
+     DirectLink                   *surfaces;       /* attached surfaces */
 
      DirectLink                   *events;         /* linked list containing events */
 
-     pthread_mutex_t               events_mutex;   /* mutex lock for accessing the event queue */
+     DirectMutex                   events_mutex;   /* mutex lock for accessing the event queue */
 
-     pthread_cond_t                wait_condition; /* condition for idle wait in WaitForEvent() */
+     DirectWaitQueue               wait_condition; /* condition for idle wait in WaitForEvent() */
 
      bool                          pipe;           /* file descriptor mode? */
      int                           pipe_fds[2];    /* read & write file descriptor */
@@ -131,13 +151,55 @@ static ReactionResult IDirectFBEventBuffer_InputReact( const void *msg_data,
 
 static ReactionResult IDirectFBEventBuffer_WindowReact( const void *msg_data,
                                                         void       *ctx );
+
+static ReactionResult IDirectFBEventBuffer_SurfaceReact( const void *msg_data,
+                                                         void       *ctx );
 #endif
 
+#ifndef WIN32
 static void *IDirectFBEventBuffer_Feed( DirectThread *thread, void *arg );
+#endif
 
 static void CollectEventStatistics( DFBEventBufferStats *stats,
                                     const DFBEvent      *event,
                                     int                  incdec );
+
+
+static void
+dump_event( const DFBEvent *event )
+{
+#if D_DEBUG_ENABLED
+     switch (event->clazz) {
+          case DFEC_INPUT:
+               D_DEBUG_AT( IDFBEvBuf, "  -> INPUT %u (type 0x%08x)\n", event->input.device_id, event->input.type );
+               break;
+
+          case DFEC_WINDOW:
+               D_DEBUG_AT( IDFBEvBuf, "  -> WINDOW %u (type 0x%08x)\n", event->window.window_id, event->window.type );
+               break;
+
+          case DFEC_USER:
+               D_DEBUG_AT( IDFBEvBuf, "  -> USER (type 0x%08x, data %p)\n", event->user.type, event->user.data );
+               break;
+
+          case DFEC_VIDEOPROVIDER:
+               D_DEBUG_AT( IDFBEvBuf, "  -> VIDEOPROVIDER (type 0x%08x, data_type 0x%08x)\n", event->videoprovider.type, event->videoprovider.data_type );
+               break;
+
+          case DFEC_SURFACE:
+               D_DEBUG_AT( IDFBEvBuf, "  -> SURFACE %u (type 0x%08x)\n", event->surface.surface_id, event->surface.type );
+               break;
+
+          case DFEC_UNIVERSAL:
+               D_DEBUG_AT( IDFBEvBuf, "  -> UNIVERSAL (size %u)\n", event->universal.size );
+               break;
+
+          default:
+               D_DEBUG_AT( IDFBEvBuf, "  -> UNKNOWN EVENT CLASS 0x%08x\n", event->clazz );
+               break;
+     }
+#endif
+}
 
 
 static void
@@ -146,6 +208,7 @@ IDirectFBEventBuffer_Destruct( IDirectFBEventBuffer *thiz )
      IDirectFBEventBuffer_data *data = thiz->priv;
 #if !DIRECTFB_BUILD_PURE_VOODOO
      AttachedDevice            *device;
+     AttachedSurface           *surface;
      AttachedWindow            *window;
 #endif
      EventBufferItem           *item;
@@ -158,25 +221,37 @@ IDirectFBEventBuffer_Destruct( IDirectFBEventBuffer *thiz )
      containers_remove_input_eventbuffer( thiz );
 #endif
 
-     pthread_mutex_lock( &data->events_mutex );
+     direct_mutex_lock( &data->events_mutex );
 
+#ifndef WIN32
      if (data->pipe) {
           data->pipe = false;
 
-          pthread_cond_broadcast( &data->wait_condition );
+          direct_waitqueue_broadcast( &data->wait_condition );
 
-          pthread_mutex_unlock( &data->events_mutex );
+          direct_mutex_unlock( &data->events_mutex );
 
           direct_thread_join( data->pipe_thread );
           direct_thread_destroy( data->pipe_thread );
 
-          pthread_mutex_lock( &data->events_mutex );
+          direct_mutex_lock( &data->events_mutex );
 
           close( data->pipe_fds[0] );
           close( data->pipe_fds[1] );
      }
+#endif
+
+     direct_mutex_unlock( &data->events_mutex );
 
 #if !DIRECTFB_BUILD_PURE_VOODOO
+     direct_list_foreach_safe (surface, n, data->surfaces) {
+          dfb_surface_detach( surface->surface, &surface->reaction );
+
+          dfb_surface_unref( surface->surface );
+
+          D_FREE( surface );
+     }
+
      direct_list_foreach_safe (device, n, data->devices) {
           dfb_input_detach( device->device, &device->reaction );
 
@@ -184,20 +259,25 @@ IDirectFBEventBuffer_Destruct( IDirectFBEventBuffer *thiz )
      }
 
      direct_list_foreach_safe (window, n, data->windows) {
-          if (window->window) {
+          if (window->window)
                dfb_window_detach( window->window, &window->reaction );
+     }
+
+     direct_list_foreach_safe (window, n, data->windows) {
+          if (window->window)
                dfb_window_unref( window->window );
-          }
-               
+
           D_FREE( window );
      }
 #endif
 
+     direct_mutex_lock( &data->events_mutex );
+
      direct_list_foreach_safe (item, n, data->events)
           D_FREE( item );
 
-     pthread_cond_destroy( &data->wait_condition );
-     pthread_mutex_destroy( &data->events_mutex );
+     direct_waitqueue_deinit( &data->wait_condition );
+     direct_mutex_deinit( &data->events_mutex );
 
      DIRECT_DEALLOCATE_INTERFACE( thiz );
 }
@@ -240,14 +320,14 @@ IDirectFBEventBuffer_Reset( IDirectFBEventBuffer *thiz )
      if (data->pipe)
           return DFB_UNSUPPORTED;
 
-     pthread_mutex_lock( &data->events_mutex );
+     direct_mutex_lock( &data->events_mutex );
 
      direct_list_foreach_safe (item, n, data->events)
           D_FREE( item );
 
      data->events = NULL;
 
-     pthread_mutex_unlock( &data->events_mutex );
+     direct_mutex_unlock( &data->events_mutex );
 
      return DFB_OK;
 }
@@ -264,14 +344,14 @@ IDirectFBEventBuffer_WaitForEvent( IDirectFBEventBuffer *thiz )
      if (data->pipe)
           return DFB_UNSUPPORTED;
 
-     pthread_mutex_lock( &data->events_mutex );
+     direct_mutex_lock( &data->events_mutex );
 
      if (!data->events)
-          pthread_cond_wait( &data->wait_condition, &data->events_mutex );
+          direct_waitqueue_wait( &data->wait_condition, &data->events_mutex );
      if (!data->events)
           ret = DFB_INTERRUPTED;
 
-     pthread_mutex_unlock( &data->events_mutex );
+     direct_mutex_unlock( &data->events_mutex );
 
      return ret;
 }
@@ -281,11 +361,8 @@ IDirectFBEventBuffer_WaitForEventWithTimeout( IDirectFBEventBuffer *thiz,
                                               unsigned int          seconds,
                                               unsigned int          milli_seconds )
 {
-     struct timeval  now;
-     struct timespec timeout;
-     DFBResult       ret    = DFB_OK;
-     int             locked = 0;
-     long int        nano_seconds = milli_seconds * 1000000;
+     DirectResult ret    = DR_OK;
+     int          locked = 0;
 
      DIRECT_INTERFACE_GET_DATA(IDirectFBEventBuffer)
 
@@ -294,35 +371,26 @@ IDirectFBEventBuffer_WaitForEventWithTimeout( IDirectFBEventBuffer *thiz,
      if (data->pipe)
           return DFB_UNSUPPORTED;
 
-     if (pthread_mutex_trylock( &data->events_mutex ) == 0) {
+     if (direct_mutex_trylock( &data->events_mutex ) == 0) {
           if (data->events) {
-               pthread_mutex_unlock ( &data->events_mutex );
+               direct_mutex_unlock ( &data->events_mutex );
                return ret;
           }
           locked = 1;
      }
 
-     gettimeofday( &now, NULL );
-
-     timeout.tv_sec  = now.tv_sec + seconds;
-     timeout.tv_nsec = (now.tv_usec * 1000) + nano_seconds;
-
-     timeout.tv_sec  += timeout.tv_nsec / 1000000000;
-     timeout.tv_nsec %= 1000000000;
-
      if (!locked)
-          pthread_mutex_lock( &data->events_mutex );
+          direct_mutex_lock( &data->events_mutex );
 
      if (!data->events) {
-          if (pthread_cond_timedwait( &data->wait_condition,
-                                      &data->events_mutex,
-                                      &timeout ) == ETIMEDOUT)
-               ret = DFB_TIMEOUT;
-          else if (!data->events)
+          ret = direct_waitqueue_wait_timeout( &data->wait_condition,
+                                               &data->events_mutex,
+                                               seconds * 1000000 + milli_seconds * 1000 );
+          if (ret != DR_TIMEOUT && !data->events)
                ret = DFB_INTERRUPTED;
      }
 
-     pthread_mutex_unlock( &data->events_mutex );
+     direct_mutex_unlock( &data->events_mutex );
 
      return ret;
 }
@@ -337,7 +405,7 @@ IDirectFBEventBuffer_WakeUp( IDirectFBEventBuffer *thiz )
      if (data->pipe)
           return DFB_UNSUPPORTED;
 
-     pthread_cond_broadcast( &data->wait_condition );
+     direct_waitqueue_broadcast( &data->wait_condition );
 
      return DFB_OK;
 }
@@ -352,13 +420,16 @@ IDirectFBEventBuffer_GetEvent( IDirectFBEventBuffer *thiz,
 
      D_DEBUG_AT( IDFBEvBuf, "%s( %p, %p )\n", __FUNCTION__, thiz, event );
 
-     if (data->pipe)
+     if (data->pipe) {
+          D_DEBUG_AT( IDFBEvBuf, "  -> pipe mode, returning UNSUPPORTED\n" );
           return DFB_UNSUPPORTED;
+     }
 
-     pthread_mutex_lock( &data->events_mutex );
+     direct_mutex_lock( &data->events_mutex );
 
      if (!data->events) {
-          pthread_mutex_unlock( &data->events_mutex );
+          D_DEBUG_AT( IDFBEvBuf, "  -> no events, returning BUFFEREMPTY\n" );
+          direct_mutex_unlock( &data->events_mutex );
           return DFB_BUFFEREMPTY;
      }
 
@@ -385,6 +456,10 @@ IDirectFBEventBuffer_GetEvent( IDirectFBEventBuffer *thiz,
                direct_memcpy( event, &item->evt, item->evt.universal.size );
                break;
 
+          case DFEC_SURFACE:
+               event->surface = item->evt.surface;
+               break;
+
           default:
                D_BUG("unknown event class");
      }
@@ -396,9 +471,9 @@ IDirectFBEventBuffer_GetEvent( IDirectFBEventBuffer *thiz,
 
      D_FREE( item );
 
-     pthread_mutex_unlock( &data->events_mutex );
+     direct_mutex_unlock( &data->events_mutex );
 
-     D_DEBUG_AT( IDFBEvBuf, "  -> class %d, type/size %d, data/id %p\n", event->clazz, event->user.type, event->user.data );
+     dump_event( event );
 
      return DFB_OK;
 }
@@ -416,10 +491,10 @@ IDirectFBEventBuffer_PeekEvent( IDirectFBEventBuffer *thiz,
      if (data->pipe)
           return DFB_UNSUPPORTED;
 
-     pthread_mutex_lock( &data->events_mutex );
+     direct_mutex_lock( &data->events_mutex );
 
      if (!data->events) {
-          pthread_mutex_unlock( &data->events_mutex );
+          direct_mutex_unlock( &data->events_mutex );
           return DFB_BUFFEREMPTY;
      }
 
@@ -446,13 +521,17 @@ IDirectFBEventBuffer_PeekEvent( IDirectFBEventBuffer *thiz,
                direct_memcpy( event, &item->evt, item->evt.universal.size );
                break;
 
+          case DFEC_SURFACE:
+               event->surface = item->evt.surface;
+               break;
+
           default:
                D_BUG("unknown event class");
      }
 
-     pthread_mutex_unlock( &data->events_mutex );
+     direct_mutex_unlock( &data->events_mutex );
 
-     D_DEBUG_AT( IDFBEvBuf, "  -> class %d, type/size %d, data/id %p\n", event->clazz, event->user.type, event->user.data );
+     dump_event( event );
 
      return DFB_OK;
 }
@@ -482,11 +561,14 @@ IDirectFBEventBuffer_PostEvent( IDirectFBEventBuffer *thiz,
      D_DEBUG_AT( IDFBEvBuf, "%s( %p, %p [class %d, type/size %d, data/id %p] )\n", __FUNCTION__,
                  thiz, event, event->clazz, event->user.type, event->user.data );
 
+     dump_event( event );
+
      switch (event->clazz) {
           case DFEC_INPUT:
           case DFEC_WINDOW:
           case DFEC_USER:
           case DFEC_VIDEOPROVIDER:
+          case DFEC_SURFACE:
                size = sizeof(EventBufferItem);
                break;
 
@@ -530,6 +612,10 @@ IDirectFBEventBuffer_PostEvent( IDirectFBEventBuffer *thiz,
                direct_memcpy( &item->evt, event, event->universal.size );
                break;
 
+          case DFEC_SURFACE:
+               item->evt.surface = event->surface;
+               break;
+
           default:
                D_BUG("unexpected event class");
      }
@@ -543,6 +629,9 @@ static DFBResult
 IDirectFBEventBuffer_CreateFileDescriptor( IDirectFBEventBuffer *thiz,
                                            int                  *ret_fd )
 {
+#ifndef WIN32
+     DirectResult ret;
+
      DIRECT_INTERFACE_GET_DATA(IDirectFBEventBuffer)
 
      D_DEBUG_AT( IDFBEvBuf, "%s( %p )\n", __FUNCTION__, thiz );
@@ -552,19 +641,20 @@ IDirectFBEventBuffer_CreateFileDescriptor( IDirectFBEventBuffer *thiz,
           return DFB_INVARG;
 
      /* Lock the event queue. */
-     pthread_mutex_lock( &data->events_mutex );
+     direct_mutex_lock( &data->events_mutex );
 
      /* Already in pipe mode? */
      if (data->pipe) {
-          pthread_mutex_unlock( &data->events_mutex );
+          direct_mutex_unlock( &data->events_mutex );
           return DFB_BUSY;
      }
 
      /* Create the file descriptor(s). */
-     if (socketpair( PF_LOCAL, SOCK_STREAM, 0, data->pipe_fds )) {
-          D_PERROR( "%s(): socketpair( PF_LOCAL, SOCK_STREAM, 0, fds ) failed!\n", __FUNCTION__ );
-          pthread_mutex_unlock( &data->events_mutex );
-          return errno2result( errno );
+     ret = direct_socketpair( PF_LOCAL, SOCK_STREAM, 0, data->pipe_fds );
+     if (ret) {
+          D_DERROR( ret, "%s(): direct_socketpair( PF_LOCAL, SOCK_STREAM, 0, fds ) failed!\n", __FUNCTION__ );
+          direct_mutex_unlock( &data->events_mutex );
+          return ret;
      }
 
      D_DEBUG_AT( IDFBEvBuf, "  -> entering pipe mode\n" );
@@ -573,7 +663,7 @@ IDirectFBEventBuffer_CreateFileDescriptor( IDirectFBEventBuffer *thiz,
      data->pipe = true;
 
      /* Signal any waiting processes. */
-     pthread_cond_broadcast( &data->wait_condition );
+     direct_waitqueue_broadcast( &data->wait_condition );
 
      /* Create the feeding thread. */
      data->pipe_thread = direct_thread_create( DTT_MESSAGING,
@@ -581,7 +671,7 @@ IDirectFBEventBuffer_CreateFileDescriptor( IDirectFBEventBuffer *thiz,
                                                "EventBufferFeed" );
 
      /* Unlock the event queue. */
-     pthread_mutex_unlock( &data->events_mutex );
+     direct_mutex_unlock( &data->events_mutex );
 
      /* Return the file descriptor for reading. */
      *ret_fd = data->pipe_fds[0];
@@ -589,6 +679,10 @@ IDirectFBEventBuffer_CreateFileDescriptor( IDirectFBEventBuffer *thiz,
      D_DEBUG_AT( IDFBEvBuf, "  -> fd %d/%d\n", data->pipe_fds[0], data->pipe_fds[1] );
 
      return DFB_OK;
+#else
+	D_UNIMPLEMENTED();
+	return DFB_UNIMPLEMENTED;
+#endif
 }
 
 static DFBResult
@@ -600,11 +694,11 @@ IDirectFBEventBuffer_EnableStatistics( IDirectFBEventBuffer *thiz,
      D_DEBUG_AT( IDFBEvBuf, "%s( %p, %sable )\n", __FUNCTION__, thiz, enable ? "en" : "dis" );
 
      /* Lock the event queue. */
-     pthread_mutex_lock( &data->events_mutex );
+     direct_mutex_lock( &data->events_mutex );
 
      /* Already enabled/disabled? */
      if (data->stats_enabled == !!enable) {
-          pthread_mutex_unlock( &data->events_mutex );
+          direct_mutex_unlock( &data->events_mutex );
           return DFB_OK;
      }
 
@@ -624,7 +718,7 @@ IDirectFBEventBuffer_EnableStatistics( IDirectFBEventBuffer *thiz,
      data->stats_enabled = !!enable;
 
      /* Unlock the event queue. */
-     pthread_mutex_unlock( &data->events_mutex );
+     direct_mutex_unlock( &data->events_mutex );
 
      return DFB_OK;
 }
@@ -641,11 +735,11 @@ IDirectFBEventBuffer_GetStatistics( IDirectFBEventBuffer *thiz,
           return DFB_INVARG;
 
      /* Lock the event queue. */
-     pthread_mutex_lock( &data->events_mutex );
+     direct_mutex_lock( &data->events_mutex );
 
      /* Not enabled? */
      if (!data->stats_enabled) {
-          pthread_mutex_unlock( &data->events_mutex );
+          direct_mutex_unlock( &data->events_mutex );
           return DFB_UNSUPPORTED;
      }
 
@@ -653,7 +747,7 @@ IDirectFBEventBuffer_GetStatistics( IDirectFBEventBuffer *thiz,
      *ret_stats = data->stats;
 
      /* Unlock the event queue. */
-     pthread_mutex_unlock( &data->events_mutex );
+     direct_mutex_unlock( &data->events_mutex );
 
      return DFB_OK;
 }
@@ -671,8 +765,8 @@ IDirectFBEventBuffer_Construct( IDirectFBEventBuffer      *thiz,
      data->filter     = filter;
      data->filter_ctx = filter_ctx;
 
-     direct_util_recursive_pthread_mutex_init( &data->events_mutex );
-     pthread_cond_init( &data->wait_condition, NULL );
+     direct_mutex_init( &data->events_mutex );
+     direct_waitqueue_init( &data->wait_condition );
 
      thiz->AddRef                  = IDirectFBEventBuffer_AddRef;
      thiz->Release                 = IDirectFBEventBuffer_Release;
@@ -774,6 +868,8 @@ DFBResult IDirectFBEventBuffer_AttachWindow( IDirectFBEventBuffer *thiz,
      dfb_window_attach( window, IDirectFBEventBuffer_WindowReact,
                         data, &attached->reaction );
 
+     CoreWindow_AllowFocus( window );
+
      return DFB_OK;
 }
 
@@ -806,6 +902,84 @@ DFBResult IDirectFBEventBuffer_DetachWindow( IDirectFBEventBuffer *thiz,
 
      return DFB_OK;
 }
+
+DFBResult IDirectFBEventBuffer_AttachSurface( IDirectFBEventBuffer *thiz,
+                                              CoreSurface          *surface )
+{
+     AttachedSurface *attached;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBEventBuffer)
+
+     D_ASSERT( surface != NULL );
+
+     D_DEBUG_AT( IDFBEvBuf, "%s( %p, %p [%02u - %dx%d] )\n", __FUNCTION__, thiz,
+                 surface, surface->object.id, surface->config.size.w, surface->config.size.h );
+
+     attached = D_CALLOC( 1, sizeof(AttachedSurface) );
+     attached->surface = surface;
+
+     dfb_surface_ref( surface );
+
+     direct_list_prepend( &data->surfaces, &attached->link );
+
+     dfb_surface_attach_channel( surface, CSCH_EVENT, IDirectFBEventBuffer_SurfaceReact,
+                                 data, &attached->reaction );
+
+     D_DEBUG_AT( IDFBEvBuf, "  -> flip count %u\n", surface->flips );
+
+     if (surface->flips > 0 || !(surface->config.caps & DSCAPS_FLIPPING)) {
+          EventBufferItem *item;
+
+          item = D_CALLOC( 1, sizeof(EventBufferItem) );
+          if (!item)
+               D_OOM();
+          else {
+               item->evt.surface.clazz        = DFEC_SURFACE;
+               item->evt.surface.type         = DSEVT_UPDATE;
+               item->evt.surface.surface_id   = surface->object.id;
+               item->evt.surface.update.x1    = 0;
+               item->evt.surface.update.y1    = 0;
+               item->evt.surface.update.x2    = surface->config.size.w - 1;
+               item->evt.surface.update.y2    = surface->config.size.h - 1;
+               item->evt.surface.update_right = item->evt.surface.update;
+               item->evt.surface.flip_count   = surface->flips;
+               item->evt.surface.time_stamp   = surface->last_frame_time;
+
+               IDirectFBEventBuffer_AddItem( data, item );
+          }
+     }
+
+     return DFB_OK;
+}
+
+DFBResult IDirectFBEventBuffer_DetachSurface( IDirectFBEventBuffer *thiz,
+                                              CoreSurface          *surface )
+{
+     AttachedSurface *attached;
+     DirectLink      *link;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBEventBuffer)
+
+     D_ASSERT( surface != NULL );
+
+     D_DEBUG_AT( IDFBEvBuf, "%s( %p, %p [%02u - %dx%d] )\n", __FUNCTION__, thiz,
+                 surface, surface->object.id, surface->config.size.w, surface->config.size.h );
+
+     direct_list_foreach_safe (attached, link, data->surfaces) {
+          if (!attached->surface || attached->surface == surface) {
+               direct_list_remove( &data->surfaces, &attached->link );
+
+               if (attached->surface) {
+                    dfb_surface_detach( attached->surface, &attached->reaction );
+                    dfb_surface_unref( attached->surface );
+               }
+
+               D_FREE( attached );
+          }
+     }
+
+     return DFB_OK;
+}
 #endif
 
 /* file internals */
@@ -818,16 +992,16 @@ static void IDirectFBEventBuffer_AddItem( IDirectFBEventBuffer_data *data,
           return;
      }
 
-     pthread_mutex_lock( &data->events_mutex );
+     direct_mutex_lock( &data->events_mutex );
 
      if (data->stats_enabled)
           CollectEventStatistics( &data->stats, &item->evt, 1 );
 
      direct_list_append( &data->events, &item->link );
 
-     pthread_cond_broadcast( &data->wait_condition );
+     direct_waitqueue_broadcast( &data->wait_condition );
 
-     pthread_mutex_unlock( &data->events_mutex );
+     direct_mutex_unlock( &data->events_mutex );
 }
 
 #if !DIRECTFB_BUILD_PURE_VOODOO
@@ -839,6 +1013,11 @@ static ReactionResult IDirectFBEventBuffer_InputReact( const void *msg_data,
      EventBufferItem           *item;
 
      D_DEBUG_AT( IDFBEvBuf, "%s( %p, %p ) <- type %06x\n", __FUNCTION__, evt, data, evt->type );
+
+     if (dfb_config->discard_repeat_events && (evt->flags & DIEF_REPEAT)) {
+          D_DEBUG_AT( IDFBEvBuf, "  -> discarding repeat event!\n" );
+          return DFB_OK;
+     }
 
      item = D_CALLOC( 1, sizeof(EventBufferItem) );
 
@@ -858,6 +1037,11 @@ static ReactionResult IDirectFBEventBuffer_WindowReact( const void *msg_data,
      EventBufferItem           *item;
 
      D_DEBUG_AT( IDFBEvBuf, "%s( %p, %p ) <- type %06x\n", __FUNCTION__, evt, data, evt->type );
+
+     if (dfb_config->discard_repeat_events && (evt->flags & DWEF_REPEAT)) {
+          D_DEBUG_AT( IDFBEvBuf, "  -> discarding repeat event!\n" );
+          return DFB_OK;
+     }
 
      item = D_CALLOC( 1, sizeof(EventBufferItem) );
 
@@ -886,14 +1070,62 @@ static ReactionResult IDirectFBEventBuffer_WindowReact( const void *msg_data,
 
      return RS_OK;
 }
+
+static ReactionResult IDirectFBEventBuffer_SurfaceReact( const void *msg_data,
+                                                         void       *ctx )
+{
+     const DFBSurfaceEvent     *evt  = msg_data;
+     IDirectFBEventBuffer_data *data = ctx;
+     EventBufferItem           *item;
+
+     D_DEBUG_AT( IDFBEvBuf_Surface, "%s( %p, %p ) <- type %06x\n", __FUNCTION__, evt, data, evt->type );
+     D_DEBUG_AT( IDFBEvBuf_Surface, "  -> surface id %u\n", evt->surface_id );
+
+     if (evt->type == DSEVT_UPDATE) {
+          D_DEBUG_AT( IDFBEvBuf_Surface, "  -> updated %d,%d-%dx%d (left)\n",
+                      DFB_RECTANGLE_VALS_FROM_REGION(&evt->update) );
+          D_DEBUG_AT( IDFBEvBuf_Surface, "  -> updated %d,%d-%dx%d (right)\n",
+                      DFB_RECTANGLE_VALS_FROM_REGION(&evt->update_right) );
+          D_DEBUG_AT( IDFBEvBuf_Surface, "  -> flip count %u\n", evt->flip_count );
+          D_DEBUG_AT( IDFBEvBuf_Surface, "  -> time stamp %lld\n", evt->time_stamp );
+     }
+
+     item = D_CALLOC( 1, sizeof(EventBufferItem) );
+
+     item->evt.surface = *evt;
+     item->evt.clazz   = DFEC_SURFACE;
+
+     IDirectFBEventBuffer_AddItem( data, item );
+
+     if (evt->type == DSEVT_DESTROYED) {
+          AttachedSurface *surface;
+
+          direct_list_foreach (surface, data->surfaces) {
+               if (!surface->surface)
+                    continue;
+
+               if (surface->surface->object.id == evt->surface_id) {
+                    /* FIXME: free memory later, because reactor writes to it
+                       after we return RS_REMOVE */
+                    dfb_surface_unref( surface->surface );
+                    surface->surface = NULL;
+               }
+          }
+
+          return RS_REMOVE;
+     }
+
+     return RS_OK;
+}
 #endif
 
+#ifndef WIN32
 static void *
 IDirectFBEventBuffer_Feed( DirectThread *thread, void *arg )
 {
      IDirectFBEventBuffer_data *data = arg;
 
-     pthread_mutex_lock( &data->events_mutex );
+     direct_mutex_lock( &data->events_mutex );
 
      while (data->pipe) {
           while (data->events && data->pipe) {
@@ -910,29 +1142,32 @@ IDirectFBEventBuffer_Feed( DirectThread *thread, void *arg )
                     continue;
                }
 
-               pthread_mutex_unlock( &data->events_mutex );
+               direct_mutex_unlock( &data->events_mutex );
 
                D_DEBUG_AT( IDFBEvBuf, "Going to write %zu bytes to file descriptor %d...\n",
                            sizeof(DFBEvent), data->pipe_fds[1] );
 
                ret = write( data->pipe_fds[1], &item->evt, sizeof(DFBEvent) );
 
+               (void)ret;
+
                D_DEBUG_AT( IDFBEvBuf, "...wrote %d bytes to file descriptor %d.\n",
                            ret, data->pipe_fds[1] );
 
                D_FREE( item );
 
-               pthread_mutex_lock( &data->events_mutex );
+               direct_mutex_lock( &data->events_mutex );
           }
 
           if (data->pipe)
-               pthread_cond_wait( &data->wait_condition, &data->events_mutex );
+               direct_waitqueue_wait( &data->wait_condition, &data->events_mutex );
      }
 
-     pthread_mutex_unlock( &data->events_mutex );
+     direct_mutex_unlock( &data->events_mutex );
 
      return NULL;
 }
+#endif
 
 static void
 CollectEventStatistics( DFBEventBufferStats *stats,

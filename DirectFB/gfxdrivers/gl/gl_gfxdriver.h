@@ -1,8 +1,16 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
+
+   Written by Denis Oliver Kropp <dok@directfb.org>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
+              Sven Neumann <neo@directfb.org>,
+              Ville Syrjälä <syrjala@sci.fi> and
+              Claudio Ciccani <klan@users.sf.net>.
 
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -43,8 +51,16 @@ typedef struct {
 
 
 typedef struct {
+    DFBSurfaceBlittingFlags  supported_blittingflags;
+
      /* validation flags */
      int                      v_flags;
+
+     /* GLSL related */
+     bool                     has_glsl;
+     bool                     glsl_probed;
+     GLhandleARB              shader_colorkey;
+     GLint                    location_colorkey;
 
      /** Add shared data here... **/
 } GLDeviceData;

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,27 +28,20 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 
 #include <string.h>
 #include <errno.h>
 
-#include <sys/time.h>
-
-#include <pthread.h>
-
-#include <fusion/reactor.h>
 #include <direct/list.h>
-#include <fusion/lock.h>
+#include <direct/thread.h>
 
 #include <directfb.h>
-
-#include <core/coredefs.h>
-#include <core/coretypes.h>
 
 #include <direct/interface.h>
 #include <direct/mem.h>
@@ -82,10 +77,10 @@ typedef struct {
 
      bool                      finished;        /* whether Finish() has been called */
 
-     pthread_mutex_t           chunks_mutex;    /* mutex lock for accessing
+     DirectMutex               chunks_mutex;    /* mutex lock for accessing
                                                    the chunk list */
 
-     pthread_cond_t            wait_condition;  /* condition used for idle
+     DirectWaitQueue           wait_condition;  /* condition used for idle
                                                    wait in WaitForEvent() */
 } IDirectFBDataBuffer_Streamed_data;
 
@@ -106,8 +101,8 @@ IDirectFBDataBuffer_Streamed_Destruct( IDirectFBDataBuffer *thiz )
      IDirectFBDataBuffer_Streamed_data *data =
           (IDirectFBDataBuffer_Streamed_data*) thiz->priv;
 
-     pthread_cond_destroy( &data->wait_condition );
-     pthread_mutex_destroy( &data->chunks_mutex );
+     direct_waitqueue_deinit( &data->wait_condition );
+     direct_mutex_deinit( &data->chunks_mutex );
 
      IDirectFBDataBuffer_Destruct( thiz );
 }
@@ -128,11 +123,11 @@ IDirectFBDataBuffer_Streamed_Flush( IDirectFBDataBuffer *thiz )
 {
      DIRECT_INTERFACE_GET_DATA(IDirectFBDataBuffer_Streamed)
 
-     pthread_mutex_lock( &data->chunks_mutex );
+     direct_mutex_lock( &data->chunks_mutex );
 
      DestroyAllChunks( data );
 
-     pthread_mutex_unlock( &data->chunks_mutex );
+     direct_mutex_unlock( &data->chunks_mutex );
 
      return DFB_OK;
 }
@@ -145,9 +140,9 @@ IDirectFBDataBuffer_Streamed_Finish( IDirectFBDataBuffer *thiz )
      if (!data->finished) {
           data->finished = true;
 
-          pthread_mutex_lock( &data->chunks_mutex );
-          pthread_cond_broadcast( &data->wait_condition );
-          pthread_mutex_unlock( &data->chunks_mutex );
+          direct_mutex_lock( &data->chunks_mutex );
+          direct_waitqueue_broadcast( &data->wait_condition );
+          direct_mutex_unlock( &data->chunks_mutex );
      }
 
      return DFB_OK;
@@ -192,12 +187,12 @@ IDirectFBDataBuffer_Streamed_WaitForData( IDirectFBDataBuffer *thiz,
      if (data->finished && !data->chunks)
           return DFB_EOF;
           
-     pthread_mutex_lock( &data->chunks_mutex );
+     direct_mutex_lock( &data->chunks_mutex );
 
      while (data->length < length && !data->finished)
-          pthread_cond_wait( &data->wait_condition, &data->chunks_mutex );
+          direct_waitqueue_wait( &data->wait_condition, &data->chunks_mutex );
 
-     pthread_mutex_unlock( &data->chunks_mutex );
+     direct_mutex_unlock( &data->chunks_mutex );
 
      return DFB_OK;
 }
@@ -208,20 +203,17 @@ IDirectFBDataBuffer_Streamed_WaitForDataWithTimeout( IDirectFBDataBuffer *thiz,
                                                      unsigned int         seconds,
                                                      unsigned int         milli_seconds )
 {
-     struct timeval  now;
-     struct timespec timeout;
-     DFBResult       ret          = DFB_OK;
-     bool            locked       = false;
-     long int        nano_seconds = milli_seconds * 1000000;
+     DirectResult ret    = DR_OK;
+     bool         locked = false;
 
      DIRECT_INTERFACE_GET_DATA(IDirectFBDataBuffer_Streamed)
 
      if (data->finished && !data->chunks)
           return DFB_EOF;
           
-     if (pthread_mutex_trylock( &data->chunks_mutex ) == 0) {
+     if (direct_mutex_trylock( &data->chunks_mutex ) == 0) {
           if (data->length >= length) {
-               pthread_mutex_unlock( &data->chunks_mutex );
+               direct_mutex_unlock( &data->chunks_mutex );
 
                return DFB_OK;
           }
@@ -229,28 +221,18 @@ IDirectFBDataBuffer_Streamed_WaitForDataWithTimeout( IDirectFBDataBuffer *thiz,
           locked = true;
      }
 
-     gettimeofday( &now, NULL );
-
-     timeout.tv_sec  = now.tv_sec + seconds;
-     timeout.tv_nsec = (now.tv_usec * 1000) + nano_seconds;
-
-     timeout.tv_sec  += timeout.tv_nsec / 1000000000;
-     timeout.tv_nsec %= 1000000000;
-
      if (!locked)
-          pthread_mutex_lock( &data->chunks_mutex );
+          direct_mutex_lock( &data->chunks_mutex );
 
      while (data->length < length && !data->finished) {
-          if (pthread_cond_timedwait( &data->wait_condition,
-                                      &data->chunks_mutex,
-                                      &timeout ) == ETIMEDOUT)
-          {
-               ret = DFB_TIMEOUT;
+          ret = direct_waitqueue_wait_timeout( &data->wait_condition,
+                                               &data->chunks_mutex,
+                                               seconds * 1000000 + milli_seconds * 1000 );
+          if (ret == DR_TIMEOUT)
                break;
-          }
      }
 
-     pthread_mutex_unlock( &data->chunks_mutex );
+     direct_mutex_unlock( &data->chunks_mutex );
 
      return ret;
 }
@@ -268,10 +250,10 @@ IDirectFBDataBuffer_Streamed_GetData( IDirectFBDataBuffer *thiz,
      if (!data_buffer || !length)
           return DFB_INVARG;
 
-     pthread_mutex_lock( &data->chunks_mutex );
+     direct_mutex_lock( &data->chunks_mutex );
 
      if (!data->chunks) {
-          pthread_mutex_unlock( &data->chunks_mutex );
+          direct_mutex_unlock( &data->chunks_mutex );
           return data->finished ? DFB_EOF : DFB_BUFFEREMPTY;
      }
 
@@ -288,7 +270,7 @@ IDirectFBDataBuffer_Streamed_GetData( IDirectFBDataBuffer *thiz,
      if (read_out)
           *read_out = len;
 
-     pthread_mutex_unlock( &data->chunks_mutex );
+     direct_mutex_unlock( &data->chunks_mutex );
 
      return DFB_OK;
 }
@@ -307,10 +289,10 @@ IDirectFBDataBuffer_Streamed_PeekData( IDirectFBDataBuffer *thiz,
      if (!data_buffer || !length || offset < 0)
           return DFB_INVARG;
 
-     pthread_mutex_lock( &data->chunks_mutex );
+     direct_mutex_lock( &data->chunks_mutex );
 
      if (!data->chunks || (unsigned int) offset >= data->length) {
-          pthread_mutex_unlock( &data->chunks_mutex );
+          direct_mutex_unlock( &data->chunks_mutex );
           return data->finished ? DFB_EOF : DFB_BUFFEREMPTY;
      }
 
@@ -324,7 +306,7 @@ IDirectFBDataBuffer_Streamed_PeekData( IDirectFBDataBuffer *thiz,
      if (read_out)
           *read_out = len;
 
-     pthread_mutex_unlock( &data->chunks_mutex );
+     direct_mutex_unlock( &data->chunks_mutex );
 
      return DFB_OK;
 }
@@ -363,7 +345,7 @@ IDirectFBDataBuffer_Streamed_PutData( IDirectFBDataBuffer *thiz,
      if (!chunk)
           return DFB_NOSYSTEMMEMORY;
 
-     pthread_mutex_lock( &data->chunks_mutex );
+     direct_mutex_lock( &data->chunks_mutex );
 
      /* Append new chunk. */
      direct_list_append( &data->chunks, &chunk->link );
@@ -371,27 +353,28 @@ IDirectFBDataBuffer_Streamed_PutData( IDirectFBDataBuffer *thiz,
      /* Increase total length. */
      data->length += length;
 
-     pthread_cond_broadcast( &data->wait_condition );
+     direct_waitqueue_broadcast( &data->wait_condition );
 
-     pthread_mutex_unlock( &data->chunks_mutex );
+     direct_mutex_unlock( &data->chunks_mutex );
 
      return DFB_OK;
 }
 
 DFBResult
 IDirectFBDataBuffer_Streamed_Construct( IDirectFBDataBuffer *thiz,
-                                        CoreDFB             *core )
+                                        CoreDFB             *core,
+                                        IDirectFB           *idirectfb )
 {
      DFBResult ret;
 
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBDataBuffer_Streamed)
 
-     ret = IDirectFBDataBuffer_Construct( thiz, NULL, core );
+     ret = IDirectFBDataBuffer_Construct( thiz, NULL, core, idirectfb );
      if (ret)
           return ret;
 
-     direct_util_recursive_pthread_mutex_init( &data->chunks_mutex );
-     pthread_cond_init( &data->wait_condition, NULL );
+     direct_mutex_init( &data->chunks_mutex );
+     direct_waitqueue_init( &data->wait_condition );
 
      thiz->Release                = IDirectFBDataBuffer_Streamed_Release;
      thiz->Flush                  = IDirectFBDataBuffer_Streamed_Flush;
@@ -461,10 +444,10 @@ ReadChunkData( IDirectFBDataBuffer_Streamed_data *data,
           /* Can we read from this chunk? */
           if (len) {
                /* Copy as many bytes as possible. */
-               direct_memcpy( buffer, chunk->data + chunk->done + off, len );
+               direct_memcpy( buffer, (char*) chunk->data + chunk->done + off, len );
 
                /* Increase write pointer. */
-               buffer += len;
+               buffer = (char*) buffer + len;
 
                /* Decrease number of bytes to read. */
                length -= len;

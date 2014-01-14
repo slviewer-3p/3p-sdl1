@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 //#define DIRECT_ENABLE_DEBUG
 
@@ -48,11 +52,11 @@
 
 #include <pthread.h>
 
-#ifdef USE_SYSFS
-# include <sysfs/libsysfs.h>
-#endif
+#define SYS_CLASS_GRAPHICS_DEV "/sys/class/graphics/%s/device"
+#define SYS_CLASS_GRAPHICS_DEV_VENDOR "/sys/class/graphics/%s/device/vendor"
+#define SYS_CLASS_GRAPHICS_DEV_MODEL "/sys/class/graphics/%s/device/device"
+#define SYSFS_PATH_MAX 128
 
-#include <fusion/arena.h>
 #include <fusion/fusion.h>
 #include <fusion/reactor.h>
 #include <fusion/shmalloc.h>
@@ -156,7 +160,8 @@ static DFBResult primarySetRegion     ( CoreLayer                  *layer,
                                         CoreLayerRegionConfigFlags  updated,
                                         CoreSurface                *surface,
                                         CorePalette                *palette,
-                                        CoreSurfaceBufferLock      *lock );
+                                        CoreSurfaceBufferLock      *left_lock,
+                                        CoreSurfaceBufferLock      *right_lock );
 
 static DFBResult primaryRemoveRegion  ( CoreLayer                  *layer,
                                         void                       *driver_data,
@@ -169,7 +174,10 @@ static DFBResult primaryFlipRegion    ( CoreLayer                  *layer,
                                         void                       *region_data,
                                         CoreSurface                *surface,
                                         DFBSurfaceFlipFlags         flags,
-                                        CoreSurfaceBufferLock      *lock );
+                                        const DFBRegion            *left_update,
+                                        CoreSurfaceBufferLock      *left_lock,
+                                        const DFBRegion            *right_update,
+                                        CoreSurfaceBufferLock      *right_lock );
 
 
 static DisplayLayerFuncs primaryLayerFuncs = {
@@ -322,65 +330,79 @@ error:
 static void
 dfb_fbdev_get_pci_info( FBDevShared *shared )
 {
-     char buf[512];
-     int  vendor = -1;
-     int  model  = -1;
+     char  buf[512];
+     int   vendor = -1;
+     int   model  = -1;
+     FILE *fp;
+     int   bus;
+     int   dev;
+     int   func;
+     char *fbdev;
+     char  devname[5] = { 'f', 'b', '0', 0, 0 };
+     char  path[SYSFS_PATH_MAX];
+     int   len;
 
-#ifdef USE_SYSFS
-     if (!sysfs_get_mnt_path( buf, 512 )) {
-          struct sysfs_class_device *classdev;
-          struct sysfs_device       *device;
-          struct sysfs_attribute    *attr;
-          char                      *fbdev;
-          char                       dev[5] = { 'f', 'b', '0', 0, 0 };
+     /* try sysfs interface */
+     fbdev = dfb_config->fb_device;
+     if (!fbdev)
+          fbdev = getenv( "FRAMEBUFFER" );
 
-          fbdev = dfb_config->fb_device;
-          if (!fbdev)
-               fbdev = getenv( "FRAMEBUFFER" );
-
-          if (fbdev) {
-               if (!strncmp( fbdev, "/dev/fb/", 8 ))
-                    snprintf( dev, 5, "fb%s", fbdev+8 );
-               else if (!strncmp( fbdev, "/dev/fb", 7 ))
-                    snprintf( dev, 5, "fb%s", fbdev+7 );
-          }
-
-          classdev = sysfs_open_class_device( "graphics", dev );
-          if (classdev) {
-               device = sysfs_get_classdev_device( classdev );
-
-               if (device) {
-                    attr = sysfs_get_device_attr( device, "vendor" );
-                    if (attr)
-                           sscanf( attr->value, "0x%04x", &vendor );
-
-                    attr = sysfs_get_device_attr( device, "device" );
-                    if (attr)
-                         sscanf( attr->value, "0x%04x", &model );
-
-                    if (vendor != -1 && model != -1) {
-                         sscanf( device->name, "0000:%02x:%02x.%1x",
-                                 &shared->pci.bus,
-                                 &shared->pci.dev,
-                                 &shared->pci.func );
-
-                         shared->device.vendor = vendor;
-                         shared->device.model  = model;
-                    }
-               }
-
-               sysfs_close_class_device( classdev );
-          }
+     if (fbdev) {
+          if (!strncmp( fbdev, "/dev/fb/", 8 ))
+               snprintf( devname, 5, "fb%s", fbdev+8 );
+          else if (!strncmp( fbdev, "/dev/fb", 7 ))
+               snprintf( devname, 5, "fb%s", fbdev+7 );
      }
-#endif /* USE_SYSFS */
+
+     snprintf(path, SYSFS_PATH_MAX, SYS_CLASS_GRAPHICS_DEV, devname);
+
+     len = readlink(path,buf,512);
+     if(len != -1) {
+          char * base;
+          buf[len] = '\0';
+          base = basename(buf);
+
+          if (sscanf( base, "0000:%02x:%02x.%1x", &bus, &dev, &func ) == 3) {
+               shared->pci.bus  = bus;
+               shared->pci.dev  = dev;
+               shared->pci.func = func;
+           }
+
+          snprintf(path, SYSFS_PATH_MAX, SYS_CLASS_GRAPHICS_DEV_VENDOR, devname);
+
+          fp = fopen(path,"r");
+          if(fp) {
+               if(fgets(buf,512,fp)) {
+                    if(sscanf(buf,"0x%04x", &vendor) == 1)
+                         shared->device.vendor = vendor;
+               }
+               fclose(fp);
+          } else {
+               D_DEBUG( "DirectFB/FBDev: "
+                        "couldn't access %s!\n", path );
+          }
+
+          snprintf(path, SYSFS_PATH_MAX, SYS_CLASS_GRAPHICS_DEV_MODEL, devname);
+
+          fp = fopen(path,"r");
+          if(fp) {
+               if(fgets(buf,512,fp)) {
+                    if(sscanf(buf,"0x%04x", &model) == 1)
+                         shared->device.model = model;
+               }
+               fclose(fp);
+          } else {
+               D_DEBUG( "DirectFB/FBDev: "
+                        "couldn't access %s!\n", path );
+          }
+     } else {
+          D_DEBUG( "DirectFB/FBDev: "
+                   "couldn't access %s!\n", path );
+     }
 
      /* try /proc interface */
      if (vendor == -1 || model == -1) {
-          FILE *fp;
           int   id;
-          int   bus;
-          int   dev;
-          int   func;
 
           fp = fopen( "/proc/bus/pci/devices", "r" );
           if (!fp) {
@@ -457,7 +479,7 @@ system_initialize( CoreDFB *core, void **data )
      shared->shmpool      = pool;
      shared->shmpool_data = pool_data;
 
-     fusion_arena_add_shared_field( dfb_core_arena( core ), "fbdev", shared );
+     core_arena_add_shared_field( core, "fbdev", shared );
 
      dfb_fbdev->core   = core;
      dfb_fbdev->shared = shared;
@@ -641,8 +663,7 @@ system_join( CoreDFB *core, void **data )
      if (!dfb_fbdev)
           return D_OOM();
 
-     fusion_arena_get_shared_field( dfb_core_arena( core ),
-                                    "fbdev", &shared );
+     core_arena_get_shared_field( core, "fbdev", &shared );
 
      dfb_fbdev->core = core;
      dfb_fbdev->shared = shared;
@@ -1407,7 +1428,8 @@ primarySetRegion( CoreLayer                  *layer,
                   CoreLayerRegionConfigFlags  updated,
                   CoreSurface                *surface,
                   CorePalette                *palette,
-                  CoreSurfaceBufferLock      *lock )
+                  CoreSurfaceBufferLock      *left_lock,
+                  CoreSurfaceBufferLock      *right_lock )
 {
      DFBResult    ret;
      FBDevShared *shared = dfb_fbdev->shared;
@@ -1436,12 +1458,12 @@ primarySetRegion( CoreLayer                  *layer,
                }
 
                ret = dfb_fbdev_set_mode( mode, surface, config->source.x,
-                                         lock->offset / lock->pitch + config->source.y );
+                                         left_lock->offset / left_lock->pitch + config->source.y );
                if (ret)
                     return ret;
           }
           else {
-               ret = dfb_fbdev_pan( config->source.x, lock->offset / lock->pitch + config->source.y, true );
+               ret = dfb_fbdev_pan( config->source.x, left_lock->offset / left_lock->pitch + config->source.y, true );
                if (ret)
                     return ret;
           }
@@ -1474,7 +1496,10 @@ primaryFlipRegion( CoreLayer             *layer,
                    void                  *region_data,
                    CoreSurface           *surface,
                    DFBSurfaceFlipFlags    flags,
-                   CoreSurfaceBufferLock *lock )
+                   const DFBRegion       *left_update,
+                   CoreSurfaceBufferLock *left_lock,
+                   const DFBRegion       *right_update,
+                   CoreSurfaceBufferLock *right_lock )
 {
      DFBResult ret;
      CoreLayerRegionConfig *config = &dfb_fbdev->shared->config;
@@ -1486,7 +1511,7 @@ primaryFlipRegion( CoreLayer             *layer,
           dfb_screen_wait_vsync( dfb_screens_at(DSCID_PRIMARY) );
 
      ret = dfb_fbdev_pan( config->source.x,
-                          lock->offset / lock->pitch + config->source.y,
+                          left_lock->offset / left_lock->pitch + config->source.y,
                           (flags & DSFLIP_WAITFORSYNC) == DSFLIP_ONSYNC );
      if (ret)
           return ret;
@@ -1805,6 +1830,17 @@ dfb_fbdev_mode_to_var( const VideoMode           *mode,
                var.blue.offset   = 0;
                break;
 
+          case DSPF_ABGR:
+               var.transp.length = 8;
+               var.red.length    = 8;
+               var.green.length  = 8;
+               var.blue.length   = 8;
+               var.transp.offset = 24;
+               var.red.offset    = 0;
+               var.green.offset  = 8;
+               var.blue.offset   = 16;
+               break;
+
           case DSPF_LUT8:
           case DSPF_RGB24:
           case DSPF_RGB332:
@@ -1839,6 +1875,17 @@ dfb_fbdev_mode_to_var( const VideoMode           *mode,
                var.red.offset    = 12;
                var.green.offset  = 6;
                var.blue.offset   = 0;
+               break;
+
+          case DSPF_RGBAF88871:
+               var.transp.length = 7;
+               var.red.length    = 8;
+               var.green.length  = 8;
+               var.blue.length   = 8;
+               var.transp.offset = 1;
+               var.red.offset    = 24;
+               var.green.offset  = 16;
+               var.blue.offset   = 8;
                break;
 
           default:
@@ -2230,6 +2277,8 @@ dfb_fbdev_set_gamma_ramp( DFBSurfacePixelFormat format )
           case DSPF_RGB24:
           case DSPF_RGB32:
           case DSPF_ARGB:
+          case DSPF_ABGR:
+          case DSPF_RGBAF88871:
                red_size   = 256;
                green_size = 256;
                blue_size  = 256;
@@ -2400,6 +2449,7 @@ fbdev_ioctl_call_handler( int           caller,
                           int          *ret_val )
 {
      int        ret;
+     int        res;
      const char cursoroff_str[] = "\033[?1;0;0c";
      const char blankoff_str[] = "\033[9;0]";
 
@@ -2412,8 +2462,9 @@ fbdev_ioctl_call_handler( int           caller,
 
      if (dfb_config->vt && !dfb_config->kd_graphics && call_arg == FBIOPUT_VSCREENINFO) {
           ioctl( dfb_fbdev->vt->fd, KDSETMODE, KD_TEXT );
-          write( dfb_fbdev->vt->fd, cursoroff_str, strlen(cursoroff_str) );
-          write( dfb_fbdev->vt->fd, blankoff_str, strlen(blankoff_str) );
+          res = write( dfb_fbdev->vt->fd, cursoroff_str, strlen(cursoroff_str) );
+          res = write( dfb_fbdev->vt->fd, blankoff_str, strlen(blankoff_str) );
+          (void)res;
      }
 
      *ret_val = ret;

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -286,7 +290,10 @@ primaryFlipRegion( CoreLayer             *layer,
                    void                  *region_data,
                    CoreSurface           *surface,
                    DFBSurfaceFlipFlags    flags,
-                   CoreSurfaceBufferLock *lock )
+                   const DFBRegion       *left_update,
+                   CoreSurfaceBufferLock *left_lock,
+                   const DFBRegion       *right_update,
+                   CoreSurfaceBufferLock *right_lock )
 {
      dfb_surface_flip( surface, false );
 
@@ -334,7 +341,8 @@ update_screen( int x, int y, int w, int h )
 #if 0
      int                    i, n;
      void                  *dst;
-     void                  *src;
+     u8                    *srces[3];
+     int                    pitches[3];
      DFBResult              ret;
      CoreSurface           *surface;
      CoreSurfaceBuffer     *buffer;
@@ -388,20 +396,22 @@ update_screen( int x, int y, int w, int h )
      src = lock.addr;
      dst = screen->pixels;
 
-     src += DFB_BYTES_PER_LINE( surface->config.format, x ) + y * lock.pitch;
-     dst += DFB_BYTES_PER_LINE( surface->config.format, x ) + y * screen->pitch;
+     dfb_surface_get_data_offsets( surface->data, lock.addr, lock.pitch, x, y,
+                                   3, srces, pitches );
 
      D_DEBUG_AT( SDL_Updates, "  -> copying pixels...\n" );
 
      switch (screen->format->BitsPerPixel) {
           case 16:
                dfb_convert_to_rgb16( surface->config.format,
-                                     src, lock.pitch, surface->config.size.h,
+                                     srces[0], pitches[0],
+                                     srces[1], pitches[1], srces[2], pitches[2],
+                                     surface->config.size.h,
                                      dst, screen->pitch, w, h );
                break;
 
           default:
-               direct_memcpy( dst, src, DFB_BYTES_PER_LINE( surface->config.format, w ) );
+               direct_memcpy( dst, srces[0], DFB_BYTES_PER_LINE( surface->config.format, w ) );
      }
 
      D_DEBUG_AT( SDL_Updates, "  -> unlocking dfb surface...\n" );

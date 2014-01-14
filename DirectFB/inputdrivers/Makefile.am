@@ -4,6 +4,10 @@ if DBOX2REMOTE
 DBOX2REMOTE_DIR = dbox2remote
 endif
 
+if ENABLE_DIVINE
+DIVINE_DIR = divine
+endif
+
 if DREAMBOXREMOTE
 DREAMBOXREMOTE_DIR = dreamboxremote
 endif
@@ -22,6 +26,10 @@ endif
 
 if H3600_TS
 H3600_TS_DIR = h3600_ts
+endif
+
+if INPUT_HUB
+INPUT_HUB_DIR = input_hub
 endif
 
 if JOYSTICK_INPUT
@@ -78,11 +86,13 @@ endif
 
 SUBDIRS = \
 	$(DBOX2REMOTE_DIR)	\
+	$(DIVINE_DIR)		\
 	$(DREAMBOXREMOTE_DIR)	\
 	$(DYNAPRO_INPUT_DIR)	\
 	$(ELO_INPUT_DIR)	\
 	$(GUNZE_INPUT_DIR)	\
 	$(H3600_TS_DIR)		\
+	$(INPUT_HUB_DIR)	\
 	$(JOYSTICK_INPUT_DIR)	\
 	$(KEYBOARD_INPUT_DIR)	\
 	$(LINUX_INPUT_DIR)	\

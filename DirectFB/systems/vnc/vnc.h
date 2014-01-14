@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,21 +28,64 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __VNC__VNC_H__
 #define __VNC__VNC_H__
+
+#include <directfb.h>
+
+#include <rfb/rfb.h>
 
 #include <fusion/call.h>
 #include <fusion/lock.h>
 
-typedef struct {
-     FusionSkirmish  lock;
-     FusionCall      call;
+#include <core/layers.h>
+#include <core/screens.h>
 
-     CoreSurface    *primary;
-     CoreDFB        *core;
-     
+#define VNC_MAX_LAYERS 2
+
+typedef struct {
+     bool                     shown;
+     CoreLayerRegionConfig    config;
+
+     DFBDisplayLayerID        layer_id;
+
+     CoreSurface             *surface;
+} VNCLayerData;
+
+
+typedef struct {
+     FusionCall          call;
+
+     DFBDimension        screen_size;
+     CoreSurface        *screen_surface;
+
+     VNCLayerData       *layer_data[VNC_MAX_LAYERS];
+} DFBVNCShared;
+
+typedef struct {
+     DFBVNCShared       *shared;
+
+     CoreDFB            *core;
+
+     CoreScreen         *screen;
+     CoreLayer          *layer[VNC_MAX_LAYERS];
+
+     rfbScreenInfoPtr    rfb_screen;
+
+     unsigned int        layer_count;
+
+     CoreSurfaceBufferLock  buffer_lock;
 } DFBVNC;
 
+typedef enum {
+     VNC_MARK_RECT_AS_MODIFIED,
+} DFBVNCCall;
+
+typedef struct {
+     DFBRegion           region;
+} DFBVNCMarkRectAsModified;
 
 #endif
 

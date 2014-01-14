@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,10 +28,14 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __IDIRECTFBDATABUFFER_H__
 #define __IDIRECTFBDATABUFFER_H__
 
 #include <core/core.h>
+
+#include <fusion/call.h>
 
 /*
  * private data struct of IDirectFBDataBuffer
@@ -39,8 +45,11 @@ typedef struct {
      char        *filename;   /* Only set if databuffer is created from file. */
 
      CoreDFB     *core;
+     IDirectFB   *idirectfb;
 
      bool         is_memory;
+
+     FusionCall   call;       /* for remote access */
 } IDirectFBDataBuffer_data;
 
 /*
@@ -50,7 +59,7 @@ typedef struct {
      IDirectFBDataBuffer_data base;
 
      DirectStream    *stream;
-     pthread_mutex_t  mutex;
+     DirectMutex      mutex;
 } IDirectFBDataBuffer_File_data;
 
 /*
@@ -73,7 +82,8 @@ typedef struct {
  */
 DFBResult IDirectFBDataBuffer_Construct( IDirectFBDataBuffer *thiz,
                                          const char          *filename,
-                                         CoreDFB             *core );
+                                         CoreDFB             *core,
+                                         IDirectFB           *idirectfb );
 
 /*
  * base destructor
@@ -84,14 +94,16 @@ void IDirectFBDataBuffer_Destruct( IDirectFBDataBuffer *thiz );
  * generic streamed data buffer
  */
 DFBResult IDirectFBDataBuffer_Streamed_Construct( IDirectFBDataBuffer *thiz,
-                                                  CoreDFB             *core );
+                                                  CoreDFB             *core,
+                                                  IDirectFB           *idirectfb );
 
 /*
  * file based static data buffer
  */
 DFBResult IDirectFBDataBuffer_File_Construct( IDirectFBDataBuffer *thiz,
                                               const char          *filename,
-                                              CoreDFB             *core );
+                                              CoreDFB             *core,
+                                              IDirectFB           *idirectfb );
 
 /*
  * memory based static data buffer
@@ -99,6 +111,7 @@ DFBResult IDirectFBDataBuffer_File_Construct( IDirectFBDataBuffer *thiz,
 DFBResult IDirectFBDataBuffer_Memory_Construct( IDirectFBDataBuffer *thiz,
                                                 const void          *data,
                                                 unsigned int         length,
-                                                CoreDFB             *core );
+                                                CoreDFB             *core,
+                                                IDirectFB           *idirectfb );
 
 #endif

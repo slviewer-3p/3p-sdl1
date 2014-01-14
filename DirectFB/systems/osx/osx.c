@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
@@ -34,7 +38,6 @@
 
 #include <directfb.h>
 
-#include <fusion/arena.h>
 #include <fusion/shmalloc.h>
 
 #include <Carbon/Carbon.h>
@@ -98,7 +101,7 @@ system_initialize( CoreDFB *core, void **data )
 
      dfb_layers_register( screen, NULL, osxPrimaryLayerFuncs );
 
-     fusion_arena_add_shared_field( dfb_core_arena( core ), "OSX", dfb_osx );
+     core_arena_add_shared_field( core, "OSX", dfb_osx );
 
      *data = dfb_osx;
 
@@ -113,7 +116,7 @@ system_join( CoreDFB *core, void **data )
 
      D_ASSERT( dfb_osx == NULL );
 
-     fusion_arena_get_shared_field( dfb_core_arena( core ), "OSX", &ret );
+     core_arena_get_shared_field( core, "OSX", &ret );
 
      dfb_osx = ret;
      dfb_osx_core = core;

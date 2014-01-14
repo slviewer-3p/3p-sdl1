@@ -1,11 +1,12 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Nikita Egorov <nikego@gmail.com>
-   
+
    Calibration utility for PenMount's touchscreen panel. Run the program 
    and touch to center of left/top cross ( active cross is blinked ). 
    Then touch to right/bottom cross. The program will create four values for 
@@ -51,6 +52,7 @@ static int sx,sy;
 int
 main( int argc, char *argv[] )
 {
+     int res;
      int quit = 0;
      DFBResult err;
      DFBGraphicsDeviceDescription gdesc;
@@ -75,7 +77,8 @@ main( int argc, char *argv[] )
 	 file = open ( init_str, O_RDONLY );
 	 if ( file != -1 ){
 	 	 char *pos, *pos2;
-           read(file, buf, sizeof(buf));
+           res = read(file, buf, sizeof(buf));
+           (void)res;
 		 close(file);
 	 
 		 pos = strstr( buf, "penmount-device" );

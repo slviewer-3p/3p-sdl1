@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,9 +28,10 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
-#include <fusion/arena.h>
 #include <fusion/shmalloc.h>
 
 #include <directfb.h>
@@ -86,8 +89,7 @@ dfb_core_part_initialize( CoreDFB  *core,
      }
 
      if (shared)
-          fusion_arena_add_shared_field( dfb_core_arena( core ),
-                                         core_part->name, shared );
+          core_arena_add_shared_field( core, core_part->name, shared );
 
      core_part->data_local  = local;
      core_part->data_shared = shared;
@@ -112,8 +114,7 @@ dfb_core_part_join( CoreDFB  *core,
      D_DEBUG_AT( Core_Parts, "Going to join '%s' core...\n", core_part->name );
 
      if (core_part->size_shared &&
-         fusion_arena_get_shared_field( dfb_core_arena( core ),
-                                        core_part->name, &shared ))
+         core_arena_get_shared_field( core, core_part->name, &shared ))
           return DFB_FUSION;
 
      if (core_part->size_local)

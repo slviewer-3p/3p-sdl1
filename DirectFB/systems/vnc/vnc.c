@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -61,8 +65,17 @@
 DFB_CORE_SYSTEM( vnc )
 
 
-DFBVNC *dfb_vnc = NULL;
-CoreDFB *dfb_vnc_core = NULL;
+static DFBVNC *dfb_vnc;
+
+static FusionCallHandlerResult
+VNC_Dispatch( int           caller,
+              int           call_arg,
+              void         *call_ptr,
+              void         *ctx,
+              unsigned int  serial,
+              int          *ret_val );
+
+/**********************************************************************************************************************/
 
 static void
 system_get_info( CoreSystemInfo *info )
@@ -75,27 +88,31 @@ system_get_info( CoreSystemInfo *info )
 static DFBResult
 system_initialize( CoreDFB *core, void **data )
 {
-     CoreScreen *core_screen;
-
      D_ASSERT( dfb_vnc == NULL );
 
-     dfb_vnc = (DFBVNC*) SHCALLOC( dfb_core_shmpool(core), 1, sizeof(DFBVNC) );
-     if (!dfb_vnc) {
-          D_ERROR( "DirectFB/VNC: Couldn't allocate shared memory!\n" );
+     dfb_vnc = (DFBVNC*) D_CALLOC( 1, sizeof(DFBVNC) );
+     if (!dfb_vnc)
+          return D_OOM();
+
+     dfb_vnc->core = core;
+
+     dfb_vnc->shared = (DFBVNCShared*) SHCALLOC( dfb_core_shmpool(core), 1, sizeof(DFBVNCShared) );
+     if (!dfb_vnc->shared) {
+          D_FREE( dfb_vnc );
           return D_OOSHM();
      }
 
-     dfb_vnc_core = core;
+     dfb_vnc->shared->screen_size.w = dfb_config->mode.width  ? dfb_config->mode.width  : 1280;
+     dfb_vnc->shared->screen_size.h = dfb_config->mode.height ? dfb_config->mode.height :  720;
 
-     fusion_skirmish_init( &dfb_vnc->lock, "VNC System", dfb_core_world(core) );
+     fusion_call_init( &dfb_vnc->shared->call, VNC_Dispatch, dfb_vnc, dfb_core_world(core) );
 
-     fusion_call_init( &dfb_vnc->call, dfb_vnc_call_handler, NULL, dfb_core_world(core) );
+     dfb_vnc->screen = dfb_screens_register( NULL, dfb_vnc, (void*) vncPrimaryScreenFuncs );
 
-     core_screen = dfb_screens_register( NULL, NULL, vncPrimaryScreenFuncs );
+     dfb_vnc->layer[0] = dfb_layers_register( dfb_vnc->screen, dfb_vnc, vncPrimaryLayerFuncs );
+     dfb_vnc->layer[1] = dfb_layers_register( dfb_vnc->screen, dfb_vnc, vncPrimaryLayerFuncs );
 
-     dfb_layers_register( core_screen, NULL, vncPrimaryLayerFuncs );
-
-     fusion_arena_add_shared_field( dfb_core_arena( core ), "vnc", dfb_vnc );
+     core_arena_add_shared_field( core, "vnc", dfb_vnc->shared );
 
      *data = dfb_vnc;
 
@@ -105,19 +122,24 @@ system_initialize( CoreDFB *core, void **data )
 static DFBResult
 system_join( CoreDFB *core, void **data )
 {
-     void       *ret;
-     CoreScreen *core_screen;
+     void *ret;
 
      D_ASSERT( dfb_vnc == NULL );
 
-     fusion_arena_get_shared_field( dfb_core_arena( core ), "vnc", &ret );
+     core_arena_get_shared_field( core, "vnc", &ret );
 
-     dfb_vnc = ret;
-     dfb_vnc_core = core;
+     dfb_vnc = (DFBVNC*) D_CALLOC( 1, sizeof(DFBVNC) );
+     if (!dfb_vnc)
+          return D_OOM();
 
-     core_screen = dfb_screens_register( NULL, NULL, vncPrimaryScreenFuncs );
+     dfb_vnc->core = core;
 
-     dfb_layers_register( core_screen, NULL, vncPrimaryLayerFuncs );
+     dfb_vnc->shared = ret;
+
+     dfb_vnc->screen = dfb_screens_register( NULL, dfb_vnc, (void*) vncPrimaryScreenFuncs );
+
+     dfb_vnc->layer[0] = dfb_layers_register( dfb_vnc->screen, dfb_vnc, vncPrimaryLayerFuncs );
+     dfb_vnc->layer[1] = dfb_layers_register( dfb_vnc->screen, dfb_vnc, vncPrimaryLayerFuncs );
 
      *data = dfb_vnc;
 
@@ -129,15 +151,12 @@ system_shutdown( bool emergency )
 {
      D_ASSERT( dfb_vnc != NULL );
 
-     fusion_call_destroy( &dfb_vnc->call );
+     fusion_call_destroy( &dfb_vnc->shared->call );
 
-     fusion_skirmish_prevail( &dfb_vnc->lock );
+     SHFREE( dfb_core_shmpool(dfb_vnc->core), dfb_vnc->shared );
 
-     fusion_skirmish_destroy( &dfb_vnc->lock );
-
-     SHFREE( dfb_core_shmpool(dfb_vnc_core), dfb_vnc );
+     D_FREE( dfb_vnc );
      dfb_vnc = NULL;
-     dfb_vnc_core = NULL;
 
      return DFB_OK;
 }
@@ -147,8 +166,8 @@ system_leave( bool emergency )
 {
      D_ASSERT( dfb_vnc != NULL );
 
+     D_FREE( dfb_vnc );
      dfb_vnc = NULL;
-     dfb_vnc_core = NULL;
 
      return DFB_OK;
 }
@@ -255,6 +274,13 @@ system_get_busid( int *ret_bus, int *ret_dev, int *ret_func )
      return;
 }
 
+static void
+system_get_deviceid( unsigned int *ret_vendor_id,
+                     unsigned int *ret_device_id )
+{
+     return;
+}
+
 static int
 system_surface_data_size( void )
 {
@@ -266,20 +292,45 @@ static void
 system_surface_data_init( CoreSurface *surface, void *data )
 {
      /* Ignore since unneeded. */
-     return;
 }
 
 static void
 system_surface_data_destroy( CoreSurface *surface, void *data )
 {
      /* Ignore since unneeded. */
-     return;
 }
 
-static void
-system_get_deviceid( unsigned int *ret_vendor_id,
-                     unsigned int *ret_device_id )
+/**********************************************************************************************************************/
+
+static int
+VNC_Dispatch_MarkRectAsModified( DFBVNC                   *vnc,
+                                 DFBVNCMarkRectAsModified *mark )
 {
-     return;
+     rfbMarkRectAsModified( vnc->rfb_screen, mark->region.x1, mark->region.y1, mark->region.x2 + 1, mark->region.y2 + 1 );
+
+     return 0;
+}
+
+static FusionCallHandlerResult
+VNC_Dispatch( int           caller,
+              int           call_arg,
+              void         *call_ptr,
+              void         *ctx,
+              unsigned int  serial,
+              int          *ret_val )
+{
+     DFBVNC *vnc = ctx;
+
+     DFBVNCMarkRectAsModified modified;
+
+     modified.region.x1 = call_arg >> 16;
+     modified.region.x2 = call_arg & 0xffff;
+
+     modified.region.y1 = (long)call_ptr >> 16;
+     modified.region.y2 = (long)call_ptr & 0xffff;
+
+     *ret_val = VNC_Dispatch_MarkRectAsModified( vnc, &modified );
+
+     return FCHR_RETURN;
 }
 

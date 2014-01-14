@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,38 +28,35 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 
 #include <string.h>
 #include <errno.h>
 
-#include <sys/time.h>
-
-#include <pthread.h>
-
-#include <fusion/reactor.h>
+#include <direct/interface.h>
 #include <direct/list.h>
+#include <direct/mem.h>
+#include <direct/thread.h>
+
+#include <fusion/conf.h>
 
 #include <directfb.h>
 
-#include <core/coredefs.h>
-#include <core/coretypes.h>
-
-#include <core/input.h>
-#include <core/windows.h>
-
 #include <misc/util.h>
-#include <direct/interface.h>
-#include <direct/mem.h>
 
 #include <media/idirectfbdatabuffer.h>
 #include <media/idirectfbfont.h>
 #include <media/idirectfbimageprovider.h>
 #include <media/idirectfbvideoprovider.h>
+
+#if !DIRECTFB_BUILD_PURE_VOODOO
+#include <media/DataBuffer.h>
+#endif
 
 
 void
@@ -67,6 +66,11 @@ IDirectFBDataBuffer_Destruct( IDirectFBDataBuffer *thiz )
 
      if (data->filename)
           D_FREE( data->filename );
+
+#if !DIRECTFB_BUILD_PURE_VOODOO
+     if (fusion_config->secure_fusion && core_dfb)
+          DataBuffer_Deinit_Dispatch( &data->call );
+#endif
 
      DIRECT_DEALLOCATE_INTERFACE( thiz );
 }
@@ -176,16 +180,16 @@ IDirectFBDataBuffer_PutData( IDirectFBDataBuffer *thiz,
 
 static DFBResult
 IDirectFBDataBuffer_CreateImageProvider( IDirectFBDataBuffer     *thiz,
-                                         IDirectFBImageProvider **interface )
+                                         IDirectFBImageProvider **interface_ptr )
 {
      DIRECT_INTERFACE_GET_DATA(IDirectFBDataBuffer)
 
      /* Check arguments */
-     if (!interface)
+     if (!interface_ptr)
           return DFB_INVARG;
 
 #if !DIRECTFB_BUILD_PURE_VOODOO
-     return IDirectFBImageProvider_CreateFromBuffer( thiz, data->core, interface );
+     return IDirectFBImageProvider_CreateFromBuffer( thiz, data->core, data->idirectfb, interface_ptr );
 #else
      D_BUG( "%s in pure Voodoo build", __FUNCTION__ );
      return DFB_BUG;
@@ -194,16 +198,16 @@ IDirectFBDataBuffer_CreateImageProvider( IDirectFBDataBuffer     *thiz,
 
 static DFBResult
 IDirectFBDataBuffer_CreateVideoProvider( IDirectFBDataBuffer     *thiz,
-                                         IDirectFBVideoProvider **interface )
+                                         IDirectFBVideoProvider **interface_ptr )
 {
      DIRECT_INTERFACE_GET_DATA(IDirectFBDataBuffer)
 
      /* Check arguments */
-     if (!interface)
+     if (!interface_ptr)
           return DFB_INVARG;
 
 #if !DIRECTFB_BUILD_PURE_VOODOO
-     return IDirectFBVideoProvider_CreateFromBuffer( thiz, data->core, interface );
+     return IDirectFBVideoProvider_CreateFromBuffer( thiz, data->core, interface_ptr );
 #else
      D_BUG( "%s in pure Voodoo build", __FUNCTION__ );
      return DFB_BUG;
@@ -213,16 +217,16 @@ IDirectFBDataBuffer_CreateVideoProvider( IDirectFBDataBuffer     *thiz,
 static DFBResult
 IDirectFBDataBuffer_CreateFont( IDirectFBDataBuffer       *thiz,
                                 const DFBFontDescription  *desc,
-                                IDirectFBFont            **interface )
+                                IDirectFBFont            **interface_ptr )
 {
      DIRECT_INTERFACE_GET_DATA(IDirectFBDataBuffer)
 
      /* Check arguments */
-     if (!interface || !desc)
+     if (!interface_ptr || !desc)
           return DFB_INVARG;
 
 #if !DIRECTFB_BUILD_PURE_VOODOO
-     return IDirectFBFont_CreateFromBuffer( thiz, data->core, desc, interface );
+     return IDirectFBFont_CreateFromBuffer( thiz, data->core, desc, interface_ptr );
 #else
      D_BUG( "%s in pure Voodoo build", __FUNCTION__ );
      return DFB_BUG;
@@ -232,15 +236,22 @@ IDirectFBDataBuffer_CreateFont( IDirectFBDataBuffer       *thiz,
 DFBResult
 IDirectFBDataBuffer_Construct( IDirectFBDataBuffer *thiz,
                                const char          *filename,
-                               CoreDFB             *core )
+                               CoreDFB             *core,
+                               IDirectFB           *idirectfb )
 {
      DIRECT_ALLOCATE_INTERFACE_DATA(thiz, IDirectFBDataBuffer)
 
-     data->ref  = 1;
-     data->core = core;
+     data->ref       = 1;
+     data->core      = core;
+     data->idirectfb = idirectfb;
 
      if (filename)
           data->filename = D_STRDUP( filename );
+
+#if !DIRECTFB_BUILD_PURE_VOODOO
+     if (fusion_config->secure_fusion && core)
+          DataBuffer_Init_Dispatch( core, thiz, &data->call );
+#endif
 
      thiz->AddRef                 = IDirectFBDataBuffer_AddRef;
      thiz->Release                = IDirectFBDataBuffer_Release;

@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <directfb.h>
@@ -37,6 +41,7 @@
 #include <direct/messages.h>
 #include <direct/util.h>
 
+#include <fusion/conf.h>
 #include <fusion/shmalloc.h>
 
 #include <core/core.h>
@@ -45,39 +50,40 @@
 #include <core/layer_control.h>
 #include <core/layer_region.h>
 #include <core/layers_internal.h>
+#include <core/screen.h>
 #include <core/surface.h>
+#include <core/system.h>
+
+#include <core/CoreLayerRegion.h>
+#include <core/Task.h>
 
 #include <gfx/util.h>
 
 
 D_DEBUG_DOMAIN( Core_Layers, "Core/Layers", "DirectFB Display Layer Core" );
+D_DEBUG_DOMAIN( Core_LayersLock, "Core/Layers/Lock", "DirectFB Display Layer Core locks" );
 
 
 static DFBResult region_buffer_unlock( CoreLayerRegion *region,
-                                       bool unlockSurface );
+                                       CoreSurfaceBufferLock *left_buffer_lock,
+                                       CoreSurfaceBufferLock *right_buffer_lock );
 
 static DFBResult region_buffer_lock( CoreLayerRegion       *region,
                                      CoreSurface           *surface,
-                                     CoreSurfaceBufferRole  role );
-
-static DFBResult set_region      ( CoreLayerRegion            *region,
-                                   CoreLayerRegionConfig      *config,
-                                   CoreLayerRegionConfigFlags  flags,
-                                   CoreSurface                *surface );
-
-static DFBResult realize_region  ( CoreLayerRegion            *region );
-
-static DFBResult unrealize_region( CoreLayerRegion            *region );
+                                     CoreSurfaceBufferRole  role,
+                                     CoreSurfaceBufferLock *left_buffer_lock,
+                                     CoreSurfaceBufferLock *right_buffer_lock );
 
 /******************************************************************************/
 
 static void
 region_destructor( FusionObject *object, bool zombie, void *ctx )
 {
-     CoreLayerRegion  *region  = (CoreLayerRegion*) object;
-     CoreLayerContext *context = region->context;
-     CoreLayer        *layer   = dfb_layer_at( context->layer_id );
-     CoreLayerShared  *shared  = layer->shared;
+     DFBResult         ret;
+     CoreLayerRegion  *region = (CoreLayerRegion*) object;
+     CoreLayer        *layer  = dfb_layer_at( region->layer_id );
+     CoreLayerShared  *shared = layer->shared;
+     CoreLayerContext *context;
 
      D_DEBUG_AT( Core_Layers, "destroying region %p (%s, %dx%d, "
                  "%s, %s, %s, %s%s)\n", region, shared->description.name,
@@ -96,8 +102,13 @@ region_destructor( FusionObject *object, bool zombie, void *ctx )
      if (D_FLAGS_IS_SET( region->state, CLRSF_ENABLED ))
           dfb_layer_region_disable( region );
 
+     if (region->display_tasks)
+          TaskList_Delete( region->display_tasks );
+
      /* Remove the region from the context. */
-     dfb_layer_context_remove_region( region->context, region );
+     ret = fusion_object_lookup( core_dfb->shared->layer_context_pool, region->context_id, (FusionObject**) &context );
+     if (ret == DFB_OK)
+          dfb_layer_context_remove_region( context, region );
 
      /* Throw away its surface. */
      if (region->surface) {
@@ -109,12 +120,11 @@ region_destructor( FusionObject *object, bool zombie, void *ctx )
           dfb_surface_unlink( &region->surface );
      }
 
-     /* Unlink the context from the structure. */
-     dfb_layer_context_unlink( &region->context );
-
      /* Free driver's region data. */
      if (region->region_data)
           SHFREE( shared->shmpool, region->region_data );
+
+     CoreLayerRegion_Deinit_Dispatch( &region->call );
 
      /* Deinitialize the lock. */
      fusion_skirmish_destroy( &region->lock );
@@ -157,15 +167,11 @@ dfb_layer_region_create( CoreLayerContext  *context,
      if (!region)
           return DFB_FUSION;
 
-     /* Link the context into the structure. */
-     if (dfb_layer_context_link( &region->context, context )) {
-          fusion_object_destroy( &region->object );
-          return DFB_FUSION;
-     }
+     region->layer_id   = context->layer_id;
+     region->context_id = context->object.id;
 
      /* Initialize the lock. */
-     if (fusion_skirmish_init( &region->lock, "Layer Region", dfb_core_world(layer->core) )) {
-          dfb_layer_context_unlink( &region->context );
+     if (fusion_skirmish_init2( &region->lock, "Layer Region", dfb_core_world(layer->core), fusion_config->secure_fusion )) {
           fusion_object_destroy( &region->object );
           return DFB_FUSION;
      }
@@ -178,7 +184,12 @@ dfb_layer_region_create( CoreLayerContext  *context,
      if (shared->description.surface_accessor)
           region->surface_accessor = shared->description.surface_accessor;
      else
-          region->surface_accessor = CSAID_LAYER0 + context->layer_id;
+          region->surface_accessor = CSAID_LAYER0 + region->layer_id;
+
+     if (dfb_config->task_manager)
+          region->display_tasks = TaskList_New( true );
+
+     CoreLayerRegion_Init_Dispatch( layer->core, region, &region->call );
 
      /* Activate the object. */
      fusion_object_activate( &region->object );
@@ -212,7 +223,7 @@ dfb_layer_region_activate( CoreLayerRegion *region )
 
      /* Realize the region if it's enabled. */
      if (D_FLAGS_IS_SET( region->state, CLRSF_ENABLED )) {
-          ret = realize_region( region );
+          ret = dfb_layer_region_realize( region, true );
           if (ret) {
                dfb_layer_region_unlock( region );
                return ret;
@@ -235,6 +246,9 @@ dfb_layer_region_deactivate( CoreLayerRegion *region )
 
      D_ASSERT( region != NULL );
 
+     if (region->display_tasks)
+          TaskList_WaitEmpty( region->display_tasks );
+
      /* Lock the region. */
      if (dfb_layer_region_lock( region ))
           return DFB_FUSION;
@@ -248,9 +262,11 @@ dfb_layer_region_deactivate( CoreLayerRegion *region )
 
      /* Unrealize the region? */
      if (D_FLAGS_IS_SET( region->state, CLRSF_REALIZED )) {
-          ret = unrealize_region( region );
-          if (ret)
+          ret = dfb_layer_region_unrealize( region );
+          if (ret) {
+               dfb_layer_region_unlock( region );
                return ret;
+          }
      }
 
      /* Update the region's state. */
@@ -268,7 +284,6 @@ dfb_layer_region_enable( CoreLayerRegion *region )
      DFBResult ret;
 
      D_ASSERT( region != NULL );
-     D_ASSERT( region->context != NULL );
 
      /* Lock the region. */
      if (dfb_layer_region_lock( region ))
@@ -283,7 +298,7 @@ dfb_layer_region_enable( CoreLayerRegion *region )
 
      /* Realize the region if it's active. */
      if (D_FLAGS_IS_SET( region->state, CLRSF_ACTIVE )) {
-          ret = realize_region( region );
+          ret = dfb_layer_region_realize( region, true );
           if (ret) {
                dfb_layer_region_unlock( region );
                return ret;
@@ -306,6 +321,9 @@ dfb_layer_region_disable( CoreLayerRegion *region )
 
      D_ASSERT( region != NULL );
 
+     if (region->display_tasks)
+          TaskList_WaitEmpty( region->display_tasks );
+
      /* Lock the region. */
      if (dfb_layer_region_lock( region ))
           return DFB_FUSION;
@@ -319,7 +337,7 @@ dfb_layer_region_disable( CoreLayerRegion *region )
 
      /* Unrealize the region? */
      if (D_FLAGS_IS_SET( region->state, CLRSF_REALIZED )) {
-          ret = unrealize_region( region );
+          ret = dfb_layer_region_unrealize( region );
           if (ret)
                return ret;
      }
@@ -342,6 +360,9 @@ dfb_layer_region_set_surface( CoreLayerRegion *region,
      D_ASSERT( region != NULL );
      D_ASSERT( surface != NULL );
 
+     if (region->display_tasks)
+          TaskList_WaitEmpty( region->display_tasks );
+
      /* Lock the region. */
      if (dfb_layer_region_lock( region ))
           return DFB_FUSION;
@@ -349,7 +370,7 @@ dfb_layer_region_set_surface( CoreLayerRegion *region,
      if (region->surface != surface) {
           /* Setup hardware for the new surface if the region is realized. */
           if (D_FLAGS_IS_SET( region->state, CLRSF_REALIZED )) {
-               ret = set_region( region, &region->config, CLRCF_SURFACE | CLRCF_PALETTE, surface );
+               ret = dfb_layer_region_set( region, &region->config, CLRCF_SURFACE | CLRCF_PALETTE, surface );
                if (ret) {
                     dfb_layer_region_unlock( region );
                     return ret;
@@ -431,25 +452,33 @@ dfb_layer_region_flip_update( CoreLayerRegion     *region,
      DFBRegion                unrotated;
      DFBRegion                rotated;
      CoreLayer               *layer;
-     CoreLayerContext        *context;
      CoreSurface             *surface;
      const DisplayLayerFuncs *funcs;
 
+     if (dfb_config->task_manager)
+          return dfb_layer_region_flip_update2( region, update, update, flags, -1, NULL );
+
      if (update)
           D_DEBUG_AT( Core_Layers,
-                      "dfb_layer_region_flip_update( %p, %p, 0x%08x ) <- [%d, %d - %dx%d]\n",
+                      "%s( %p, %p, 0x%08x ) <- [%d, %d - %dx%d]\n", __FUNCTION__,
                       region, update, flags, DFB_RECTANGLE_VALS_FROM_REGION( update ) );
      else
           D_DEBUG_AT( Core_Layers,
-                      "dfb_layer_region_flip_update( %p, %p, 0x%08x )\n", region, update, flags );
+                      "%s( %p, %p, 0x%08x )\n", __FUNCTION__, region, update, flags );
 
 
      D_ASSERT( region != NULL );
-     D_ASSERT( region->context != NULL );
 
      /* Lock the region. */
      if (dfb_layer_region_lock( region ))
           return DFB_FUSION;
+
+     /* Check for stereo region */
+     if (region->config.options & DLOP_STEREO) {
+          ret = dfb_layer_region_flip_update_stereo( region, update, update, flags );
+          dfb_layer_region_unlock( region );
+          return ret;
+     }
 
      D_ASSUME( region->surface != NULL );
 
@@ -460,9 +489,8 @@ dfb_layer_region_flip_update( CoreLayerRegion     *region,
           return DFB_UNSUPPORTED;
      }
 
-     context = region->context;
      surface = region->surface;
-     layer   = dfb_layer_at( context->layer_id );
+     layer   = dfb_layer_at( region->layer_id );
 
      D_ASSERT( layer->funcs != NULL );
 
@@ -473,14 +501,14 @@ dfb_layer_region_flip_update( CoreLayerRegion     *region,
           D_FLAGS_CLEAR( region->state, CLRSF_FROZEN );
 
           if (D_FLAGS_IS_SET( region->state, CLRSF_REALIZED )) {
-               ret = set_region( region, &region->config, CLRCF_ALL, surface );
+               ret = dfb_layer_region_set( region, &region->config, CLRCF_ALL, surface );
                if (ret)
-                    D_DERROR( ret, "Core/LayerRegion: set_region() in dfb_layer_region_flip_update() failed!\n" );
+                    D_DERROR( ret, "Core/LayerRegion: dfb_layer_region_set() in dfb_layer_region_flip_update() failed!\n" );
           }
           else if (D_FLAGS_ARE_SET( region->state, CLRSF_ENABLED | CLRSF_ACTIVE )) {
-               ret = realize_region( region );
+               ret = dfb_layer_region_realize( region, true );
                if (ret)
-                    D_DERROR( ret, "Core/LayerRegion: realize_region() in dfb_layer_region_flip_update() failed!\n" );
+                    D_DERROR( ret, "Core/LayerRegion: dfb_layer_region_realize() in dfb_layer_region_flip_update() failed!\n" );
           }
 
           if (ret) {
@@ -489,28 +517,41 @@ dfb_layer_region_flip_update( CoreLayerRegion     *region,
           }
      }
 
+     dfb_gfxcard_flush();
+
+     CoreLayersFPSHandle( layer );
+
+     dfb_surface_lock( surface );
+
+     if (!(surface->frametime_config.flags & DFTCF_INTERVAL))
+          dfb_screen_get_frame_interval( layer->screen, &surface->frametime_config.interval );
+
+     if (flags & DSFLIP_UPDATE)
+          goto update_only;
+
      /* Depending on the buffer mode... */
      switch (region->config.buffermode) {
           case DLBM_TRIPLE:
           case DLBM_BACKVIDEO:
                /* Check if simply swapping the buffers is possible... */
-               if (!(flags & DSFLIP_BLIT) && !surface->rotation &&
-                   (!update || (update->x1 == 0 &&
-                                update->y1 == 0 &&
-                                update->x2 == surface->config.size.w - 1 &&
-                                update->y2 == surface->config.size.h - 1)))
+               if ((flags & DSFLIP_SWAP) ||
+                   (!(flags & DSFLIP_BLIT) && !surface->rotation &&
+                    (!update || (update->x1 == 0 &&
+                                 update->y1 == 0 &&
+                                 update->x2 == surface->config.size.w - 1 &&
+                                 update->y2 == surface->config.size.h - 1))))
                {
                     D_DEBUG_AT( Core_Layers, "  -> Going to swap buffers...\n" );
 
                     /* Use the driver's routine if the region is realized. */
                     if (D_FLAGS_IS_SET( region->state, CLRSF_REALIZED )) {
+                         CoreSurfaceBufferLock left;
+
                          D_ASSUME( funcs->FlipRegion != NULL );
 
-                         ret = region_buffer_lock( region, surface, CSBR_BACK );
-                         if (ret) {
-                              dfb_layer_region_unlock( region );
-                              return ret;
-                         }
+                         ret = region_buffer_lock( region, surface, CSBR_BACK, &left, NULL );
+                         if (ret)
+                              goto out;
 
                          D_DEBUG_AT( Core_Layers, "  -> Flipping region using driver...\n" );
 
@@ -519,18 +560,24 @@ dfb_layer_region_flip_update( CoreLayerRegion     *region,
                                                        layer->driver_data,
                                                        layer->layer_data,
                                                        region->region_data,
-                                                       surface, flags, &region->surface_lock );
+                                                       surface, flags, 
+                                                       update, &left,
+                                                       NULL, NULL );
+
+                         if (!(dfb_system_caps() & CSCAPS_NOTIFY_DISPLAY)) {
+                              D_DEBUG_AT( Core_Layers, "  -> system WITHOUT notify_display support, calling it now\n" );
+
+                              dfb_surface_notify_display2( surface, left.allocation->index, NULL );
+                         }
 
                          /* Unlock region buffer since the lock is no longer needed. */
-                         region_buffer_unlock(region, true);
+                         region_buffer_unlock(region, &left, NULL);
                     }
                     else {
                          D_DEBUG_AT( Core_Layers, "  -> Flipping region not using driver...\n" );
 
                          /* Just do the hardware independent work. */
-                         dfb_surface_lock( surface );
-                         dfb_surface_flip( surface, false );
-                         dfb_surface_unlock( surface );
+                         dfb_surface_flip_buffers( surface, false );
                     }
                     break;
                }
@@ -560,36 +607,25 @@ dfb_layer_region_flip_update( CoreLayerRegion     *region,
                /* fall through */
 
           case DLBM_FRONTONLY:
+update_only:
                /* Tell the driver about the update if the region is realized. */
                if (funcs->UpdateRegion && D_FLAGS_IS_SET( region->state, CLRSF_REALIZED )) {
-
-                 /* Lock region buffer before it is used. */
-                 region_buffer_lock( region, surface, CSBR_FRONT );
+                    CoreSurfaceBufferLock left;
 
                     if (surface) {
                          CoreSurfaceAllocation *allocation;
 
-                         allocation = region->surface_lock.allocation;
+                         (void)allocation;
+
+                         /* Lock region buffer before it is used. */
+                         region_buffer_lock( region, surface, CSBR_FRONT, &left, NULL );
+
+                         allocation = left.allocation;
                          D_ASSERT( allocation != NULL );
-
-                         /* If hardware has written or is writing... */
-                         if (allocation->accessed[CSAID_GPU] & CSAF_WRITE) {
-                              D_DEBUG_AT( Core_Layers, "  -> Waiting for pending writes...\n" );
-
-                              /* ...wait for the operation to finish. */
-                              if (!(flags & DSFLIP_PIPELINE))
-                                   dfb_gfxcard_sync(); /* TODO: wait for serial instead */
-
-                              allocation->accessed[CSAID_GPU] &= ~CSAF_WRITE;
-                         }
-
-                         dfb_surface_lock( surface );
-                         dfb_surface_allocation_update( allocation, CSAF_READ );
-                         dfb_surface_unlock( surface );
                     }
 
                     D_DEBUG_AT( Core_Layers, "  -> Notifying driver about updated content...\n" );
-                    
+
                     if( !update ) {
                          unrotated = DFB_REGION_INIT_FROM_RECTANGLE_VALS( 0, 0,
                                         region->config.width, region->config.height );
@@ -601,10 +637,283 @@ dfb_layer_region_flip_update( CoreLayerRegion     *region,
                                                layer->driver_data,
                                                layer->layer_data,
                                                region->region_data,
-                                               surface, &rotated, &region->surface_lock );
+                                               surface,
+                                               &rotated, &left,
+                                               NULL, NULL );
 
-                   /* Unlock region buffer since the lock is no longer needed. */
-                   region_buffer_unlock(region, true);
+                    if (!(dfb_system_caps() & CSCAPS_NOTIFY_DISPLAY)) {
+                         D_DEBUG_AT( Core_Layers, "  -> system WITHOUT notify_display support, calling it now\n" );
+
+                         dfb_surface_notify_display2( surface, left.allocation->index, NULL );
+                    }
+
+                    /* Unlock region buffer since the lock is no longer needed. */
+                    if (surface)
+                         region_buffer_unlock(region, &left, NULL);
+               }
+               break;
+
+          default:
+               D_BUG("unknown buffer mode");
+               ret = DFB_BUG;
+     }
+
+     dfb_surface_dispatch_update( surface, update, update, -1 );
+
+     D_DEBUG_AT( Core_Layers, "  -> done.\n" );
+
+out:
+     dfb_surface_unlock( surface );
+
+     /* Unlock the region. */
+     dfb_layer_region_unlock( region );
+
+     return ret;
+}
+
+DFBResult
+dfb_layer_region_flip_update_stereo( CoreLayerRegion     *region,
+                                     const DFBRegion     *left_update,
+                                     const DFBRegion     *right_update,
+                                     DFBSurfaceFlipFlags  flags )
+{
+     DFBResult                ret = DFB_OK;
+     DFBRegion                unrotated;
+     DFBRegion                left_rotated, right_rotated;
+     CoreLayer               *layer;
+     CoreSurface             *surface;
+     const DisplayLayerFuncs *funcs;
+     DFBSurfaceStereoEye      eyes = 0;
+
+     if (dfb_config->task_manager)
+          return dfb_layer_region_flip_update2( region, left_update, right_update, flags, -1, NULL );
+
+     D_DEBUG_AT( Core_Layers, "%s( %p, %p, %p, 0x%08x )\n", __FUNCTION__, region, left_update, right_update, flags );
+     if (left_update)
+          D_DEBUG_AT( Core_Layers, "Left: [%d, %d - %dx%d]\n", DFB_RECTANGLE_VALS_FROM_REGION( left_update ) );
+     if (right_update)
+          D_DEBUG_AT( Core_Layers, "Right: [%d, %d - %dx%d]\n", DFB_RECTANGLE_VALS_FROM_REGION( right_update ) );
+
+
+     D_ASSERT( region != NULL );
+
+     /* Lock the region. */
+     if (dfb_layer_region_lock( region ))
+          return DFB_FUSION;
+
+     /* Check for stereo region */
+     if (!(region->config.options & DLOP_STEREO)) {
+          D_DEBUG_AT( Core_Layers, "  -> Not a stereo region!\n" );
+          dfb_layer_region_unlock( region );
+          return DFB_UNSUPPORTED;
+     }
+
+     D_ASSUME( region->surface != NULL );
+
+     /* Check for NULL surface. */
+     if (!region->surface) {
+          D_DEBUG_AT( Core_Layers, "  -> No surface => no update!\n" );
+          dfb_layer_region_unlock( region );
+          return DFB_UNSUPPORTED;
+     }
+
+     surface = region->surface;
+     layer   = dfb_layer_at( region->layer_id );
+
+     D_ASSERT( layer->funcs != NULL );
+
+     funcs = layer->funcs;
+
+     /* Unfreeze region? */
+     if (D_FLAGS_IS_SET( region->state, CLRSF_FROZEN )) {
+          D_FLAGS_CLEAR( region->state, CLRSF_FROZEN );
+
+          if (D_FLAGS_IS_SET( region->state, CLRSF_REALIZED )) {
+               ret = dfb_layer_region_set( region, &region->config, CLRCF_ALL, surface );
+               if (ret)
+                    D_DERROR( ret, "Core/LayerRegion: dfb_layer_region_set() in dfb_layer_region_flip_update() failed!\n" );
+          }
+          else if (D_FLAGS_ARE_SET( region->state, CLRSF_ENABLED | CLRSF_ACTIVE )) {
+               ret = dfb_layer_region_realize( region, true );
+               if (ret)
+                    D_DERROR( ret, "Core/LayerRegion: dfb_layer_region_realize() in dfb_layer_region_flip_update() failed!\n" );
+          }
+
+          if (ret) {
+               dfb_layer_region_unlock( region );
+               return ret;
+          }
+     }
+
+     dfb_gfxcard_flush();
+
+     CoreLayersFPSHandle( layer );
+
+     dfb_surface_lock( surface );
+
+     if (!(surface->frametime_config.flags & DFTCF_INTERVAL))
+          dfb_screen_get_frame_interval( layer->screen, &surface->frametime_config.interval );
+
+     if (flags & DSFLIP_UPDATE)
+          goto update_only;
+
+     /* Depending on the buffer mode... */
+     switch (region->config.buffermode) {
+          case DLBM_TRIPLE:
+          case DLBM_BACKVIDEO:
+               /* Check if simply swapping the buffers is possible... */
+               if ((flags & DSFLIP_SWAP) ||
+                   (!(flags & DSFLIP_BLIT) && !surface->rotation &&
+                    ((!left_update && !right_update) ||      // FIXME: below code crashes if only one is set
+                     ((left_update->x1 == 0 &&
+                       left_update->y1 == 0 &&
+                       left_update->x2 == surface->config.size.w - 1 &&
+                       left_update->y2 == surface->config.size.h - 1) &&
+                      (right_update->x1 == 0 &&
+                       right_update->y1 == 0 &&
+                       right_update->x2 == surface->config.size.w - 1 &&
+                       right_update->y2 == surface->config.size.h - 1)))))
+               {
+                    D_DEBUG_AT( Core_Layers, "  -> Going to swap buffers...\n" );
+
+                    /* Use the driver's routine if the region is realized. */
+                    if (D_FLAGS_IS_SET( region->state, CLRSF_REALIZED )) {
+                         CoreSurfaceBufferLock left, right;
+
+                         D_ASSUME( funcs->FlipRegion != NULL );
+
+                         ret = region_buffer_lock( region, surface, CSBR_BACK, &left, &right );
+                         if (ret)
+                              goto out;
+
+                         D_DEBUG_AT( Core_Layers, "  -> Flipping region using driver...\n" );
+
+                         if (funcs->FlipRegion)
+                              ret = funcs->FlipRegion( layer,
+                                                       layer->driver_data,
+                                                       layer->layer_data,
+                                                       region->region_data,
+                                                       surface, flags, 
+                                                       left_update, &left,
+                                                       right_update, &right);
+
+                         /* Unlock region buffer since the lock is no longer needed. */
+                         region_buffer_unlock(region, &left, &right);
+                    }
+                    else {
+                         D_DEBUG_AT( Core_Layers, "  -> Flipping region not using driver...\n" );
+
+                         /* Just do the hardware independent work. */
+                         dfb_surface_flip_buffers( surface, false );
+                    }
+                    break;
+               }
+
+               /* fall through */
+
+          case DLBM_BACKSYSTEM:
+               D_DEBUG_AT( Core_Layers, "  -> Going to copy portion...\n" );
+
+               if ((flags & DSFLIP_WAITFORSYNC) == DSFLIP_WAITFORSYNC) {
+                    D_DEBUG_AT( Core_Layers, "  -> Waiting for VSync...\n" );
+
+                    dfb_layer_wait_vsync( layer );
+               }
+
+               D_DEBUG_AT( Core_Layers, "  -> Copying content from back to front buffer...\n" );
+
+               if (left_update)
+                    eyes |= DSSE_LEFT;
+
+               if (right_update)
+                    eyes |= DSSE_RIGHT;
+
+               dfb_back_to_front_copy_stereo( surface, eyes, left_update, right_update, surface->rotation );
+
+               if ((flags & DSFLIP_WAITFORSYNC) == DSFLIP_WAIT) {
+                    D_DEBUG_AT( Core_Layers, "  -> Waiting for VSync...\n" );
+
+                    dfb_layer_wait_vsync( layer );
+               }
+
+               /* fall through */
+
+          case DLBM_FRONTONLY:
+update_only:
+               /* Tell the driver about the update if the region is realized. */
+               if (funcs->UpdateRegion && D_FLAGS_IS_SET( region->state, CLRSF_REALIZED )) {
+                    CoreSurfaceBufferLock left, right;
+
+                    if (surface) {
+                         CoreSurfaceAllocation *left_allocation, *right_allocation;
+
+                         (void)left_allocation;
+                         (void)right_allocation;                         
+
+                         /* Lock region buffer before it is used. */
+                         region_buffer_lock( region, surface, CSBR_FRONT, &left, &right );
+
+                         left_allocation = left.allocation;
+                         right_allocation = right.allocation;
+                         D_ASSERT( left_allocation != NULL );
+                         D_ASSERT( right_allocation != NULL );
+#if 0
+                         /* If hardware has written or is writing... */
+                         if ((left_allocation->accessed[CSAID_GPU] & CSAF_WRITE) ||
+                             (right_allocation->accessed[CSAID_GPU] & CSAF_WRITE)) {
+                              D_DEBUG_AT( Core_Layers, "  -> Waiting for pending writes...\n" );
+
+                              /* ...wait for the operation to finish. */
+                              if (!(flags & DSFLIP_PIPELINE))
+                                   dfb_gfxcard_sync(); /* TODO: wait for serial instead */
+
+                              left_allocation->accessed[CSAID_GPU] &= ~CSAF_WRITE;
+                              right_allocation->accessed[CSAID_GPU] &= ~CSAF_WRITE;
+                         }
+
+                         dfb_surface_lock( surface );
+                         dfb_surface_allocation_update( left_allocation, CSAF_READ );
+                         dfb_surface_allocation_update( right_allocation, CSAF_READ );
+                         dfb_surface_unlock( surface );
+#endif
+                    }
+
+                    D_DEBUG_AT( Core_Layers, "  -> Notifying driver about updated content...\n" );
+                    
+                    if (!left_update && !right_update) {
+                         unrotated    = DFB_REGION_INIT_FROM_RECTANGLE_VALS( 0, 0,
+                                           region->config.width, region->config.height );
+                         left_update  = &unrotated;
+
+                         unrotated    = DFB_REGION_INIT_FROM_RECTANGLE_VALS( 0, 0,
+                                           region->config.width, region->config.height );
+                         right_update = &unrotated;
+                    }
+                    else if (!left_update) {
+                         left_update  = right_update;
+                    }
+                    else if (!right_update) {
+                         right_update = left_update;
+                    }
+
+                    dfb_region_from_rotated( &left_rotated, left_update, &surface->config.size, surface->rotation );
+
+                    if (left_update != right_update)
+                         dfb_region_from_rotated( &right_rotated, right_update, &surface->config.size, surface->rotation );
+                    else
+                         right_rotated = left_rotated;
+
+                    ret = funcs->UpdateRegion( layer,
+                                               layer->driver_data,
+                                               layer->layer_data,
+                                               region->region_data,
+                                               surface, 
+                                               &left_rotated, &left,
+                                               &right_rotated, &right );
+
+                    /* Unlock region buffer since the lock is no longer needed. */
+                    if (surface)
+                         region_buffer_unlock(region, &left, &right);
                }
                break;
 
@@ -614,6 +923,11 @@ dfb_layer_region_flip_update( CoreLayerRegion     *region,
      }
 
      D_DEBUG_AT( Core_Layers, "  -> done.\n" );
+
+     dfb_surface_dispatch_update( region->surface, left_update, right_update, -1 );
+
+out:
+     dfb_surface_unlock( surface );
 
      /* Unlock the region. */
      dfb_layer_region_unlock( region );
@@ -626,13 +940,15 @@ dfb_layer_region_set_configuration( CoreLayerRegion            *region,
                                     CoreLayerRegionConfig      *config,
                                     CoreLayerRegionConfigFlags  flags )
 {
-     DFBResult                ret;
-     CoreLayer               *layer;
-     const DisplayLayerFuncs *funcs;
-     CoreLayerRegionConfig    new_config;
+     DFBResult                   ret;
+     CoreLayer                  *layer;
+     const DisplayLayerFuncs    *funcs;
+     CoreLayerRegionConfig       new_config;
+     CoreLayerRegionConfigFlags  failed;
+
+     D_DEBUG_AT( Core_Layers, "%s( %p, %p, 0x%08x )\n", __FUNCTION__, region, config, flags );
 
      D_ASSERT( region != NULL );
-     D_ASSERT( region->context != NULL );
      D_ASSERT( config != NULL );
      D_ASSERT( config->buffermode != DLBM_WINDOWS );
      D_ASSERT( (flags == CLRCF_ALL) || (region->state & CLRSF_CONFIGURED) );
@@ -640,13 +956,16 @@ dfb_layer_region_set_configuration( CoreLayerRegion            *region,
      D_ASSUME( flags != CLRCF_NONE );
      D_ASSUME( ! (flags & ~CLRCF_ALL) );
 
-     layer = dfb_layer_at( region->context->layer_id );
+     layer = dfb_layer_at( region->layer_id );
 
      D_ASSERT( layer != NULL );
      D_ASSERT( layer->funcs != NULL );
      D_ASSERT( layer->funcs->TestRegion != NULL );
 
      funcs = layer->funcs;
+
+     if (region->display_tasks)
+          TaskList_WaitEmpty( region->display_tasks );
 
      /* Lock the region. */
      if (dfb_layer_region_lock( region ))
@@ -669,6 +988,9 @@ dfb_layer_region_set_configuration( CoreLayerRegion            *region,
 
           if (flags & CLRCF_FORMAT)
                new_config.format = config->format;
+
+          if (flags & CLRCF_COLORSPACE)
+               new_config.colorspace = config->colorspace;
 
           if (flags & CLRCF_SURFACE_CAPS)
                new_config.surface_caps = config->surface_caps;
@@ -714,21 +1036,27 @@ dfb_layer_region_set_configuration( CoreLayerRegion            *region,
           }
      }
 
+     DFB_CORE_LAYER_REGION_CONFIG_DEBUG_AT( Core_Layers, &new_config );
+
      /* Check if the new configuration is supported. */
      ret = funcs->TestRegion( layer, layer->driver_data, layer->layer_data,
-                              &new_config, NULL );
+                              &new_config, &failed );
      if (ret) {
+          D_DEBUG_AT( Core_Layers, "  -> FAILED 0x%08x\n", failed );
           dfb_layer_region_unlock( region );
           return ret;
      }
 
      /* Check if the region should be frozen, thus requiring to apply changes explicitly. */
-     if (flags & CLRCF_FREEZE)
+     if (flags & CLRCF_FREEZE) {
+          D_DEBUG_AT( Core_Layers, "  -> FREEZE...\n" );
+
           region->state |= CLRSF_FROZEN;
+     }
 
      /* Propagate new configuration to the driver if the region is realized. */
-     if (D_FLAGS_IS_SET( region->state, CLRSF_REALIZED )) {
-          ret = set_region( region, &new_config, flags, region->surface );
+     if (D_FLAGS_IS_SET( region->state, CLRSF_REALIZED ) && !D_FLAGS_IS_SET( region->state, CLRSF_FROZEN )) {
+          ret = dfb_layer_region_set( region, &new_config, flags, region->surface );
           if (ret) {
                dfb_layer_region_unlock( region );
                return ret;
@@ -743,6 +1071,8 @@ dfb_layer_region_set_configuration( CoreLayerRegion            *region,
 
      /* Unlock the region. */
      dfb_layer_region_unlock( region );
+
+     D_DEBUG_AT( Core_Layers, "  -> done.\n" );
 
      return DFB_OK;
 }
@@ -803,7 +1133,6 @@ _dfb_layer_region_surface_listener( const void *msg_data, void *ctx )
 
      D_ASSERT( notification != NULL );
      D_ASSERT( region != NULL );
-     D_ASSERT( region->context != NULL );
 
      D_DEBUG_AT( Core_Layers, "_dfb_layer_region_surface_listener( %p, %p ) <- 0x%08x\n",
                  notification, region, notification->flags );
@@ -815,7 +1144,7 @@ _dfb_layer_region_surface_listener( const void *msg_data, void *ctx )
      if (notification->surface != region->surface)
           return RS_OK;
 
-     layer = dfb_layer_at( region->context->layer_id );
+     layer = dfb_layer_at( region->layer_id );
 
      D_ASSERT( layer != NULL );
      D_ASSERT( layer->funcs != NULL );
@@ -834,6 +1163,9 @@ _dfb_layer_region_surface_listener( const void *msg_data, void *ctx )
           return RS_REMOVE;
      }
 
+     if (flags & CSNF_DISPLAY)
+          return RS_OK;
+
      if (dfb_layer_region_lock( region ))
           return RS_OK;
 
@@ -842,18 +1174,24 @@ _dfb_layer_region_surface_listener( const void *msg_data, void *ctx )
      {
           if (D_FLAGS_IS_SET( flags, CSNF_PALETTE_CHANGE | CSNF_PALETTE_UPDATE )) {
                if (surface->palette) {
+                    CoreSurfaceBufferLock left, right;
+
+                    dfb_surface_lock( surface );
+
                     /* Lock region buffer before it is used. */
-                    region_buffer_lock( region, surface, CSBR_BACK );
-                    D_ASSERT(region->surface_lock.buffer != NULL);
+                    region_buffer_lock( region, surface, CSBR_BACK, &left, &right );
+                    D_ASSERT(left.buffer != NULL);
 
                     funcs->SetRegion( layer,
                                       layer->driver_data, layer->layer_data,
                                       region->region_data, &region->config,
                                       CLRCF_PALETTE, surface, surface->palette,
-                                      &region->surface_lock );
+                                      &left, &right );
 
-                     /* Unlock region buffer since the lock is no longer needed. */
-                     region_buffer_unlock(region, true);
+                    /* Unlock region buffer since the lock is no longer needed. */
+                    region_buffer_unlock(region, &left, &right);
+
+                    dfb_surface_unlock( surface );
                }
           }
 
@@ -863,23 +1201,29 @@ _dfb_layer_region_surface_listener( const void *msg_data, void *ctx )
                                      region->region_data, surface->field );
 
           if ((flags & CSNF_ALPHA_RAMP) && (shared->description.caps & DLCAPS_ALPHA_RAMP)) {
+               CoreSurfaceBufferLock left, right;
+
                region->config.alpha_ramp[0] = surface->alpha_ramp[0];
                region->config.alpha_ramp[1] = surface->alpha_ramp[1];
                region->config.alpha_ramp[2] = surface->alpha_ramp[2];
                region->config.alpha_ramp[3] = surface->alpha_ramp[3];
 
+               dfb_surface_lock( surface );
+
                /* Lock region buffer before it is used. */
-               region_buffer_lock( region, surface, CSBR_BACK );
-               D_ASSERT(region->surface_lock.buffer != NULL);
+               region_buffer_lock( region, surface, CSBR_BACK, &left, &right );
+               D_ASSERT(left.buffer != NULL);
 
                funcs->SetRegion( layer,
                                  layer->driver_data, layer->layer_data,
                                  region->region_data, &region->config,
                                  CLRCF_ALPHA_RAMP, surface, surface->palette,
-                                 &region->surface_lock );
+                                 &left, &right );
 
                /* Unlock region buffer since the lock is no longer needed. */
-               region_buffer_unlock(region, true);
+               region_buffer_unlock(region, &left, &right);
+
+               dfb_surface_unlock( surface );
           }
      }
 
@@ -896,67 +1240,75 @@ _dfb_layer_region_surface_listener( const void *msg_data, void *ctx )
  * prevents them from deadlocking.
  */
 static DFBResult
-region_buffer_unlock( CoreLayerRegion *region,
-                      bool             unlockSurface)
+region_buffer_unlock( CoreLayerRegion       *region,
+                      CoreSurfaceBufferLock *left_buffer_lock,
+                      CoreSurfaceBufferLock *right_buffer_lock )
 {
-    D_ASSERT(region != NULL);
+     DFBResult ret = DFB_OK;
 
-    /* Unlock any previously locked buffer. */
-    if (region->surface_lock.buffer) {
-         D_MAGIC_ASSERT( region->surface_lock.buffer, CoreSurfaceBuffer );
+     D_ASSERT(region != NULL);
+     D_ASSERT(left_buffer_lock != NULL);
+     D_ASSERT( !dfb_config->task_manager );
 
-         dfb_surface_unlock_buffer( region->surface_lock.buffer->surface, &region->surface_lock );
-    }
+     D_DEBUG_AT( Core_Layers, "%s(): region=%p, lock buffer=%p\n", __FUNCTION__, (void *)region, (void *)left_buffer_lock->buffer );
+     /* Unlock any previously locked buffer. */
+     if (left_buffer_lock->buffer) {
+          D_MAGIC_ASSERT( left_buffer_lock->buffer, CoreSurfaceBuffer );
 
-    /* Unlock the surface Fusion skirmish. */
-    if (unlockSurface) {
-        if (dfb_surface_unlock( region->surface ))
-             return DFB_FUSION;
-    }
+          ret = dfb_surface_unlock_buffer( left_buffer_lock->buffer->surface, left_buffer_lock );
+     }
 
-    return DFB_OK;
+     if (right_buffer_lock && right_buffer_lock->buffer) {
+          D_MAGIC_ASSERT( right_buffer_lock->buffer, CoreSurfaceBuffer );
+
+          ret = dfb_surface_unlock_buffer( right_buffer_lock->buffer->surface, right_buffer_lock );
+     }
+
+     return ret;
 }
 
 static DFBResult
 region_buffer_lock( CoreLayerRegion       *region,
                     CoreSurface           *surface,
-                    CoreSurfaceBufferRole  role )
+                    CoreSurfaceBufferRole  role,
+                    CoreSurfaceBufferLock *left_buffer_lock,
+                    CoreSurfaceBufferLock *right_buffer_lock )
 {
-     DFBResult              ret;
+     DFBResult              ret = DFB_OK;
      CoreSurfaceBuffer     *buffer;
      CoreSurfaceAllocation *allocation;
-     CoreLayerContext      *context;
+     bool                   stereo;
+
+     (void)allocation;
 
      D_ASSERT( region != NULL );
      D_MAGIC_ASSERT( surface, CoreSurface );
+     D_ASSERT(left_buffer_lock != NULL);
+     D_ASSERT( !dfb_config->task_manager );
 
-     context = region->context;
-     D_MAGIC_ASSERT( context, CoreLayerContext );
+     FUSION_SKIRMISH_ASSERT( &surface->lock );
 
-     /* First unlock any previously locked buffer. */
-     if (region->surface_lock.buffer) {
-          D_MAGIC_ASSERT( region->surface_lock.buffer, CoreSurfaceBuffer );
+     stereo = surface->config.caps & DSCAPS_STEREO;
 
-          dfb_surface_unlock_buffer( region->surface_lock.buffer->surface, &region->surface_lock );
-     }
+     D_DEBUG_AT( Core_LayersLock, "%s( role %d )\n", __FUNCTION__, role );
 
-     if (dfb_surface_lock( surface ))
-          return DFB_FUSION;
+     Core_PushIdentity( FUSION_ID_MASTER );
 
-     buffer = dfb_surface_get_buffer( surface, role );
+     /* Save current buffer focus. */
+     buffer = dfb_surface_get_buffer2( surface, role, DSSE_LEFT );
      D_MAGIC_ASSERT( buffer, CoreSurfaceBuffer );
 
      /* Lock the surface buffer. */
-     ret = dfb_surface_buffer_lock( buffer, region->surface_accessor, CSAF_READ, &region->surface_lock );
+     ret = dfb_surface_buffer_lock( buffer, region->surface_accessor, CSAF_READ, left_buffer_lock );
      if (ret) {
           D_DERROR( ret, "Core/LayerRegion: Could not lock region surface for SetRegion()!\n" );
-          dfb_surface_unlock( surface );
+          Core_PopIdentity();
           return ret;
      }
 
-     allocation = region->surface_lock.allocation;
+     allocation = left_buffer_lock->allocation;
      D_ASSERT( allocation != NULL );
-
+#if 0
      /* If hardware has written or is writing... */
      if (allocation->accessed[CSAID_GPU] & CSAF_WRITE) {
           D_DEBUG_AT( Core_Layers, "  -> Waiting for pending writes...\n" );
@@ -966,22 +1318,62 @@ region_buffer_lock( CoreLayerRegion       *region,
 
           allocation->accessed[CSAID_GPU] &= ~CSAF_WRITE;
      }
+#endif
+     if (stereo) {
+          D_ASSERT(right_buffer_lock != NULL);
+
+          buffer = dfb_surface_get_buffer2( surface, role, DSSE_RIGHT );
+          D_MAGIC_ASSERT( buffer, CoreSurfaceBuffer );
+     
+          /* Lock the surface buffer. */
+          ret = dfb_surface_buffer_lock( buffer, region->surface_accessor, CSAF_READ, right_buffer_lock );
+          if (ret) {
+               D_DERROR( ret, "Core/LayerRegion: Could not lock region surface for SetRegion()!\n" );
+               Core_PopIdentity();
+               return ret;
+          }
+     
+          allocation = right_buffer_lock->allocation;
+          D_ASSERT( allocation != NULL );
+#if 0
+          /* If hardware has written or is writing... */
+          if (allocation->accessed[CSAID_GPU] & CSAF_WRITE) {
+               D_DEBUG_AT( Core_Layers, "  -> Waiting for pending writes...\n" );
+     
+               /* ...wait for the operation to finish. */
+               dfb_gfxcard_sync(); /* TODO: wait for serial instead */
+     
+               allocation->accessed[CSAID_GPU] &= ~CSAF_WRITE;
+          }
+#endif
+     }
+     else if (right_buffer_lock)
+          /* clear for region_buffer_unlock */
+          right_buffer_lock->buffer = NULL;
 
      /* surface is unlocked by caller */
 
-     return DFB_OK;
+     Core_PopIdentity();
+
+     return ret;
 }
 
-static DFBResult
-set_region( CoreLayerRegion            *region,
-            CoreLayerRegionConfig      *config,
-            CoreLayerRegionConfigFlags  flags,
-            CoreSurface                *surface )
+/******************************************************************************/
+
+DFBResult
+dfb_layer_region_set( CoreLayerRegion            *region,
+                      CoreLayerRegionConfig      *config,
+                      CoreLayerRegionConfigFlags  flags,
+                      CoreSurface                *surface )
 {
      DFBResult                ret;
      CoreLayer               *layer;
      CoreLayerShared         *shared;
      const DisplayLayerFuncs *funcs;
+     CoreSurfaceBufferLock    left, right;
+     bool                     locked = false;
+
+     (void)shared;
 
      D_DEBUG_AT( Core_Layers, "%s( %p, %p, 0x%08x, %p )\n", __FUNCTION__, region, config, flags, surface );
 
@@ -990,13 +1382,13 @@ set_region( CoreLayerRegion            *region,
      D_DEBUG_AT( Core_Layers, "  -> state    0x%08x\n", region->state );
 
      D_ASSERT( region != NULL );
-     D_ASSERT( region->context != NULL );
      D_ASSERT( config != NULL );
      D_ASSERT( config->buffermode != DLBM_WINDOWS );
+     D_ASSERT( !dfb_config->task_manager );
 
      D_ASSERT( D_FLAGS_IS_SET( region->state, CLRSF_REALIZED ) );
 
-     layer = dfb_layer_at( region->context->layer_id );
+     layer = dfb_layer_at( region->layer_id );
 
      D_ASSERT( layer != NULL );
      D_ASSERT( layer->shared != NULL );
@@ -1012,20 +1404,22 @@ set_region( CoreLayerRegion            *region,
      funcs  = layer->funcs;
 
      if (surface) {
-          if (flags & (CLRCF_SURFACE | CLRCF_WIDTH | CLRCF_HEIGHT | CLRCF_FORMAT)) {
-               ret = region_buffer_lock( region, surface, CSBR_FRONT );
+          if (flags & (CLRCF_SURFACE | CLRCF_WIDTH   | CLRCF_HEIGHT | CLRCF_FORMAT | CLRCF_SRCKEY |
+                       CLRCF_DSTKEY  | CLRCF_OPACITY | CLRCF_SOURCE | CLRCF_DEST))
+          {
+               dfb_surface_lock( surface );
+
+               ret = region_buffer_lock( region, surface, CSBR_FRONT, &left, &right );
+
+               dfb_surface_unlock( surface );
+
                if (ret)
                     return ret;
 
-               dfb_surface_unlock( surface );
+               locked = true;
           }
 
           /* The buffer is often NULL since the region is no longer kept locked. */
-     }
-     else if (region->surface_lock.buffer) {
-          D_MAGIC_ASSERT( region->surface_lock.buffer, CoreSurfaceBuffer );
-
-          dfb_surface_unlock_buffer( region->surface_lock.buffer->surface, &region->surface_lock );
      }
 
      D_DEBUG_AT( Core_Layers, "  => setting region of '%s'\n", shared->description.name );
@@ -1033,16 +1427,21 @@ set_region( CoreLayerRegion            *region,
      /* Setup hardware. */
      ret =  funcs->SetRegion( layer, layer->driver_data, layer->layer_data,
                               region->region_data, config, flags,
-                              surface, surface ? surface->palette : NULL, &region->surface_lock );
+                              surface, surface ? surface->palette : NULL,
+                              &left, &right );
+     if (ret)
+          D_DERROR( ret, "Core/LayerRegion: Driver's SetRegion() call failed!\n" );
 
      /* Unlock the region buffer since the lock is no longer necessary. */
-     region_buffer_unlock(region, false);
+     if (locked)
+          region_buffer_unlock(region, &left, &right);
 
      return ret;
 }
 
-static DFBResult
-realize_region( CoreLayerRegion *region )
+DFBResult
+dfb_layer_region_realize( CoreLayerRegion *region,
+                          bool             set )
 {
      DFBResult                ret;
      CoreLayer               *layer;
@@ -1057,11 +1456,16 @@ realize_region( CoreLayerRegion *region )
 
      D_DEBUG_AT( Core_Layers, "  -> state    0x%08x\n", region->state );
 
-     D_ASSERT( region->context != NULL );
+     if (region->state & CLRSF_FROZEN) {
+          D_DEBUG_AT( Core_Layers, "  -> FROZEN!\n" );
+          return DFB_OK;
+     }
+
      D_ASSERT( D_FLAGS_IS_SET( region->state, CLRSF_CONFIGURED ) );
      D_ASSERT( ! D_FLAGS_IS_SET( region->state, CLRSF_REALIZED ) );
+     D_ASSERT( !dfb_config->task_manager || !set );
 
-     layer = dfb_layer_at( region->context->layer_id );
+     layer = dfb_layer_at( region->layer_id );
 
      D_ASSERT( layer != NULL );
      D_ASSERT( layer->shared != NULL );
@@ -1071,11 +1475,6 @@ realize_region( CoreLayerRegion *region )
      funcs  = layer->funcs;
 
      D_ASSERT( ! fusion_vector_contains( &shared->added_regions, region ) );
-
-     if (region->state & CLRSF_FROZEN) {
-          D_DEBUG_AT( Core_Layers, "  -> FROZEN!\n" );
-          return DFB_OK;
-     }
 
      /* Allocate the driver's region data. */
      if (funcs->RegionDataSize) {
@@ -1114,17 +1513,19 @@ realize_region( CoreLayerRegion *region )
      D_FLAGS_SET( region->state, CLRSF_REALIZED );
 
      /* Initially setup hardware. */
-     ret = set_region( region, &region->config, CLRCF_ALL, region->surface );
-     if (ret) {
-          unrealize_region( region );
-          return ret;
+     if (set) {
+          ret = dfb_layer_region_set( region, &region->config, CLRCF_ALL, region->surface );
+          if (ret) {
+               dfb_layer_region_unrealize( region );
+               return ret;
+          }
      }
 
      return DFB_OK;
 }
 
-static DFBResult
-unrealize_region( CoreLayerRegion *region )
+DFBResult
+dfb_layer_region_unrealize( CoreLayerRegion *region )
 {
      DFBResult                ret;
      int                      index;
@@ -1140,10 +1541,9 @@ unrealize_region( CoreLayerRegion *region )
 
      D_DEBUG_AT( Core_Layers, "  -> state    0x%08x\n", region->state );
 
-     D_ASSERT( region->context != NULL );
      D_ASSERT( D_FLAGS_IS_SET( region->state, CLRSF_REALIZED ) );
 
-     layer = dfb_layer_at( region->context->layer_id );
+     layer = dfb_layer_at( region->layer_id );
 
      D_ASSERT( layer != NULL );
      D_ASSERT( layer->shared != NULL );
@@ -1162,9 +1562,16 @@ unrealize_region( CoreLayerRegion *region )
      if (funcs->RemoveRegion) {
           ret = funcs->RemoveRegion( layer, layer->driver_data,
                                      layer->layer_data, region->region_data );
-          if (ret) {
-               D_DERROR( ret, "Core/Layers: Could not remove region!\n" );
-               return ret;
+          if (ret)
+               D_DERROR( ret, "Core/Layers: RemoveRegion failed!\n" );
+
+          if (!(dfb_system_caps() & CSCAPS_DISPLAY_TASKS)) {
+               D_DEBUG_AT( Core_Layers, "  -> system WITHOUT display task support, calling Task_Done on last task\n" );
+
+               if (layer->prev_task)
+                    Task_Done( layer->prev_task );
+
+               layer->prev_task = NULL;
           }
      }
 
@@ -1182,14 +1589,8 @@ unrealize_region( CoreLayerRegion *region )
      D_FLAGS_SET( region->state, CLRSF_FROZEN );
 
      /* Unlock the region buffer if it is locked. */
-     if (region->surface && region->surface_lock.buffer) {
-          dfb_surface_unlock_buffer( region->surface, &region->surface_lock );
-     }
-
-     /* Destroy the surface region if it exists. */
-     if (region->surface ) {
-         dfb_surface_destroy_buffers( region->surface );
-    }
+     if (region->surface && !region->config.keep_buffers)
+          dfb_surface_deallocate_buffers( region->surface );
 
      return DFB_OK;
 }

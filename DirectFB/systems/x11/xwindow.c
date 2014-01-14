@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <string.h>
@@ -35,6 +39,8 @@
 #include <directfb_util.h>
 
 #include <direct/mem.h>
+
+#include <misc/conf.h>
 
 #include "x11.h"
 
@@ -79,6 +85,7 @@ dfb_x11_open_window( DFBX11 *x11, XWindow** ppXW, int iXPos, int iYPos, int iWid
      XWindow              *xw;
      XSetWindowAttributes  attr = { .background_pixmap = 0 };
      void                 *old_error_handler = 0;
+     unsigned int          cw_mask = CWEventMask;
 
      D_DEBUG_AT( X11_Window, "Creating %4dx%4d %s window...\n", iWidth, iHeight, dfb_pixelformat_name(format) );
 
@@ -105,6 +112,12 @@ dfb_x11_open_window( DFBX11 *x11, XWindow** ppXW, int iXPos, int iYPos, int iWid
           | ExposureMask
           | StructureNotifyMask;
 
+     if (dfb_config->x11_borderless) {
+          attr.override_redirect = True;
+
+          cw_mask |= CWOverrideRedirect;
+     }
+
      XLockDisplay( x11->display );
 
      old_error_handler = XSetErrorHandler( error_handler );
@@ -114,7 +127,7 @@ dfb_x11_open_window( DFBX11 *x11, XWindow** ppXW, int iXPos, int iYPos, int iWid
      xw->window = XCreateWindow( xw->display,
                                  RootWindowOfScreen(xw->screenptr),
                                  iXPos, iYPos, iWidth, iHeight, 0, xw->depth, InputOutput,
-                                 xw->visual, CWEventMask, &attr );
+                                 xw->visual, cw_mask, &attr );
      XSync( xw->display, False );
      if (!xw->window || error_code) {
           D_FREE( xw );

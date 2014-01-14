@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #include <config.h>
 
 #include <directfb.h>
@@ -35,6 +39,10 @@
 #include <direct/memcpy.h>
 #include <direct/messages.h>
 #include <direct/util.h>
+
+#include <core/surface.h>
+
+#include <misc/conf.h>
 
 #include <voodoo/conf.h>
 #include <voodoo/interface.h>
@@ -61,7 +69,11 @@ DIRECT_INTERFACE_IMPLEMENTATION( IDirectFBDisplayLayer, Dispatcher )
 static void
 IDirectFBDisplayLayer_Dispatcher_Destruct( IDirectFBDisplayLayer *thiz )
 {
-     D_DEBUG( "%s (%p)^n", __FUNCTION__, thiz );
+     IDirectFBDisplayLayer_Dispatcher_data *data = thiz->priv;
+
+     D_DEBUG( "%s (%p)\n", __FUNCTION__, thiz );
+
+     data->real->Release( data->real );
 
      DIRECT_DEALLOCATE_INTERFACE( thiz );
 }
@@ -113,7 +125,7 @@ IDirectFBDisplayLayer_Dispatcher_GetDescription( IDirectFBDisplayLayer      *thi
 
 static DFBResult
 IDirectFBDisplayLayer_Dispatcher_GetSurface( IDirectFBDisplayLayer  *thiz,
-                                             IDirectFBSurface      **interface )
+                                             IDirectFBSurface      **interface_ptr )
 {
      DIRECT_INTERFACE_GET_DATA(IDirectFBDisplayLayer_Dispatcher)
 
@@ -124,7 +136,7 @@ IDirectFBDisplayLayer_Dispatcher_GetSurface( IDirectFBDisplayLayer  *thiz,
 
 static DFBResult
 IDirectFBDisplayLayer_Dispatcher_GetScreen( IDirectFBDisplayLayer  *thiz,
-                                            IDirectFBScreen       **interface )
+                                            IDirectFBScreen       **interface_ptr )
 {
      DIRECT_INTERFACE_GET_DATA(IDirectFBDisplayLayer_Dispatcher)
 
@@ -431,6 +443,15 @@ IDirectFBDisplayLayer_Dispatcher_WaitForSync( IDirectFBDisplayLayer *thiz )
 /**************************************************************************************************/
 
 static DirectResult
+Dispatch_Release( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
+                  VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DIRECT_INTERFACE_GET_DATA(IDirectFBDisplayLayer_Dispatcher)
+
+     return voodoo_manager_unregister_local( manager, data->self );
+}
+
+static DirectResult
 Dispatch_GetID( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
                 VoodooManager *manager, VoodooRequestMessage *msg )
 {
@@ -450,6 +471,32 @@ Dispatch_GetID( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
 }
 
 static DirectResult
+Dispatch_GetSurface( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
+                     VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DirectResult      ret;
+     IDirectFBSurface *surface;
+     VoodooInstanceID  instance;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBDisplayLayer_Dispatcher)
+
+     ret = real->GetSurface( real, &surface );
+     if (ret)
+          return ret;
+
+     ret = voodoo_construct_dispatcher( manager, "IDirectFBSurface",
+                                        surface, data->super, NULL, &instance, NULL );
+     if (ret) {
+          surface->Release( surface );
+          return ret;
+     }
+
+     return voodoo_manager_respond( manager, true, msg->header.serial,
+                                    DFB_OK, instance,
+                                    VMBT_NONE );
+}
+
+static DirectResult
 Dispatch_GetScreen( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
                     VoodooManager *manager, VoodooRequestMessage *msg )
 {
@@ -464,7 +511,7 @@ Dispatch_GetScreen( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
           return ret;
 
      ret = voodoo_construct_dispatcher( manager, "IDirectFBScreen",
-                                        screen, data->self, NULL, &instance, NULL );
+                                        screen, data->super, NULL, &instance, NULL );
      if (ret) {
           screen->Release( screen );
           return ret;
@@ -488,7 +535,7 @@ Dispatch_GetConfiguration( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *r
      if (ret)
           return ret;
 
-     return voodoo_manager_respond( manager, msg->header.serial,
+     return voodoo_manager_respond( manager, true, msg->header.serial,
                                     DFB_OK, VOODOO_INSTANCE_NONE,
                                     VMBT_DATA, sizeof(DFBDisplayLayerConfig), &config,
                                     VMBT_NONE );
@@ -514,6 +561,29 @@ Dispatch_TestConfiguration( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *
      return voodoo_manager_respond( manager, true, msg->header.serial,
                                     ret, VOODOO_INSTANCE_NONE,
                                     VMBT_UINT, failed,
+                                    VMBT_NONE );
+}
+
+static DirectResult
+Dispatch_SetConfiguration( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
+                           VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DirectResult                 ret;
+     const DFBDisplayLayerConfig *config;
+     VoodooMessageParser          parser;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBDisplayLayer_Dispatcher)
+
+     VOODOO_PARSER_BEGIN( parser, msg );
+     VOODOO_PARSER_GET_DATA( parser, config );
+     VOODOO_PARSER_END( parser );
+
+     ret = real->SetConfiguration( real, config );
+     if (ret)
+          return ret;
+
+     return voodoo_manager_respond( manager, true, msg->header.serial,
+                                    DFB_OK, VOODOO_INSTANCE_NONE,
                                     VMBT_NONE );
 }
 
@@ -550,6 +620,7 @@ Dispatch_CreateWindow( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
      VoodooInstanceID            instance;
      VoodooMessageParser         parser;
      bool                        force_system = (voodoo_config->resource_id != 0);
+     bool                        force_video  = false;
 
      DIRECT_INTERFACE_GET_DATA(IDirectFBDisplayLayer_Dispatcher)
 
@@ -557,8 +628,60 @@ Dispatch_CreateWindow( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
      VOODOO_PARSER_GET_DATA( parser, desc );
      VOODOO_PARSER_END( parser );
 
-     if (1) {
-          int w = 256, h = 256, b = 2, size;
+     if (voodoo_config->resource_id) {
+          if (desc->flags & DWDESC_RESOURCE_ID) {
+               if (desc->resource_id == voodoo_config->resource_id) {
+                    force_system = false;
+
+                    if (dfb_config->window_policy == CSP_VIDEOONLY)
+                         force_video = true;
+               }
+          }
+     }
+
+     if (desc->flags & DWDESC_STACKING) {
+          if (voodoo_config->stacking_mask && !(voodoo_config->stacking_mask & (1 << desc->stacking))) {
+               D_ERROR( "Stacking class not permitted!\n" );
+               return DR_ACCESSDENIED;
+          }
+     }
+
+     if (force_system) {
+          DFBWindowDescription wd = *desc;
+
+          if (wd.flags & DWDESC_SURFACE_CAPS) {
+               wd.surface_caps &= ~DSCAPS_VIDEOONLY;
+               wd.surface_caps |=  DSCAPS_SYSTEMONLY;
+          }
+          else {
+               wd.flags        |= DWDESC_SURFACE_CAPS;
+               wd.surface_caps  = DSCAPS_SYSTEMONLY;
+          }
+
+          ret = real->CreateWindow( real, &wd, &window );
+     }
+     else if (force_video) {
+          DFBWindowDescription wd = *desc;
+
+          if (wd.flags & DWDESC_SURFACE_CAPS) {
+               wd.surface_caps &= ~DSCAPS_SYSTEMONLY;
+               wd.surface_caps |=  DSCAPS_VIDEOONLY;
+          }
+          else {
+               wd.flags        |= DWDESC_SURFACE_CAPS;
+               wd.surface_caps  = DSCAPS_VIDEOONLY;
+          }
+
+          ret = real->CreateWindow( real, &wd, &window );
+     }
+     else {
+          ret = real->CreateWindow( real, desc, &window );
+     }
+     if (ret)
+          return ret;
+
+     if (!force_video) {
+          unsigned int w = 256, h = 256, b = 2, size;
 
           if (desc->flags & DWDESC_WIDTH)
                w = desc->width;
@@ -567,7 +690,7 @@ Dispatch_CreateWindow( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
                h = desc->height;
 
           if (desc->flags & DWDESC_PIXELFORMAT)
-               b = DFB_BYTES_PER_PIXEL( desc->pixelformat ) ?: 2;
+               b = DFB_BYTES_PER_PIXEL( desc->pixelformat ) ? DFB_BYTES_PER_PIXEL( desc->pixelformat ) : 2;
 
           size = w * h * b;
 
@@ -586,43 +709,8 @@ Dispatch_CreateWindow( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
           }
      }
 
-     if (voodoo_config->resource_id) {
-          if (desc->flags & DWDESC_RESOURCE_ID) {
-               if (desc->resource_id == voodoo_config->resource_id) {
-                    force_system = false;
-               }
-          }
-     }
-
-     if (force_system) {
-          DFBWindowDescription wd = *desc;
-
-          if (wd.flags & DWDESC_SURFACE_CAPS) {
-               wd.surface_caps &= ~DSCAPS_VIDEOONLY;
-               wd.surface_caps |=  DSCAPS_SYSTEMONLY;
-          }
-          else {
-               wd.flags        |= DWDESC_SURFACE_CAPS;
-               wd.surface_caps  = DSCAPS_SYSTEMONLY;
-          }
-
-          if (wd.flags & DWDESC_STACKING) {
-               if (voodoo_config->stacking_mask && !(voodoo_config->stacking_mask & (1 << wd.stacking))) {
-                    D_ERROR( "Stacking class not permitted!\n" );
-                    return DR_ACCESSDENIED;
-               }
-          }
-
-          ret = real->CreateWindow( real, &wd, &window );
-     }
-     else {
-          ret = real->CreateWindow( real, desc, &window );
-     }
-     if (ret)
-          return ret;
-
      ret = voodoo_construct_dispatcher( manager, "IDirectFBWindow",
-                                        window, data->self, NULL, &instance, NULL );
+                                        window, data->super, NULL, &instance, NULL );
      if (ret) {
           window->Release( window );
           return ret;
@@ -654,7 +742,7 @@ Dispatch_GetWindow( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
           return ret;
 
      ret = voodoo_construct_dispatcher( manager, "IDirectFBWindow",
-                                        window, data->self, NULL, &instance, NULL );
+                                        window, data->super, NULL, &instance, NULL );
      if (ret) {
           window->Release( window );
           return ret;
@@ -686,7 +774,7 @@ Dispatch_GetWindowByResourceID( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLay
           return ret;
 
      ret = voodoo_construct_dispatcher( manager, "IDirectFBWindow",
-                                        window, data->self, NULL, &instance, NULL );
+                                        window, data->super, NULL, &instance, NULL );
      if (ret) {
           window->Release( window );
           return ret;
@@ -698,14 +786,81 @@ Dispatch_GetWindowByResourceID( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLay
 }
 
 static DirectResult
+Dispatch_GetRotation( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
+                      VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DirectResult ret;
+     int          rotation;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBDisplayLayer_Dispatcher)
+
+     ret = real->GetRotation( real, &rotation );
+     if (ret)
+          return ret;
+
+     return voodoo_manager_respond( manager, true, msg->header.serial,
+                                    DR_OK, VOODOO_INSTANCE_NONE,
+                                    VMBT_INT, rotation,
+                                    VMBT_NONE );
+}
+
+static DirectResult
+Dispatch_SetBackgroundMode( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
+                            VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     VoodooMessageParser           parser;
+     DFBDisplayLayerBackgroundMode background_mode;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBDisplayLayer_Dispatcher)
+
+     VOODOO_PARSER_BEGIN( parser, msg );
+     VOODOO_PARSER_GET_INT( parser, background_mode );
+     VOODOO_PARSER_END( parser );
+
+     real->SetBackgroundMode( real, background_mode );
+
+     return DFB_OK;
+}
+
+static DirectResult
+Dispatch_SetBackgroundImage( IDirectFBDisplayLayer *thiz, IDirectFBDisplayLayer *real,
+                             VoodooManager *manager, VoodooRequestMessage *msg )
+{
+     DirectResult         ret;
+     VoodooMessageParser  parser;
+     VoodooInstanceID     instance;
+     void                *surface;
+
+     DIRECT_INTERFACE_GET_DATA(IDirectFBDisplayLayer_Dispatcher)
+
+     VOODOO_PARSER_BEGIN( parser, msg );
+     VOODOO_PARSER_GET_ID( parser, instance );
+     VOODOO_PARSER_END( parser );
+
+     ret = voodoo_manager_lookup_local( manager, instance, NULL, &surface );
+     if (ret)
+          return ret;
+
+     real->SetBackgroundImage( real, surface );
+
+     return DFB_OK;
+}
+
+static DirectResult
 Dispatch( void *dispatcher, void *real, VoodooManager *manager, VoodooRequestMessage *msg )
 {
      D_DEBUG( "IDirectFBDisplayLayer/Dispatcher: "
               "Handling request for instance %u with method %u...\n", msg->instance, msg->method );
 
      switch (msg->method) {
+          case IDIRECTFBDISPLAYLAYER_METHOD_ID_Release:
+               return Dispatch_Release( dispatcher, real, manager, msg );
+
           case IDIRECTFBDISPLAYLAYER_METHOD_ID_GetID:
                return Dispatch_GetID( dispatcher, real, manager, msg );
+
+          case IDIRECTFBDISPLAYLAYER_METHOD_ID_GetSurface:
+               return Dispatch_GetSurface( dispatcher, real, manager, msg );
 
           case IDIRECTFBDISPLAYLAYER_METHOD_ID_GetScreen:
                return Dispatch_GetScreen( dispatcher, real, manager, msg );
@@ -719,6 +874,9 @@ Dispatch( void *dispatcher, void *real, VoodooManager *manager, VoodooRequestMes
           case IDIRECTFBDISPLAYLAYER_METHOD_ID_TestConfiguration:
                return Dispatch_TestConfiguration( dispatcher, real, manager, msg );
 
+          case IDIRECTFBDISPLAYLAYER_METHOD_ID_SetConfiguration:
+               return Dispatch_SetConfiguration( dispatcher, real, manager, msg );
+
           case IDIRECTFBDISPLAYLAYER_METHOD_ID_CreateWindow:
                return Dispatch_CreateWindow( dispatcher, real, manager, msg );
 
@@ -727,6 +885,15 @@ Dispatch( void *dispatcher, void *real, VoodooManager *manager, VoodooRequestMes
 
           case IDIRECTFBDISPLAYLAYER_METHOD_ID_GetWindowByResourceID:
                return Dispatch_GetWindowByResourceID( dispatcher, real, manager, msg );
+
+          case IDIRECTFBDISPLAYLAYER_METHOD_ID_GetRotation:
+               return Dispatch_GetRotation( dispatcher, real, manager, msg );
+
+          case IDIRECTFBDISPLAYLAYER_METHOD_ID_SetBackgroundMode:
+               return Dispatch_SetBackgroundMode( dispatcher, real, manager, msg );
+
+          case IDIRECTFBDISPLAYLAYER_METHOD_ID_SetBackgroundImage:
+               return Dispatch_SetBackgroundImage( dispatcher, real, manager, msg );
      }
 
      return DFB_NOSUCHMETHOD;
@@ -760,7 +927,7 @@ Construct( IDirectFBDisplayLayer *thiz,     /* Dispatcher interface */
      D_ASSERT( ret_instance != NULL );
 
      /* Register the dispatcher, getting a new instance ID that refers to it. */
-     ret = voodoo_manager_register_local( manager, false, thiz, real, Dispatch, &instance );
+     ret = voodoo_manager_register_local( manager, super, thiz, real, Dispatch, &instance );
      if (ret) {
           DIRECT_DEALLOCATE_INTERFACE( thiz );
           return ret;

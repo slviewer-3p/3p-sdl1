@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -120,10 +124,34 @@ static void gInit_BigEndian();
 #define Bop_PFI_OP_Aop_PFI( op ) Bop_12vv_##op##_Aop
 #include "template_colorkey_16.h"
 
+/* RGB24/VYU */
+#define RGB_MASK 0xffffff
+#define Cop_OP_Aop_PFI( op ) Cop_##op##_Aop_24_24
+#define Bop_PFI_OP_Aop_PFI( op ) Bop_24_24_##op##_Aop
+#include "template_colorkey_24.h"
+
+/* ARGB8565 */
+#define RGB_MASK 0x00ffff
+#define Cop_OP_Aop_PFI( op ) Cop_##op##_Aop_24_16
+#define Bop_PFI_OP_Aop_PFI( op ) Bop_24_16_##op##_Aop
+#include "template_colorkey_24.h"
+
+/* ARGB1666/ARGB6666/RGB18 */
+#define RGB_MASK 0x03ffff
+#define Cop_OP_Aop_PFI( op ) Cop_##op##_Aop_24_18
+#define Bop_PFI_OP_Aop_PFI( op ) Bop_24_18_##op##_Aop
+#include "template_colorkey_24.h"
+
 /* ARGB/RGB32/AiRGB */
 #define RGB_MASK 0x00ffffff
 #define Cop_OP_Aop_PFI( op ) Cop_##op##_Aop_32
 #define Bop_PFI_OP_Aop_PFI( op ) Bop_32_##op##_Aop
+#include "template_colorkey_32.h"
+
+/* RGBAF88871 */
+#define RGB_MASK 0xffffff00
+#define Cop_OP_Aop_PFI( op ) Cop_##op##_Aop_32_24
+#define Bop_PFI_OP_Aop_PFI( op ) Bop_32_24_##op##_Aop
 #include "template_colorkey_32.h"
 
 /* RGB16 */
@@ -306,6 +334,24 @@ static void gInit_BigEndian();
 #define B_MASK 0x000000ff
 #include "template_acc_32.h"
 
+/* ABGR */
+#define EXPAND_Ato8( a ) (a)
+#define EXPAND_Rto8( r ) (r)
+#define EXPAND_Gto8( g ) (g)
+#define EXPAND_Bto8( b ) (b)
+#define PIXEL_OUT( a, r, g, b ) PIXEL_ABGR( a, r, g, b )
+#define Sop_PFI_OP_Dacc( op ) Sop_abgr_##op##_Dacc
+#define Sacc_OP_Aop_PFI( op ) Sacc_##op##_Aop_abgr
+#define A_SHIFT 24
+#define B_SHIFT 16
+#define G_SHIFT 8
+#define R_SHIFT 0
+#define A_MASK 0xff000000
+#define B_MASK 0x00ff0000
+#define G_MASK 0x0000ff00
+#define R_MASK 0x000000ff
+#include "template_acc_32.h"
+
 /* RGB32 */
 #define EXPAND_Ato8( a ) 0xFF
 #define EXPAND_Rto8( r ) (r)
@@ -342,6 +388,114 @@ static void gInit_BigEndian();
 #define B_MASK 0x000000ff
 #include "template_acc_32.h"
 
+/* ARGB8565 */
+#define EXPAND_Ato8( a ) (a)
+#define EXPAND_Rto8( r ) EXPAND_5to8( r )
+#define EXPAND_Gto8( g ) EXPAND_6to8( g )
+#define EXPAND_Bto8( b ) EXPAND_5to8( b )
+#define PIXEL_OUT( a, r, g, b ) PIXEL_ARGB8565( a, r, g, b )
+#define Sop_PFI_OP_Dacc( op ) Sop_argb8565_##op##_Dacc
+#define Sacc_OP_Aop_PFI( op ) Sacc_##op##_Aop_argb8565
+#define A_SHIFT 16
+#define R_SHIFT 11
+#define G_SHIFT 5
+#define B_SHIFT 0
+#define A_MASK 0xff0000
+#define R_MASK 0x00f800
+#define G_MASK 0x0007e0
+#define B_MASK 0x00001f
+#include "template_acc_24.h"
+
+/* RGB24 */
+#define EXPAND_Ato8( a ) 0xff
+#define EXPAND_Rto8( r ) (r)
+#define EXPAND_Gto8( g ) (g)
+#define EXPAND_Bto8( b ) (b)
+#define PIXEL_OUT( a, r, g, b ) PIXEL_RGB32( r, g, b )
+#define Sop_PFI_OP_Dacc( op ) Sop_rgb24_##op##_Dacc
+#define Sacc_OP_Aop_PFI( op ) Sacc_##op##_Aop_rgb24
+#define A_SHIFT 0
+#define R_SHIFT 16
+#define G_SHIFT 8
+#define B_SHIFT 0
+#define A_MASK 0
+#define R_MASK 0xff0000
+#define G_MASK 0x00ff00
+#define B_MASK 0x0000ff
+#include "template_acc_24.h"
+
+/* ARGB1666 */
+#define EXPAND_Ato8( a ) EXPAND_1to8( a )
+#define EXPAND_Rto8( r ) EXPAND_6to8( r )
+#define EXPAND_Gto8( g ) EXPAND_6to8( g )
+#define EXPAND_Bto8( b ) EXPAND_6to8( b )
+#define PIXEL_OUT( a, r, g, b ) PIXEL_ARGB1666( a, r, g, b )
+#define Sop_PFI_OP_Dacc( op ) Sop_argb1666_##op##_Dacc
+#define Sacc_OP_Aop_PFI( op ) Sacc_##op##_Aop_argb1666
+#define A_SHIFT 18
+#define R_SHIFT 12
+#define G_SHIFT 6
+#define B_SHIFT 0
+#define A_MASK 0x040000
+#define R_MASK 0x03f000
+#define G_MASK 0x000fc0
+#define B_MASK 0x00003f
+#include "template_acc_24.h"
+
+/* ARGB6666 */
+#define EXPAND_Ato8( a ) EXPAND_6to8( a )
+#define EXPAND_Rto8( r ) EXPAND_6to8( r )
+#define EXPAND_Gto8( g ) EXPAND_6to8( g )
+#define EXPAND_Bto8( b ) EXPAND_6to8( b )
+#define PIXEL_OUT( a, r, g, b ) PIXEL_ARGB6666( a, r, g, b )
+#define Sop_PFI_OP_Dacc( op ) Sop_argb6666_##op##_Dacc
+#define Sacc_OP_Aop_PFI( op ) Sacc_##op##_Aop_argb6666
+#define A_SHIFT 18
+#define R_SHIFT 12
+#define G_SHIFT 6
+#define B_SHIFT 0
+#define A_MASK 0xfc0000
+#define R_MASK 0x03f000
+#define G_MASK 0x000fc0
+#define B_MASK 0x00003f
+#include "template_acc_24.h"
+
+/* RGB18 */
+#define EXPAND_Ato8( a ) 0xff
+#define EXPAND_Rto8( r ) EXPAND_6to8( r )
+#define EXPAND_Gto8( g ) EXPAND_6to8( g )
+#define EXPAND_Bto8( b ) EXPAND_6to8( b )
+#define PIXEL_OUT( a, r, g, b ) PIXEL_RGB18( r, g, b )
+#define Sop_PFI_OP_Dacc( op ) Sop_rgb18_##op##_Dacc
+#define Sacc_OP_Aop_PFI( op ) Sacc_##op##_Aop_rgb18
+#define A_SHIFT 0
+#define R_SHIFT 12
+#define G_SHIFT 6
+#define B_SHIFT 0
+#define A_MASK 0
+#define R_MASK 0x03f000
+#define G_MASK 0x000fc0
+#define B_MASK 0x00003f
+#include "template_acc_24.h"
+
+/* RGBAF88871 */
+#define EXPAND_Ato8( a ) EXPAND_7to8(a)
+#define EXPAND_Rto8( r ) (r)
+#define EXPAND_Gto8( g ) (g)
+#define EXPAND_Bto8( b ) (b)
+#define PIXEL_OUT( a, r, g, b ) PIXEL_RGBAF88871( a, r, g, b )
+#define Sop_PFI_OP_Dacc( op ) Sop_rgbaf88871_##op##_Dacc
+#define Sacc_OP_Aop_PFI( op ) Sacc_##op##_Aop_rgbaf88871
+#define A_SHIFT 1
+#define R_SHIFT 24
+#define G_SHIFT 16
+#define B_SHIFT 8
+#define A_MASK 0x000000fe
+#define R_MASK 0xff000000
+#define G_MASK 0x00ff0000
+#define B_MASK 0x0000ff00
+#include "template_acc_32.h"
+
 /* whether pixelformat is YUV or not */
 static const bool is_ycbcr[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = false,
@@ -349,6 +503,7 @@ static const bool is_ycbcr[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = false,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = false,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = false,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = false,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = false,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = true,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = false,
@@ -370,6 +525,7 @@ static const bool is_ycbcr[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = false,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = false,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = false,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = false,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = false,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = false,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = false,
@@ -377,6 +533,7 @@ static const bool is_ycbcr[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = false,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = true,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = false,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = false,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = true,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = true,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = false,
@@ -420,16 +577,15 @@ static void Cop_to_Aop_16( GenefxState *gfxs )
 
 static void Cop_to_Aop_18( GenefxState *gfxs )
 {
-     int   w = gfxs->length;
+     int   w = gfxs->length+1;
      u8   *D = gfxs->Aop[0];
      u32   Cop = gfxs->Cop;
 
-     while (w) {
+     while (--w) {
           D[0] = Cop;
           D[1] = Cop >> 8;
           D[2] = Cop >> 16;
           D += 3;
-          --w;
      }
 }
 
@@ -456,11 +612,11 @@ static void Cop_to_Aop_argb8565( GenefxState *gfxs )
 
 static void Cop_to_Aop_24( GenefxState *gfxs )
 {
-     int   w  = gfxs->length;
+     int   w  = gfxs->length+1;
      u8   *D  = gfxs->Aop[0];
      u32  Cop = gfxs->Cop;
 
-     while (w) {
+     while (--w) {
 #ifdef WORDS_BIGENDIAN
           D[0] = (Cop >> 16) & 0xff;
           D[1] = (Cop >>  8) & 0xff;
@@ -472,7 +628,6 @@ static void Cop_to_Aop_24( GenefxState *gfxs )
 #endif
 
           D += 3;
-          --w;
      }
 }
 
@@ -482,7 +637,7 @@ static void Cop_to_Aop_vyu( GenefxState *gfxs )
      u8   *D  = gfxs->Aop[0];
 
      while (--w) {
-#ifdef BIG_ENDIAN
+#ifdef WORDS_BIGENDIAN
           D[0] = gfxs->CrCop;
           D[1] = gfxs->YCop;
           D[2] = gfxs->CbCop;
@@ -502,8 +657,40 @@ static void Cop_to_Aop_32( GenefxState *gfxs )
      u32   *D   = gfxs->Aop[0];
      u32    Cop = gfxs->Cop;
 
-     while (w--)
+     while (w)
+     {
+         if (!(w % 8))
+         {
           *D++ = Cop;
+             *D++ = Cop;
+             *D++ = Cop;
+             *D++ = Cop;
+             *D++ = Cop;
+             *D++ = Cop;
+             *D++ = Cop;
+             *D++ = Cop;
+             w -= 8;
+         }
+         else if (!(w % 4))
+         {
+             *D++ = Cop;
+             *D++ = Cop;
+             *D++ = Cop;
+             *D++ = Cop;
+             w -= 4;
+         }
+         else if (!(w % 2))
+         {
+             *D++ = Cop;
+             *D++ = Cop;
+             w -=2;
+         }
+         else
+         {
+             *D++ = Cop;
+             --w;
+         }
+     }
 }
 
 static void Cop_to_Aop_yuv422( GenefxState *gfxs )
@@ -519,7 +706,7 @@ static void Cop_to_Aop_yuv422( GenefxState *gfxs )
 #else
           *D++ = Cop >> 16;
 #endif
-          w--;
+          --w;
      }
 
      for (l = w>>1; l--;) {
@@ -558,10 +745,10 @@ static void Cop_to_Aop_nv12( GenefxState *gfxs )
 
      if (gfxs->dst_format == DSPF_NV16 || gfxs->AopY & 1) {
           u16   *D   = gfxs->Aop[1];
-          int    w   = gfxs->length>>1;
+          int    w   = ( gfxs->length >> 1 ) + 1;
           u16    Cop = gfxs->CbCop | (gfxs->CrCop << 8);
 
-          while (w--)
+          while (--w)
                *D++ = Cop;
      }
 }
@@ -573,10 +760,10 @@ static void Cop_to_Aop_nv21( GenefxState *gfxs )
      /* DSPF_NV16 added here since this func is executed as _nv12 for BigEndians */
      if (gfxs->dst_format == DSPF_NV16 || gfxs->AopY & 1) {
           u16   *D   = gfxs->Aop[1];
-          int    w   = gfxs->length>>1;
+          int    w   = ( gfxs->length >> 1 ) + 1;
           u16    Cop = gfxs->CrCop | (gfxs->CbCop << 8);
 
-          while (w--)
+          while (--w)
                *D++ = Cop;
      }
 }
@@ -594,6 +781,7 @@ static GenefxFunc Cop_to_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Cop_to_Aop_24,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Cop_to_Aop_32,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Cop_to_Aop_32,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Cop_to_Aop_32,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Cop_to_Aop_8,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Cop_to_Aop_yuv422,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Cop_to_Aop_8,
@@ -615,6 +803,7 @@ static GenefxFunc Cop_to_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Cop_to_Aop_18,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Cop_to_Aop_18,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Cop_to_Aop_18,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Cop_to_Aop_16,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Cop_to_Aop_16,
@@ -622,6 +811,7 @@ static GenefxFunc Cop_to_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Cop_to_Aop_16,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Cop_to_Aop_yuv444p,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Cop_to_Aop_argb8565,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Cop_to_Aop_32,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Cop_to_Aop_32,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Cop_to_Aop_vyu,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -632,81 +822,16 @@ static GenefxFunc Cop_to_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
 
 static void Cop_toK_Aop_8( GenefxState *gfxs )
 {
-     int    w    = gfxs->length;
+     int    w    = gfxs->length+1;
      u8    *D    = gfxs->Aop[0];
      u32    Cop  = gfxs->Cop;
      u32    Dkey = gfxs->Dkey;
 
-     while (w--) {
+     while (--w) {
           if (Dkey == *D)
                *D = Cop;
 
-          D++;
-     }
-}
-
-static void Cop_toK_Aop_18( GenefxState *gfxs )
-{
-     int   w   = gfxs->length;
-     u8   *D   = gfxs->Aop[0];
-     u32   Dkey = gfxs->Dkey;
-     u32   Cop  = gfxs->Cop;
-
-     while (w) {
-        if (Dkey == ((u32)(D[2]<<16 | D[1]<<8 | D[0]) & 0x3FFFF)) {
-               D[0] = Cop;
-               D[1] = Cop >> 8;
-               D[2] = Cop >> 16;
-        }
-        D += 3;
-        --w;
-     }
-
-}
-
-static void Cop_toK_Aop_argb8565( GenefxState *gfxs )
-{
-     int   w   = gfxs->length + 1;
-     u8   *D   = gfxs->Aop[0];
-     u32   Dkey = gfxs->Dkey;
-     u32   Cop  = gfxs->Cop;
-
-     while (--w) {
-
-#ifdef WORDS_BIGENDIAN
-          if (Dkey == (u32) ((D[1]<<8) | D[2])) {
-               D[0] = (Cop >> 16) & 0xff;
-               D[1] = (Cop >>  8) & 0xff;
-               D[2] = (Cop >>  0) & 0xff;
-          }
-#else
-          if (Dkey == (u32) ((D[1]<<8) | D[0])) {
-               D[0] = (Cop >>  0) & 0xff;
-               D[1] = (Cop >>  8) & 0xff;
-               D[2] = (Cop >> 16) & 0xff;
-          }
-#endif
-
-          D += 3;
-     }
-}
-
-static void Cop_toK_Aop_24( GenefxState *gfxs )
-{
-     int   w   = gfxs->length;
-     u8   *D   = gfxs->Aop[0];
-     u8    Dkr = (gfxs->Dkey & 0xff0000) >> 16;
-     u8    Dkg = (gfxs->Dkey & 0x00ff00) >>  8;
-     u8    Dkb = (gfxs->Dkey & 0x0000ff);
-
-     while (w--) {
-          if (D[0] == Dkb && D[1] == Dkg && D[2] == Dkr) {
-               D[0] = gfxs->color.b;
-               D[1] = gfxs->color.g;
-               D[2] = gfxs->color.r;
-          }
-
-          D += 3;
+          ++D;
      }
 }
 
@@ -726,8 +851,8 @@ static void Cop_toK_Aop_yuv422( GenefxState *gfxs )
           if (*D == (Dkey >> 16))
                *D = Cop >> 16;
 #endif
-          D++;
-          w--;
+          ++D;
+          --w;
      }
 
      for (l = w>>1; l--;) {
@@ -749,16 +874,16 @@ static void Cop_toK_Aop_yuv422( GenefxState *gfxs )
 
 static void Cop_toK_Aop_alut44( GenefxState *gfxs )
 {
-     int    w    = gfxs->length;
+     int    w    = gfxs->length+1;
      u8    *D    = gfxs->Aop[0];
      u32    Cop  = gfxs->Cop;
      u32    Dkey = gfxs->Dkey;
 
-     while (w--) {
+     while (--w) {
           if (Dkey == (*D & 0x0F))
                *D = Cop;
 
-          D++;
+          ++D;
      }
 }
 
@@ -797,43 +922,17 @@ static void Cop_toK_Aop_avyu( GenefxState *gfxs )
           if ((*D & 0x00ffffff) == Dkey)
                *D = Cop;
 
-          D++;
-     }
-}
-
-static void Cop_toK_Aop_vyu( GenefxState *gfxs )
-{
-     int  w    = gfxs->length + 1;
-     u8  *D    = gfxs->Aop[0];
-     u32  Dkey = gfxs->Dkey;
-     u32  Cop  = gfxs->Cop;
-
-     while (--w) {
-
-#ifdef WORDS_BIGENDIAN
-          if (Dkey == (u32) ((D[0]<<16) | (D[1]<<8) | D[2])) {
-               D[0] = (Cop >> 16) & 0xff;
-               D[1] = (Cop >>  8) & 0xff;
-               D[2] = (Cop >>  0) & 0xff;
-          }
-#else
-          if (Dkey == (u32) ((D[2]<<16) | (D[1]<<8) | D[0])) {
-               D[0] = (Cop >>  0) & 0xff;
-               D[1] = (Cop >>  8) & 0xff;
-               D[2] = (Cop >> 16) & 0xff;
-          }
-#endif
-
-          D += 3;
+          ++D;
      }
 }
 
 static const GenefxFunc Cop_toK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = Cop_toK_Aop_15,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = Cop_toK_Aop_16,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Cop_toK_Aop_24,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Cop_toK_Aop_24_24,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Cop_toK_Aop_32,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Cop_toK_Aop_32,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Cop_toK_Aop_32,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Cop_toK_Aop_8,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Cop_toK_Aop_yuv422,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Cop_toK_Aop_8,
@@ -852,18 +951,20 @@ static const GenefxFunc Cop_toK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = Cop_toK_Aop_32,
      [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Cop_toK_Aop_18,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Cop_toK_Aop_18,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Cop_toK_Aop_18,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Cop_toK_Aop_24_18,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Cop_toK_Aop_24_18,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Cop_toK_Aop_24_18,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Cop_toK_Aop_12,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Cop_toK_Aop_15,
      [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = Cop_toK_Aop_15,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Cop_toK_Aop_15,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Cop_toK_Aop_yuv444p,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Cop_toK_Aop_argb8565,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Cop_toK_Aop_24_16,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Cop_toK_Aop_32_24,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Cop_toK_Aop_avyu,
-     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Cop_toK_Aop_vyu,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Cop_toK_Aop_24_24,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
 };
@@ -931,6 +1032,7 @@ static const GenefxFunc Bop_PFI_to_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_24_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_32_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_32_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_32_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Bop_8_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Bop_16_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Bop_8_to_Aop,
@@ -952,6 +1054,7 @@ static const GenefxFunc Bop_PFI_to_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_24_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_24_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_24_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Bop_16_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Bop_16_to_Aop,
@@ -959,6 +1062,7 @@ static const GenefxFunc Bop_PFI_to_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Bop_16_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Bop_yuv444p_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_24_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Bop_32_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Bop_32_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_24_to_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -969,53 +1073,53 @@ static const GenefxFunc Bop_PFI_to_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
 
 static void Bop_4_toR_Aop( GenefxState *gfxs )
 {
-     int w = gfxs->length>>1;
+     int w = ( gfxs->length >> 1 ) + 1;
      int Dstep = gfxs->Astep;
      u8 * S = gfxs->Bop[0];
      u8 * D = gfxs->Aop[0];
-     while(w--)
+     while(--w)
      {
           *D = *S;
           D += Dstep;
-          S++;
+          ++S;
      }
 }
 
 static void Bop_8_toR_Aop( GenefxState *gfxs )
 {
-     int w = gfxs->length;
+     int w = gfxs->length+1;
      int Dstep = gfxs->Astep;
      u8 * S = gfxs->Bop[0];
      u8 * D = gfxs->Aop[0];
-     while(w--)
+     while(--w)
      {
           *D = *S;
           D += Dstep;
-          S++;
+          ++S;
      }
 }
 
 static void Bop_16_toR_Aop( GenefxState *gfxs )
 {
-     int w = gfxs->length;
+     int w = gfxs->length+1;
      int Dstep = gfxs->Astep;
      u16 * S = gfxs->Bop[0];
      u16 * D = gfxs->Aop[0];
-     while(w--)
+     while(--w)
      {
           *D = *S;
           D += Dstep;
-          S++;
+          ++S;
      }
 }
 
 static void Bop_24_toR_Aop( GenefxState *gfxs )
 {
-     int w = gfxs->length;
+     int w = gfxs->length+1;
      int Dstep = gfxs->Astep;
      u8 * S = gfxs->Bop[0];
      u8 * D = gfxs->Aop[0];
-     while(w--)
+     while(--w)
      {
           D[0] = S[0];
           D[1] = S[1];
@@ -1028,15 +1132,15 @@ static void Bop_24_toR_Aop( GenefxState *gfxs )
 
 static void Bop_32_toR_Aop( GenefxState *gfxs )
 {
-     int w = gfxs->length;
+     int w = gfxs->length+1;
      int Dstep = gfxs->Astep;
      u32 * S = gfxs->Bop[0];
      u32 * D = gfxs->Aop[0];
-     while(w--)
+     while(--w)
      {
           *D = *S;
           D += Dstep;
-          S++;
+          ++S;
      }
 }
 
@@ -1044,13 +1148,13 @@ static void Bop_i420_toR_Aop( GenefxState *gfxs )
 {
      Bop_8_toR_Aop( gfxs );
      if (gfxs->AopY & 1) {
-          int w = gfxs->length>>1;
+          int w = ( gfxs->length >> 1 ) + 1;
           int Dstep = gfxs->Astep>>1;
           u8 * S1 = gfxs->Bop[1];
           u8 * D1 = gfxs->Aop[1];
           u8 * S2 = gfxs->Bop[2];
           u8 * D2 = gfxs->Aop[2];
-          while(w--)
+          while(--w)
           {
                *D1 = *S1++;
                *D2 = *S2++;
@@ -1084,11 +1188,11 @@ static void Bop_NV_toR_Aop( GenefxState *gfxs )
 {
      Bop_8_toR_Aop( gfxs );
      if (gfxs->dst_format == DSPF_NV16 || gfxs->AopY & 1) {
-          int w = gfxs->length&~1;
+          int w = (gfxs->length&~1) + 1;
           int Dstep = gfxs->Astep;
           u8 * S = gfxs->Bop[1];
           u8 * D = gfxs->Aop[1];
-          while(w--)
+          while(--w)
           {
                *D = *S++;
                D += Dstep;
@@ -1129,6 +1233,7 @@ static const GenefxFunc Bop_PFI_toR_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_24_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_32_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_32_toR_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_32_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Bop_8_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Bop_16_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Bop_8_toR_Aop,
@@ -1150,6 +1255,7 @@ static const GenefxFunc Bop_PFI_toR_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_24_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_24_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_24_toR_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Bop_16_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Bop_16_toR_Aop,
@@ -1157,6 +1263,7 @@ static const GenefxFunc Bop_PFI_toR_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Bop_16_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Bop_yuv444p_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_24_toR_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Bop_32_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Bop_32_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_24_toR_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -1164,97 +1271,6 @@ static const GenefxFunc Bop_PFI_toR_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
 };
 
 /********************************* Bop_PFI_Kto_Aop_PFI ************************/
-
-static void Bop_rgb18_Kto_Aop( GenefxState *gfxs )
-{
-
-     int    w     = gfxs->length;
-     u8    *D     = gfxs->Aop[0];
-     u8    *S     = gfxs->Bop[0];
-     u32    Skey  = gfxs->Skey;
-     int    Ostep = gfxs->Ostep;
-
-     if (Ostep < 0) {
-          D += (gfxs->length - 1) * 3;
-          S += (gfxs->length - 1) * 3;
-     }
-
-     while (w--) {
-          u8 s0 = S[0];
-          u8 s1 = S[1];
-          u8 s2 = S[2];
-
-          if (Skey != ((u32)(s2<<16 | s1<<8 | s0) & 0x3FFFF)) {
-               D[0] = s0;
-               D[1] = s1;
-               D[2] = s2;
-          }
-
-          S += Ostep * 3;
-          D += Ostep * 3;
-     }
-}
-
-static void Bop_argb8565_Kto_Aop( GenefxState *gfxs )
-{
-     int    w     = gfxs->length + 1;
-     u8    *D     = gfxs->Aop[0];
-     u8    *S     = gfxs->Bop[0];
-     u32    Skey  = gfxs->Skey;
-     int    Ostep = gfxs->Ostep;
-
-     if (Ostep < 0) {
-          D += (gfxs->length - 1) * 3;
-          S += (gfxs->length - 1) * 3;
-     }
-
-     while (--w) {
-
-#ifdef WORDS_BIGENDIAN
-          u32 s = S[1] << 8 | S[2];
-#else
-          u32 s = S[1] << 8 | S[0];
-#endif
-
-          if (Skey != s) {
-               D[0] = S[0];
-               D[1] = S[1];
-               D[2] = S[2];
-          }
-
-          S += Ostep * 3;
-          D += Ostep * 3;
-     }
-}
-
-static void Bop_rgb24_Kto_Aop( GenefxState *gfxs )
-{
-     int    w     = gfxs->length;
-     u8    *D     = gfxs->Aop[0];
-     u8    *S     = gfxs->Bop[0];
-     u32    Skey  = gfxs->Skey;
-     int    Ostep = gfxs->Ostep;
-
-     if (Ostep < 0) {
-          D += (gfxs->length - 1) * 3;
-          S += (gfxs->length - 1) * 3;
-     }
-
-     while (w--) {
-          u8 b = *S;
-          u8 g = *(S+1);
-          u8 r = *(S+2);
-
-          if (Skey != (u32)(r<<16 | g<<8 | b)) {
-               *D     = b;
-               *(D+1) = g;
-               *(D+2) = r;
-          }
-
-          S += Ostep * 3;
-          D += Ostep * 3;
-     }
-}
 
 static void Bop_a8_Kto_Aop( GenefxState *gfxs )
 {
@@ -1353,7 +1369,7 @@ static void Bop_8_Kto_Aop( GenefxState *gfxs )
 
 static void Bop_alut44_Kto_Aop( GenefxState *gfxs )
 {
-     int    w     = gfxs->length;
+     int    w     = gfxs->length +1;
      u8    *D     = gfxs->Aop[0];
      u8    *S     = gfxs->Bop[0];
      u32    Skey  = gfxs->Skey;
@@ -1364,7 +1380,7 @@ static void Bop_alut44_Kto_Aop( GenefxState *gfxs )
           S += gfxs->length - 1;
      }
 
-     while (w--) {
+     while (--w) {
           u8 spixel = *S;
 
           if ((spixel & 0x0F) != Skey)
@@ -1412,9 +1428,10 @@ static void Bop_yuv444p_Kto_Aop( GenefxState *gfxs )
 static GenefxFunc Bop_PFI_Kto_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = Bop_15_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = Bop_16_Kto_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_rgb24_Kto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_24_24_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_32_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_32_Kto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_32_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Bop_a8_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Bop_yuv422_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Bop_8_Kto_Aop,
@@ -1433,86 +1450,25 @@ static GenefxFunc Bop_PFI_Kto_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = Bop_32_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_rgb18_Kto_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_rgb18_Kto_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_rgb18_Kto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_24_18_Kto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_24_18_Kto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_24_18_Kto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Bop_12_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Bop_15_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = Bop_15_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Bop_15_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Bop_yuv444p_Kto_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_argb8565_Kto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_24_16_Kto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Bop_32_24_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Bop_32_Kto_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_rgb24_Kto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_24_24_Kto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
 };
 
 /********************************* Bop_PFI_toK_Aop_PFI ************************/
-
-static void Bop_rgb18_toK_Aop( GenefxState *gfxs )
-{
-     int    w     = gfxs->length;
-     u8    *D     = gfxs->Aop[0];
-     u8    *S     = gfxs->Bop[0];
-     u32    Dkey  = gfxs->Dkey;
-
-     while (w--) {
-          if (Dkey == ((u32)(D[2]<<16 | D[1]<<8 | D[0]) & 0x3FFFF)) {
-               D[0] = S[0];
-               D[1] = S[1];
-               D[2] = S[2];
-          }
-          S +=  3;
-          D +=  3;
-     }
-}
-
-static void Bop_argb8565_toK_Aop( GenefxState *gfxs )
-{
-     int    w     = gfxs->length + 1;
-     u8    *D     = gfxs->Aop[0];
-     u8    *S     = gfxs->Bop[0];
-     u32    Dkey  = gfxs->Dkey;
-
-     while (--w) {
-
-#ifdef WORDS_BIGENDIAN
-          u32 d = D[1] << 8 | D[2];
-#else
-          u32 d = D[1] << 8 | D[0];
-#endif
-          if (Dkey == d) {
-               D[0] = S[0];
-               D[1] = S[1];
-               D[2] = S[2];
-          }
-
-          S +=  3;
-          D +=  3;
-     }
-}
-
-static void Bop_rgb24_toK_Aop( GenefxState *gfxs )
-{
-      int   w    = gfxs->length;
-      u8   *S    = gfxs->Bop[0];
-      u8   *D    = gfxs->Aop[0];
-      u8    Dkr  = (gfxs->Dkey & 0xff0000) >> 16;
-      u8    Dkg  = (gfxs->Dkey & 0x00ff00) >>  8;
-      u8    Dkb  = (gfxs->Dkey & 0x0000ff);
-
-      while (w--) {
-           if (D[0] == Dkb && D[1] == Dkg && D[2] == Dkr) {
-               D[0] = S[0];
-               D[1] = S[1];
-               D[2] = S[2];
-          }
-          S += 3;
-          D += 3;
-     }
-}
 
 static void Bop_yuv422_toK_Aop( GenefxState *gfxs )
 {
@@ -1566,17 +1522,17 @@ static void Bop_yuv422_toK_Aop( GenefxState *gfxs )
 
 static void Bop_rgb332_toK_Aop( GenefxState *gfxs )
 {
-      int   w    = gfxs->length;
+      int   w    = gfxs->length+1;
       u8   *S    = gfxs->Bop[0];
       u8   *D    = gfxs->Aop[0];
       u8    Dkey = gfxs->Dkey;
 
-      while (w--) {
+      while (--w) {
            if (*D == Dkey) {
                 *D = *S;
            }
-           D++;
-           S++;
+           ++D;
+           ++S;
       }
 }
 
@@ -1613,26 +1569,27 @@ static void Bop_yuv444p_toK_Aop( GenefxState *gfxs )
 
 static void Bop_8_toK_Aop( GenefxState *gfxs )
 {
-      int   w    = gfxs->length;
+      int   w    = gfxs->length+1;
       u8   *D    = gfxs->Aop[0];
       u8   *S    = gfxs->Bop[0];
       u8    Dkey = gfxs->Dkey;
 
-      while (w--) {
+      while (--w) {
            if (*D == Dkey) {
                 *D = *S;
            }
-           D++;
-           S++;
+           ++D;
+           ++S;
       }
 }
 
 static GenefxFunc Bop_PFI_toK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = Bop_15_toK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = Bop_16_toK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_rgb24_toK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_24_24_toK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_32_toK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_32_toK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_32_toK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Bop_yuv422_toK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Bop_rgb332_toK_Aop,
@@ -1651,58 +1608,25 @@ static GenefxFunc Bop_PFI_toK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = Bop_32_toK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_rgb18_toK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_rgb18_toK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_rgb18_toK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_24_18_toK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_24_18_toK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_24_18_toK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Bop_12_toK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Bop_15_toK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = Bop_15_toK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Bop_15_toK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Bop_yuv444p_toK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_argb8565_toK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_24_16_toK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Bop_32_24_toK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Bop_32_toK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_rgb24_toK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_24_24_toK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
 };
 
 /********************************* Bop_PFI_KtoK_Aop_PFI ***********************/
-
-static void Bop_argb8565_KtoK_Aop( GenefxState *gfxs )
-{
-     int  l     = gfxs->length + 1;
-     int  Ostep = gfxs->Ostep;
-     u8  *S     = gfxs->Bop[0];
-     u8  *D     = gfxs->Aop[0];
-     u32  Skey  = gfxs->Skey;
-     u32  Dkey  = gfxs->Dkey;
-
-    if (Ostep < 0) {
-          D += (gfxs->length - 1) * 3;
-          S += (gfxs->length - 1) * 3;
-     }
-
-     while (--l) {
-
-#ifdef WORDS_BIGENDIAN
-          u32 s = S[1] << 8 | S[2];
-          u32 d = D[1] << 8 | D[2];
-#else
-          u32 s = S[1] << 8 | S[0];
-          u32 d = D[1] << 8 | D[0];
-#endif
-
-          if (Skey != s && Dkey == d) {
-               D[0] = S[0];
-               D[1] = S[1];
-               D[2] = S[2];
-          }
-
-          S += Ostep * 3;
-          D += Ostep * 3;
-     }
-}
 
 static void Bop_yuv444p_KtoK_Aop( GenefxState *gfxs )
 {
@@ -1743,47 +1667,13 @@ static void Bop_yuv444p_KtoK_Aop( GenefxState *gfxs )
      }
 }
 
-static void Bop_vyu_KtoK_Aop( GenefxState *gfxs )
-{
-     int  l     = gfxs->length + 1;
-     int  Ostep = gfxs->Ostep;
-     u8  *S     = gfxs->Bop[0];
-     u8  *D     = gfxs->Aop[0];
-     u32  Skey  = gfxs->Skey;
-     u32  Dkey  = gfxs->Dkey;
-
-     if (Ostep < 0) {
-          D += (gfxs->length - 1) * 3;
-          S += (gfxs->length - 1) * 3;
-     }
-
-     while (--l) {
-
-#ifdef WORDS_BIGENDIAN
-          u32 s = S[0] << 16 | S[1] << 8 | S[2];
-          u32 d = D[0] << 16 | D[1] << 8 | D[2];
-#else
-          u32 s = S[2] << 16 | S[1] << 8 | S[0];
-          u32 d = D[2] << 16 | D[1] << 8 | D[0];
-#endif
-
-          if (Skey != s && Dkey == d) {
-               D[0] = S[0];
-               D[1] = S[1];
-               D[2] = S[2];
-          }
-
-          S += Ostep * 3;
-          D += Ostep * 3;
-     }
-}
-
 static const GenefxFunc Bop_PFI_KtoK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = Bop_15_KtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = Bop_16_KtoK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_24_24_KtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_32_KtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_32_KtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_32_KtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,
@@ -1802,18 +1692,20 @@ static const GenefxFunc Bop_PFI_KtoK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_24_18_KtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_24_18_KtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_24_18_KtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Bop_12_KtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Bop_15_KtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = Bop_15_KtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Bop_15_KtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Bop_yuv444p_KtoK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_argb8565_KtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_24_16_KtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Bop_32_24_KtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Bop_32_KtoK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_vyu_KtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_24_24_KtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
 };
@@ -1853,13 +1745,13 @@ static void Bop_16_Sto_Aop( GenefxState *gfxs )
 
 static void Bop_24_Sto_Aop( GenefxState *gfxs )
 {
-     int   w     = gfxs->length;
+     int   w     = gfxs->length+1;
      int   i     = gfxs->Xphase;
      u8   *D     = gfxs->Aop[0];
      u8   *S     = gfxs->Bop[0];
      int   SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           int pixelstart = (i>>16)*3;
 
           *D++ = S[pixelstart+0];
@@ -1872,13 +1764,13 @@ static void Bop_24_Sto_Aop( GenefxState *gfxs )
 
 static void Bop_32_Sto_Aop( GenefxState *gfxs )
 {
-     int    w     = gfxs->length;
+     int    w     = gfxs->length+1;
      int    i     = gfxs->Xphase;
      u32   *D     = gfxs->Aop[0];
      u32   *S     = gfxs->Bop[0];
      int    SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           *D++ = S[i>>16];
 
           i += SperD;
@@ -1897,7 +1789,7 @@ static void Bop_yuy2_Sto_Aop( GenefxState *gfxs )
      if ((long)D & 2) {
           *D++ = *S;
           i = SperD;
-          w--;
+          --w;
      }
 
      for (l = w>>1; l--;) {
@@ -1923,13 +1815,13 @@ static void Bop_yuy2_Sto_Aop( GenefxState *gfxs )
 
 static void Bop_8_Sto_Aop( GenefxState *gfxs )
 {
-     int   w     = gfxs->length;
+     int   w     = gfxs->length+1;
      int   i     = gfxs->Xphase;
      u8   *D     = gfxs->Aop[0];
      u8   *S     = gfxs->Bop[0];
      int   SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           *D++ = S[i>>16];
 
           i += SperD;
@@ -1948,7 +1840,7 @@ static void Bop_uyvy_Sto_Aop( GenefxState *gfxs )
      if ((long)D & 2) {
           *D++ = *S;
           i = SperD;
-          w--;
+          --w;
      }
 
      for (l = w>>1; l--;) {
@@ -1974,13 +1866,13 @@ static void Bop_uyvy_Sto_Aop( GenefxState *gfxs )
 
 static void Bop_i420_Sto_Aop( GenefxState *gfxs )
 {
-     int   w     = gfxs->length;
+     int   w     = gfxs->length+1;
      int   i     = gfxs->Xphase;
      u8   *Dy    = gfxs->Aop[0];
      u8   *Sy    = gfxs->Bop[0];
      int   SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           *Dy++ = Sy[i>>16];
 
           i += SperD;
@@ -2036,13 +1928,13 @@ static void Bop_yv16_Sto_Aop( GenefxState *gfxs )
 
 static void Bop_NV_Sto_Aop( GenefxState *gfxs )
 {
-     int   w     = gfxs->length;
+     int   w     = gfxs->length +1;
      int   i     = gfxs->Xphase;
      u8   *Dy    = gfxs->Aop[0];
      u8   *Sy    = gfxs->Bop[0];
      int   SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           *Dy++ = Sy[i>>16];
 
           i += SperD;
@@ -2091,6 +1983,7 @@ static GenefxFunc Bop_PFI_Sto_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_24_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_32_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_32_Sto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_32_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Bop_8_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Bop_yuy2_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Bop_8_Sto_Aop,
@@ -2112,6 +2005,7 @@ static GenefxFunc Bop_PFI_Sto_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_24_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_24_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_24_Sto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Bop_16_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Bop_16_Sto_Aop,
@@ -2119,6 +2013,7 @@ static GenefxFunc Bop_PFI_Sto_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Bop_16_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Bop_yuv444p_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_24_Sto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Bop_32_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Bop_32_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_24_Sto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -2127,98 +2022,16 @@ static GenefxFunc Bop_PFI_Sto_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
 
 /********************************* Bop_PFI_SKto_Aop_PFI ***********************/
 
-static void Bop_rgb18_SKto_Aop( GenefxState *gfxs )
-{
-     int   w     = gfxs->length;
-     int   i     = gfxs->Xphase;
-     u8   *D     = gfxs->Aop[0];
-     u8   *S     = gfxs->Bop[0];
-     u32   Skey  = gfxs->Skey;
-     int   SperD = gfxs->SperD;
-
-     while (w--) {
-          int pixelstart = (i>>16)*3;
-
-          u8 s0 = S[pixelstart+0];
-          u8 s1 = S[pixelstart+1];
-          u8 s2 = S[pixelstart+2];
-
-          if (Skey != ((u32)(s2<<16 | s1<<8 | s0) & 0x3FFFF)) {
-               D[0] = s0;
-               D[1] = s1;
-               D[2] = s2;
-          }
-          i += SperD;
-          D += 3;
-     }
-}
-
-static void Bop_argb8565_SKto_Aop( GenefxState *gfxs )
-{
-     int    w     = gfxs->length + 1;
-     int    i     = gfxs->Xphase;
-     u8    *D     = gfxs->Aop[0];
-     u8    *S     = gfxs->Bop[0];
-     u32    Skey  = gfxs->Skey;
-     int    SperD = gfxs->SperD;
-
-     while (--w) {
-          int pixelstart = (i >> 16) * 3;
-
-#ifdef WORDS_BIGENDIAN
-          u32 s = S[pixelstart+1] << 8 | S[pixelstart+2];
-#else
-          u32 s = S[pixelstart+1] << 8 | S[pixelstart+0];
-#endif
-
-          if (Skey != s) {
-               D[0] = S[pixelstart+0];
-               D[1] = S[pixelstart+1];
-               D[2] = S[pixelstart+2];
-          }
-
-          D += 3;
-          i += SperD;
-     }
-}
-
-static void Bop_rgb24_SKto_Aop( GenefxState *gfxs )
-{
-     int    w     = gfxs->length;
-     int    i     = gfxs->Xphase;
-     u8    *D     = gfxs->Aop[0];
-     u8    *S     = gfxs->Bop[0];
-     u32    Skey  = gfxs->Skey;
-     int    SperD = gfxs->SperD;
-
-     while (w--) {
-          int pixelstart = (i>>16)*3;
-
-          u8 b = S[pixelstart+0];
-          u8 g = S[pixelstart+1];
-          u8 r = S[pixelstart+2];
-
-          if (Skey != (u32)(r<<16 | g<<8 | b)) {
-               *D     = b;
-               *(D+1) = g;
-               *(D+2) = r;
-          }
-
-          D += 3;
-          i += SperD;
-     }
-}
-
 static void Bop_a8_SKto_Aop( GenefxState *gfxs )
 {
-     int   w     = gfxs->length;
+     int   w     = gfxs->length+1;
      int   i     = gfxs->Xphase;
      u8   *D     = gfxs->Aop[0];
      u8   *S     = gfxs->Bop[0];
      int   SperD = gfxs->SperD;
 
      /* no color to key */
-     while (w--) {
+     while (--w) {
           *D++ = S[i>>16];
 
           i += SperD;
@@ -2246,9 +2059,9 @@ static void Bop_yuy2_SKto_Aop( GenefxState *gfxs )
           u16 s = *S;
           if (s != Skey0)
                *D = s;
-          D++;
+          ++D;
           i = SperD;
-          w--;
+          --w;
      }
 
      for (l = w>>1; l--;) {
@@ -2283,20 +2096,20 @@ static void Bop_yuy2_SKto_Aop( GenefxState *gfxs )
 
 static void Bop_8_SKto_Aop( GenefxState *gfxs )
 {
-     int    w     = gfxs->length;
+     int    w     = gfxs->length+1;
      int    i     = gfxs->Xphase;
      u8    *D     = gfxs->Aop[0];
      u8    *S     = gfxs->Bop[0];
      u32    Skey  = gfxs->Skey;
      int    SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           u8 s = S[i>>16];
 
           if (s != Skey)
                *D = s;
 
-          D++;
+          ++D;
           i += SperD;
      }
 }
@@ -2322,9 +2135,9 @@ static void Bop_uyvy_SKto_Aop( GenefxState *gfxs )
           u16 s = *S;
           if (s != Skey0)
                *D = s;
-          D++;
+          ++D;
           i = SperD;
-          w--;
+          --w;
      }
 
      for (l = w>>1; l--;) {
@@ -2359,20 +2172,20 @@ static void Bop_uyvy_SKto_Aop( GenefxState *gfxs )
 
 static void Bop_alut44_SKto_Aop( GenefxState *gfxs )
 {
-     int    w     = gfxs->length;
+     int    w     = gfxs->length+1;
      int    i     = gfxs->Xphase;
      u8    *D     = gfxs->Aop[0];
      u8    *S     = gfxs->Bop[0];
      u32    Skey  = gfxs->Skey;
      int    SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           u8 s = S[i>>16];
 
           if ((s & 0x0f) != Skey)
                *D = s;
 
-          D++;
+          ++D;
           i += SperD;
      }
 }
@@ -2409,9 +2222,10 @@ static void Bop_yuv444p_SKto_Aop( GenefxState *gfxs )
 static const GenefxFunc Bop_PFI_SKto_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = Bop_15_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = Bop_16_SKto_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_rgb24_SKto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_24_24_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_32_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_32_SKto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_32_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Bop_a8_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Bop_yuy2_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Bop_8_SKto_Aop,
@@ -2430,52 +2244,25 @@ static const GenefxFunc Bop_PFI_SKto_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = Bop_32_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_rgb18_SKto_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_rgb18_SKto_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_rgb18_SKto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_24_18_SKto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_24_18_SKto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_24_18_SKto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Bop_12_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Bop_15_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = Bop_15_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Bop_15_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Bop_yuv444p_SKto_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_argb8565_SKto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_24_16_SKto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Bop_32_24_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Bop_32_SKto_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_rgb24_SKto_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_24_24_SKto_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
 };
 
 /********************************* Bop_PFI_StoK_Aop_PFI ***********************/
-
-static void Bop_argb8565_StoK_Aop( GenefxState *gfxs )
-{
-     int  l     = gfxs->length + 1;
-     int  i     = gfxs->Xphase;
-     int  SperD = gfxs->SperD;
-     u8  *S     = gfxs->Bop[0];
-     u8  *D     = gfxs->Aop[0];
-     u32  Dkey  = gfxs->Dkey;
-
-     while (--l) {
-          int pixelstart = (i >> 16) * 3;
-
-#ifdef WORDS_BIGENDIAN
-          u32 d = D[1] << 8 | D[2];
-#else
-          u32 d = D[1] << 8 | D[0];
-#endif
-
-          if (Dkey == d) {
-               D[0] = S[pixelstart+0];
-               D[1] = S[pixelstart+1];
-               D[2] = S[pixelstart+2];
-          }
-
-          D += 3;
-          i += SperD;
-     }
-}
 
 static void Bop_yuv444p_StoK_Aop( GenefxState *gfxs )
 {
@@ -2510,41 +2297,13 @@ static void Bop_yuv444p_StoK_Aop( GenefxState *gfxs )
      }
 }
 
-static void Bop_vyu_StoK_Aop( GenefxState *gfxs )
-{
-     int  l     = gfxs->length + 1;
-     int  i     = gfxs->Xphase;
-     int  SperD = gfxs->SperD;
-     u8  *S     = gfxs->Bop[0];
-     u8  *D     = gfxs->Aop[0];
-     u32  Dkey  = gfxs->Dkey;
-
-     while (--l) {
-          int pixelstart = (i >> 16) * 3;
-
-#ifdef WORDS_BIGENDIAN
-          u32 d = D[0] << 16 | D[1] << 8 | D[2];
-#else
-          u32 d = D[2] << 16 | D[1] << 8 | D[0];
-#endif
-
-          if (Dkey == d) {
-               D[0] = S[pixelstart+0];
-               D[1] = S[pixelstart+1];
-               D[2] = S[pixelstart+2];
-          }
-
-          D += 3;
-          i += SperD;
-     }
-}
-
 static const GenefxFunc Bop_PFI_StoK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = Bop_15_StoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = Bop_16_StoK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_24_24_StoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_32_StoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_32_StoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_32_StoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,
@@ -2563,55 +2322,25 @@ static const GenefxFunc Bop_PFI_StoK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_24_18_StoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_24_18_StoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_24_18_StoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Bop_12_StoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Bop_15_StoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = Bop_15_StoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Bop_15_StoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Bop_yuv444p_StoK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_argb8565_StoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_24_16_StoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Bop_32_24_StoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Bop_32_StoK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_vyu_StoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_24_24_StoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
 };
 
 /********************************* Bop_PFI_SKtoK_Aop_PFI **********************/
-
-static void Bop_argb8565_SKtoK_Aop( GenefxState *gfxs )
-{
-     int  l     = gfxs->length + 1;
-     int  i     = gfxs->Xphase;
-     int  SperD = gfxs->SperD;
-     u8  *S     = gfxs->Bop[0];
-     u8  *D     = gfxs->Aop[0];
-     u32  Skey  = gfxs->Skey;
-     u32  Dkey  = gfxs->Dkey;
-
-     while (--l) {
-          int pixelstart = (i >> 16) * 3;
-
-#ifdef WORDS_BIGENDIAN
-          u32 s = S[pixelstart+1] << 8 | S[pixelstart+2];
-          u32 d = D[           1] << 8 | D[           2];
-#else
-          u32 s = S[pixelstart+1] << 8 | S[pixelstart+0];
-          u32 d = D[           1] << 8 | D[           0];
-#endif
-
-          if (Skey != s && Dkey == d) {
-               D[0] = S[pixelstart+0];
-               D[1] = S[pixelstart+1];
-               D[2] = S[pixelstart+2];
-          }
-
-          D += 3;
-          i += SperD;
-     }
-}
 
 static void Bop_yuv444p_SKtoK_Aop( GenefxState *gfxs )
 {
@@ -2648,44 +2377,13 @@ static void Bop_yuv444p_SKtoK_Aop( GenefxState *gfxs )
      }
 }
 
-static void Bop_vyu_SKtoK_Aop( GenefxState *gfxs )
-{
-     int  l     = gfxs->length + 1;
-     int  i     = gfxs->Xphase;
-     int  SperD = gfxs->SperD;
-     u8  *S     = gfxs->Bop[0];
-     u8  *D     = gfxs->Aop[0];
-     u32  Skey  = gfxs->Skey;
-     u32  Dkey  = gfxs->Dkey;
-
-     while (--l) {
-          int pixelstart = (i >> 16) * 3;
-
-#ifdef WORDS_BIGENDIAN
-          u32 s = S[pixelstart+0] << 16 | S[pixelstart+1] << 8 | S[pixelstart+2];
-          u32 d = D[           0] << 16 | D[           1] << 8 | D[           2];
-#else
-          u32 s = S[pixelstart+2] << 16 | S[pixelstart+1] << 8 | S[pixelstart+0];
-          u32 d = D[           2] << 16 | D[           1] << 8 | D[           0];
-#endif
-
-          if (Skey != s && Dkey == d) {
-               D[0] = S[pixelstart+0];
-               D[1] = S[pixelstart+1];
-               D[2] = S[pixelstart+2];
-          }
-
-          D += 3;
-          i += SperD;
-     }
-}
-
 static const GenefxFunc Bop_PFI_SKtoK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = Bop_15_SKtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = Bop_16_SKtoK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_24_24_SKtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_32_SKtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_32_SKtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_32_SKtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,
@@ -2704,104 +2402,152 @@ static const GenefxFunc Bop_PFI_SKtoK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_24_18_SKtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_24_18_SKtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_24_18_SKtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Bop_12_SKtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Bop_15_SKtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = Bop_15_SKtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Bop_15_SKtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Bop_yuv444p_SKtoK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_argb8565_SKtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_24_16_SKtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Bop_32_24_SKtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Bop_32_SKtoK_Aop,
-     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_vyu_SKtoK_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_24_24_SKtoK_Aop,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
 };
 
+/********************************* Bop_PFI_TEX_to_Aop_PFI ************************/
+
+#if 0
+
+// TODO: scan from right to left, this one flips every 8 s/t from source
+
+/* change the last value to adjust the size of the device (1-4) */
+#define SET_PIXEL_DUFFS_DEVICE_D( D, w ) \
+     SET_PIXEL_DUFFS_DEVICE_N_D( D, w, 3 )
+
+#define SET_PIXEL( D )                                                     \
+     do {                                                                  \
+          D = S[(s>>16) + (t>>16) * sp4];                                  \
+                                                                           \
+          s += SperD;                                                      \
+          t += TperD;                                                      \
+     } while (0)
+
+static void Bop_32_TEX_to_Aop( GenefxState *gfxs )
+{
+     int  w     = gfxs->length;
+     int  s     = gfxs->s;
+     int  t     = gfxs->t;
+     int  SperD = gfxs->SperD;
+     int  TperD = gfxs->TperD;
+     u32 *S     = gfxs->Bop[0];
+     u32 *D     = gfxs->Aop[0];
+     int  sp4   = gfxs->src_pitch / 4;
+
+     SET_PIXEL_DUFFS_DEVICE_D( D, w );
+}
+
+#undef SET_PIXEL_DUFFS_DEVICE
+#undef SET_PIXEL
+
+#else
+
+static void Bop_32_TEX_to_Aop( GenefxState *gfxs )
+{
+     int  l     = gfxs->length+1;
+     int  s     = gfxs->s;
+     int  t     = gfxs->t;
+     int  SperD = gfxs->SperD;
+     int  TperD = gfxs->TperD;
+     u32 *S     = gfxs->Bop[0];
+     u32 *D     = gfxs->Aop[0];
+     int  sp4   = gfxs->src_pitch / 4;
+
+     while (--l) {
+          *D++ = S[(s>>16) + (t>>16) * sp4];
+
+          s += SperD;
+          t += TperD;
+     }
+}
+
+static void Bop_24_TEX_to_Aop( GenefxState *gfxs )
+{
+     int  w     = gfxs->length + 1;
+     int  s     = gfxs->s;
+     int  t     = gfxs->t;
+     int  SperD = gfxs->SperD;
+     int  TperD = gfxs->TperD;
+     const u8 *S = gfxs->Bop[0];
+     u8  *D     = gfxs->Aop[0];
+     int  sp3   = gfxs->src_pitch / 3;
+
+     while (--w) {
+          int pixelstart = ((s >> 16) + (t >> 16) * sp3) * 3;
+          *D++ = S[pixelstart++];
+          *D++ = S[pixelstart++];
+          *D++ = S[pixelstart];
+
+          s += SperD;
+          t += TperD;
+     }
+}
+
+#endif
+
+static GenefxFunc Bop_PFI_TEX_to_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = NULL,//Bop_16_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = NULL,//Bop_16_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_24_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_32_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_32_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_32_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,//Bop_8_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,//Bop_yuy2_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,//Bop_8_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_UYVY)]     = NULL,//Bop_uyvy_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_I420)]     = NULL,//Bop_i420_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV12)]     = NULL,//Bop_i420_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT8)]     = NULL,//Bop_8_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ALUT44)]   = NULL,//Bop_8_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AiRGB)]    = Bop_32_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV12)]     = NULL,//Bop_NV_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV16)]     = NULL,//Bop_NV_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB2554)] = NULL,//Bop_16_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB4444)] = NULL,//Bop_16_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA4444)] = NULL,//Bop_16_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,//Bop_NV_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = Bop_32_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_24_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_24_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_24_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = NULL,//Bop_16_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = NULL,//Bop_16_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = NULL,//Bop_16_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = NULL,//Bop_16_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = NULL,//Bop_yuv444p_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_24_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Bop_32_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Bop_32_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_24_TEX_to_Aop,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,//Bop_yv16_TEX_to_Aop,
+};
+
 /********************************* Sop_PFI_Sto_Dacc ***************************/
 
-static void Sop_argb6666_Sto_Dacc( GenefxState *gfxs )
+static void Sop_a8_Sto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
-     int i     = gfxs->Xphase;
-     int SperD = gfxs->SperD;
-
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-
-     while (w--) {
-          int pixelstart = (i>>16)*3;
-
-          u8 b = S[pixelstart+0] & 0x3F;
-          u8 g = ((S[pixelstart+0] & 0xC0) >> 6) | ((S[pixelstart+1] & 0x0F) << 2);
-          u8 r = ((S[pixelstart+1] & 0xF0) >> 4) | ((S[pixelstart+2] & 0x03) << 4);
-          u8 a = (S[pixelstart+2] & 0xFC) >> 2;
-
-          D->RGB.a = EXPAND_6to8( a );
-          D->RGB.r = EXPAND_6to8( r );
-          D->RGB.g = EXPAND_6to8( g );
-          D->RGB.b = EXPAND_6to8( b );
-          i += SperD;
-          D++;
-     }
-}
-
-static void Sop_argb1666_Sto_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length;
-     int i     = gfxs->Xphase;
-     int SperD = gfxs->SperD;
-
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-
-     while (w--) {
-          int pixelstart = (i>>16)*3;
-
-          u8 b = S[pixelstart+0] & 0x3F;
-          u8 g = ((S[pixelstart+0] & 0xC0) >> 6) | ((S[pixelstart+1] & 0x0F) << 2);
-          u8 r = ((S[pixelstart+1] & 0xF0) >> 4) | ((S[pixelstart+2] & 0x03) << 4);
-          u8 a = (S[pixelstart+2] & 0x04) >> 2;
-
-          D->RGB.a = EXPAND_1to8( a );
-          D->RGB.r = EXPAND_6to8( r );
-          D->RGB.g = EXPAND_6to8( g );
-          D->RGB.b = EXPAND_6to8( b );
-          i += SperD;
-          D++;
-    }
-}
-
-static void Sop_rgb18_Sto_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length;
-     int i     = gfxs->Xphase;
-     int SperD = gfxs->SperD;
-
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-
-     while (w--) {
-          int pixelstart = (i>>16)*3;
-
-          u8 b = S[pixelstart+0] & 0x3F;
-          u8 g = ((S[pixelstart+0] & 0xC0) >> 6) | ((S[pixelstart+1] & 0x0F) << 2);
-          u8 r = ((S[pixelstart+1] & 0xF0) >> 4) | ((S[pixelstart+2] & 0x03) << 4);
-
-          D->RGB.a = 0xFF;
-          D->RGB.r = EXPAND_6to8( r );
-          D->RGB.g = EXPAND_6to8( g );
-          D->RGB.b = EXPAND_6to8( b );
-          i += SperD;
-          D++;
-     }
-}
-
-static void Sop_argb8565_Sto_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length + 1;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
@@ -2809,65 +2555,6 @@ static void Sop_argb8565_Sto_Dacc( GenefxState *gfxs )
      u8                *S = gfxs->Sop[0];
 
      while (--w) {
-          int pixelstart = (i >> 16) * 3;
-
-#ifdef WORDS_BIGENDIAN
-          u8 a = S[pixelstart+0];
-          u8 r = (S[pixelstart+1] & 0xf8) >> 3;
-          u8 g = ((S[pixelstart+1] & 0x07) << 3)
-                 | ((S[pixelstart+2] & 0xe0) >> 5);
-          u8 b = S[pixelstart+2] & 0x1f;
-#else
-          u8 b = S[pixelstart+0] & 0x1f;
-          u8 g = ((S[pixelstart+1] & 0x07) << 3)
-                 | ((S[pixelstart+0] & 0xe0) >> 5);
-          u8 r = (S[pixelstart+1] & 0xf8) >> 3;
-          u8 a = S[pixelstart+2];
-#endif
-
-          D->RGB.a = a;
-          D->RGB.r = EXPAND_5to8 (r);
-          D->RGB.g = EXPAND_6to8 (g);
-          D->RGB.b = EXPAND_5to8 (b);
-
-          D++;
-          i += SperD;
-     }
-}
-
-static void Sop_rgb24_Sto_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length;
-     int i     = gfxs->Xphase;
-     int SperD = gfxs->SperD;
-
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-
-     while (w--) {
-          int pixelstart = (i>>16)*3;
-
-          D->RGB.a = 0xFF;
-          D->RGB.r = S[pixelstart+2];
-          D->RGB.g = S[pixelstart+1];
-          D->RGB.b = S[pixelstart+0];
-
-          i += SperD;
-
-          D++;
-     }
-}
-
-static void Sop_a8_Sto_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length;
-     int i     = gfxs->Xphase;
-     int SperD = gfxs->SperD;
-
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-
-     while (w--) {
           u8 s = S[i>>16];
 
           D->RGB.a = s;
@@ -2877,20 +2564,20 @@ static void Sop_a8_Sto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_yuy2_Sto_Dacc( GenefxState *gfxs )
 {
-     int  w     = gfxs->length>>1;
+     int  w     = (gfxs->length>>1)+1;
      int  i     = gfxs->Xphase;
      int  SperD = gfxs->SperD;
 
      GenefxAccumulator *D = gfxs->Dacc;
      u32               *S = gfxs->Sop[0];
 
-     while (w--) {
+     while (--w) {
           u32 s = S[i>>17];
 
           D[0].YUV.a = D[1].YUV.a = 0xFF;
@@ -2920,14 +2607,14 @@ static void Sop_yuy2_Sto_Dacc( GenefxState *gfxs )
 
 static void Sop_rgb332_Sto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
      GenefxAccumulator *D = gfxs->Dacc;
      u8                *S = gfxs->Sop[0];
 
-     while (w--) {
+     while (--w) {
           u8 s = S[i>>16];
 
           D->RGB.a = 0xFF;
@@ -2937,20 +2624,20 @@ static void Sop_rgb332_Sto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_uyvy_Sto_Dacc( GenefxState *gfxs )
 {
-     int  w     = gfxs->length>>1;
+     int  w     = (gfxs->length>>1)+1;
      int  i     = gfxs->Xphase;
      int  SperD = gfxs->SperD;
 
      GenefxAccumulator *D = gfxs->Dacc;
      u32               *S = gfxs->Sop[0];
 
-     while (w--) {
+     while (--w) {
           u32 s = S[i>>17];
 
           D[0].YUV.a = D[1].YUV.a = 0xFF;
@@ -2980,7 +2667,7 @@ static void Sop_uyvy_Sto_Dacc( GenefxState *gfxs )
 
 static void Sop_lut8_Sto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
@@ -2989,7 +2676,7 @@ static void Sop_lut8_Sto_Dacc( GenefxState *gfxs )
 
      DFBColor *entries = gfxs->Slut->entries;
 
-     while (w--) {
+     while (--w) {
           u8 s = S[i>>16];
 
           D->RGB.a = entries[s].a;
@@ -2999,13 +2686,13 @@ static void Sop_lut8_Sto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_alut44_Sto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
@@ -3014,7 +2701,7 @@ static void Sop_alut44_Sto_Dacc( GenefxState *gfxs )
 
      DFBColor *entries = gfxs->Slut->entries;
 
-     while (w--) {
+     while (--w) {
           u8 s = S[i>>16];
 
           D->RGB.a = s & 0xF0;
@@ -3025,13 +2712,13 @@ static void Sop_alut44_Sto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_i420_Sto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
@@ -3040,7 +2727,7 @@ static void Sop_i420_Sto_Dacc( GenefxState *gfxs )
      u8                *Su = gfxs->Sop[1];
      u8                *Sv = gfxs->Sop[2];
 
-     while (w--) {
+     while (--w) {
           D->YUV.a = 0xFF;
           D->YUV.y = Sy[i>>16];
           D->YUV.u = Su[i>>17];
@@ -3048,13 +2735,13 @@ static void Sop_i420_Sto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_nv12_Sto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
@@ -3062,7 +2749,7 @@ static void Sop_nv12_Sto_Dacc( GenefxState *gfxs )
      u8                *Sy  = gfxs->Sop[0];
      u16               *Suv = gfxs->Sop[1];
 
-     while (w--) {
+     while (--w) {
           D->YUV.a = 0xFF;
           D->YUV.y = Sy[i>>16];
           D->YUV.u = Suv[i>>17] & 0xFF;
@@ -3070,13 +2757,13 @@ static void Sop_nv12_Sto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_nv21_Sto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
@@ -3084,7 +2771,7 @@ static void Sop_nv21_Sto_Dacc( GenefxState *gfxs )
      u8                *Sy  = gfxs->Sop[0];
      u16               *Svu = gfxs->Sop[1];
 
-     while (w--) {
+     while (--w) {
           D->YUV.a = 0xFF;
           D->YUV.y = Sy[i>>16];
           D->YUV.u = Svu[i>>17] >> 8;
@@ -3092,20 +2779,20 @@ static void Sop_nv21_Sto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_ayuv_Sto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
      GenefxAccumulator *D = gfxs->Dacc;
      u32               *S = gfxs->Sop[0];
 
-     while (w--) {
+     while (--w) {
           u32 s = S[i>>16];
 
           D->YUV.a = (s >> 24);
@@ -3115,7 +2802,7 @@ static void Sop_ayuv_Sto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
@@ -3138,7 +2825,7 @@ static void Sop_yuv444p_Sto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
@@ -3161,7 +2848,7 @@ static void Sop_avyu_Sto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
@@ -3189,21 +2876,21 @@ static void Sop_vyu_Sto_Dacc( GenefxState *gfxs )
           D->YUV.u = S[pixelstart+0];
 #endif
 
-          D++;
+          ++D;
           i += SperD;
      }
 }
 
 static void Sop_a4_Sto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
      GenefxAccumulator *D = gfxs->Dacc;
      u8                *S = gfxs->Sop[0];
 
-     while (w--) {
+     while (--w) {
           int I = i>>16;
           u8  s = S[I>>1];
 
@@ -3219,7 +2906,7 @@ static void Sop_a4_Sto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
@@ -3229,6 +2916,7 @@ static GenefxFunc Sop_PFI_Sto_Dacc[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Sop_rgb24_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Sop_rgb32_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Sop_argb_Sto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Sop_abgr_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Sop_a8_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Sop_yuy2_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Sop_rgb332_Sto_Dacc,
@@ -3250,6 +2938,7 @@ static GenefxFunc Sop_PFI_Sto_Dacc[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Sop_argb1666_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Sop_argb6666_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Sop_rgb18_Sto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Sop_xrgb4444_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Sop_xrgb1555_Sto_Dacc,
@@ -3257,6 +2946,7 @@ static GenefxFunc Sop_PFI_Sto_Dacc[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Sop_rgba5551_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Sop_yuv444p_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Sop_argb8565_Sto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Sop_rgbaf88871_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Sop_avyu_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Sop_vyu_Sto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -3265,195 +2955,9 @@ static GenefxFunc Sop_PFI_Sto_Dacc[DFB_NUM_PIXELFORMATS] = {
 
 /********************************* Sop_PFI_SKto_Dacc **************************/
 
-static void Sop_argb6666_SKto_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length;
-     int i     = gfxs->Xphase;
-     int SperD = gfxs->SperD;
-     u32 Skey = gfxs->Skey;
-
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-
-     while (w--) {
-          int pixelstart = (i>>16)*3;
-
-          u8 s0 = S[pixelstart+0];
-          u8 s1 = S[pixelstart+1];
-          u8 s2 = S[pixelstart+2];
-
-          if (Skey != ((u32)(s2<<16 | s1<<8 | s0) & 0x3FFFF)) {
-               u8 b = s0 & 0x3F;
-               u8 g = ((s0 & 0xC0) >> 6) | ((s1 & 0x0F) << 2);
-               u8 r = ((s1 & 0xF0) >> 4) | ((s2 & 0x03) << 4);
-               u8 a = (s2 & 0xFC) >> 2;
-
-               D->RGB.a = EXPAND_6to8( a );
-               D->RGB.r = EXPAND_6to8( r );
-               D->RGB.g = EXPAND_6to8( g );
-               D->RGB.b = EXPAND_6to8( b );
-          }
-          else
-               D->RGB.a = 0xFF00;
-
-          i += SperD;
-          D++;
-     }
-}
-
-static void Sop_argb1666_SKto_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length;
-     int i     = gfxs->Xphase;
-     int SperD = gfxs->SperD;
-
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-     u32                Skey = gfxs->Skey;
-
-     while (w--) {
-          int pixelstart = (i>>16)*3;
-
-          u8 s0 = S[pixelstart+0];
-          u8 s1 = S[pixelstart+1];
-          u8 s2 = S[pixelstart+2];
-
-          if (Skey != ((u32)(s2<<16 | s1<<8 | s0) & 0x3FFFF)) {
-               u8 b = s0 & 0x3F;
-               u8 g = ((s0 & 0xC0) >> 6) | ((s1 & 0x0F) << 2);
-               u8 r = ((s1 & 0xF0) >> 4) | ((s2 & 0x03) << 4);
-               u8 a = (s2 & 0x04) >> 2;
-
-               D->RGB.a = EXPAND_1to8( a );
-               D->RGB.r = EXPAND_6to8( r );
-               D->RGB.g = EXPAND_6to8( g );
-               D->RGB.b = EXPAND_6to8( b );
-          }
-          else
-               D->RGB.a = 0xFF00;
-          i += SperD;
-          D++;
-     }
-}
-
-static void Sop_rgb18_SKto_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length;
-     int i     = gfxs->Xphase;
-     int SperD = gfxs->SperD;
-     u32  Skey = gfxs->Skey;
-
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-
-     while (w--) {
-          int pixelstart = (i>>16)*3;
-
-          u8 s0 = S[pixelstart+0];
-          u8 s1 = S[pixelstart+1];
-          u8 s2 = S[pixelstart+2];
-
-          if (Skey != ((u32)(s2<<16 | s1<<8 | s0) & 0x3FFFF)) {
-               u8 b = s0 & 0x3F;
-               u8 g = ((s0 & 0xC0) >> 6) | ((s1 & 0x0F) << 2);
-               u8 r = ((s1 & 0xF0) >> 4) | ((s2 & 0x03) << 4);
-
-               D->RGB.a = 0xFF;
-               D->RGB.r = EXPAND_6to8( r );
-               D->RGB.g = EXPAND_6to8( g );
-               D->RGB.b = EXPAND_6to8( b );
-          }
-          else
-               D->RGB.a = 0xFF00;
-
-          i += SperD;
-          D++;
-     }
-}
-
-static void Sop_argb8565_SKto_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length + 1;
-     int i     = gfxs->Xphase;
-     int SperD = gfxs->SperD;
-     u32 Skey  = gfxs->Skey;
-
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-
-     while (--w) {
-          int pixelstart = (i>>16)*3;
-
-#ifdef WORDS_BIGENDIAN
-          u32 s = S[pixelstart+1] << 8 | S[pixelstart+2];
-#else
-          u32 s = S[pixelstart+1] << 8 | S[pixelstart+0];
-#endif
-
-          if (Skey != s) {
-
-#ifdef WORDS_BIGENDIAN
-               u8 a = S[pixelstart+0];
-               u8 r = (S[pixelstart+1] & 0xf8) >> 3;
-               u8 g = ((S[pixelstart+1] & 0x07) << 3)
-                      | ((S[pixelstart+2] & 0xe0) >> 5);
-               u8 b = S[pixelstart+2] & 0x1f;
-#else
-               u8 b = S[pixelstart+0] & 0x1f;
-               u8 g = ((S[pixelstart+1] & 0x07) << 3)
-                      | ((S[pixelstart+0] & 0xe0) >> 5);
-               u8 r = (S[pixelstart+1] & 0xf8) >> 3;
-               u8 a = S[pixelstart+2];
-#endif
-
-            D->RGB.a = a;
-            D->RGB.r = EXPAND_5to8 (r);
-            D->RGB.g = EXPAND_6to8 (g);
-            D->RGB.b = EXPAND_5to8 (b);
-          }
-          else
-               D->RGB.a = 0xF000;
-
-          D++;
-          i += SperD;
-     }
-}
-
-static void Sop_rgb24_SKto_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length;
-     int i     = gfxs->Xphase;
-     int SperD = gfxs->SperD;
-
-     GenefxAccumulator *D    = gfxs->Dacc;
-     u8                *S    = gfxs->Sop[0];
-     u32                Skey = gfxs->Skey;
-
-     while (w--) {
-          int pixelstart = (i>>16)*3;
-
-          u8 b = S[pixelstart+0];
-          u8 g = S[pixelstart+1];
-          u8 r = S[pixelstart+2];
-
-          if (Skey != (u32)(r<<16 | g<<8 | b)) {
-               D->RGB.a = 0xFF;
-               D->RGB.r = r;
-               D->RGB.g = g;
-               D->RGB.b = b;
-          }
-          else
-               D->RGB.a = 0xFF00;
-
-          i += SperD;
-
-          D++;
-     }
-}
-
 static void Sop_a8_SKto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
@@ -3461,7 +2965,7 @@ static void Sop_a8_SKto_Dacc( GenefxState *gfxs )
      u8                *S = gfxs->Sop[0];
 
      /* no color to key */
-     while (w--) {
+     while (--w) {
           u8 s = S[i>>16];
 
           D->RGB.a = s;
@@ -3471,13 +2975,13 @@ static void Sop_a8_SKto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_lut8_SKto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
@@ -3487,7 +2991,7 @@ static void Sop_lut8_SKto_Dacc( GenefxState *gfxs )
 
      DFBColor *entries = gfxs->Slut->entries;
 
-     while (w--) {
+     while (--w) {
           u8 s = S[i>>16];
 
           if (s != Skey) {
@@ -3501,13 +3005,13 @@ static void Sop_lut8_SKto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_alut44_SKto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
@@ -3517,7 +3021,7 @@ static void Sop_alut44_SKto_Dacc( GenefxState *gfxs )
 
      DFBColor *entries = gfxs->Slut->entries;
 
-     while (w--) {
+     while (--w) {
           u8 s = S[i>>16];
 
           if ((s & 0x0F) != Skey) {
@@ -3532,13 +3036,13 @@ static void Sop_alut44_SKto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_yuy2_SKto_Dacc( GenefxState *gfxs )
 {
-     int   w     = gfxs->length>>1;
+    int   w     = (gfxs->length>>1)+1;
      int   i     = gfxs->Xphase;
      int   SperD = gfxs->SperD;
      u32   Ky    = (gfxs->Skey & 0x000000FF);
@@ -3553,7 +3057,7 @@ static void Sop_yuy2_SKto_Dacc( GenefxState *gfxs )
      GenefxAccumulator *D = gfxs->Dacc;
      u32               *S = gfxs->Sop[0];
 
-     while (w--) {
+     while (--w) {
           u32 s = S[i>>17];
           u32 y0, cb, y1, cr;
 
@@ -3605,7 +3109,7 @@ static void Sop_yuy2_SKto_Dacc( GenefxState *gfxs )
 
 static void Sop_rgb332_SKto_Dacc( GenefxState *gfxs )
 {
-     int w     = gfxs->length;
+     int w     = gfxs->length+1;
      int i     = gfxs->Xphase;
      int SperD = gfxs->SperD;
 
@@ -3613,7 +3117,7 @@ static void Sop_rgb332_SKto_Dacc( GenefxState *gfxs )
      u8                *S    = gfxs->Sop[0];
      u8                 Skey = gfxs->Skey;
 
-     while (w--) {
+     while (--w) {
           u8 s = S[i>>16];
 
           if (s != Skey) {
@@ -3627,13 +3131,13 @@ static void Sop_rgb332_SKto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_uyvy_SKto_Dacc( GenefxState *gfxs )
 {
-     int   w     = gfxs->length>>1;
+     int   w     = (gfxs->length>>1)+1;
      int   i     = gfxs->Xphase;
      int   SperD = gfxs->SperD;
      u32 Ky      = (gfxs->Skey & 0x0000FF00) >>  8;
@@ -3648,7 +3152,7 @@ static void Sop_uyvy_SKto_Dacc( GenefxState *gfxs )
      GenefxAccumulator *D = gfxs->Dacc;
      u32               *S = gfxs->Sop[0];
 
-     while (w--) {
+     while (--w) {
           u32 s = S[i>>17];
           u32 cb, y0, cr, y1;
 
@@ -3726,7 +3230,7 @@ static void Sop_yuv444p_SKto_Dacc( GenefxState *gfxs )
 
           i += SperD;
 
-          D++;
+          ++D;
      }
 }
 
@@ -3751,7 +3255,7 @@ static void Sop_avyu_SKto_Dacc( GenefxState *gfxs )
           else
                D->YUV.a = 0xf000;
 
-          D++;
+          ++D;
           i += SperD;
      }
 }
@@ -3792,7 +3296,7 @@ static void Sop_vyu_SKto_Dacc( GenefxState *gfxs )
           else
                D->YUV.a = 0xF000;
 
-          D++;
+          ++D;
           i += SperD;
      }
 }
@@ -3803,6 +3307,7 @@ static const GenefxFunc Sop_PFI_SKto_Dacc[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Sop_rgb24_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Sop_rgb32_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Sop_argb_SKto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Sop_abgr_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Sop_a8_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Sop_yuy2_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Sop_rgb332_SKto_Dacc,
@@ -3824,6 +3329,7 @@ static const GenefxFunc Sop_PFI_SKto_Dacc[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Sop_argb1666_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Sop_argb6666_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Sop_rgb18_SKto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Sop_xrgb4444_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Sop_xrgb1555_SKto_Dacc,
@@ -3831,6 +3337,7 @@ static const GenefxFunc Sop_PFI_SKto_Dacc[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Sop_rgba5551_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Sop_yuv444p_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Sop_argb8565_SKto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Sop_rgbaf88871_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Sop_avyu_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Sop_vyu_SKto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -3839,135 +3346,19 @@ static const GenefxFunc Sop_PFI_SKto_Dacc[DFB_NUM_PIXELFORMATS] = {
 
 /********************************* Sop_PFI_to_Dacc ****************************/
 
-static void Sop_argb6666_to_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length;
-
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-
-     while (w--) {
-          u8 b = S[0] & 0x3F;
-          u8 g = ((S[0] & 0xC0) >> 6) | ((S[1] & 0x0F) << 2);
-          u8 r = ((S[1] & 0xF0) >> 4) | ((S[2] & 0x03) << 4);
-          u8 a = (S[2] & 0xFC) >> 2;
-
-          D->RGB.a = EXPAND_6to8( a );
-          D->RGB.r = EXPAND_6to8( r );
-          D->RGB.g = EXPAND_6to8( g );
-          D->RGB.b = EXPAND_6to8( b );
-
-          S +=3;
-          D++;
-     }
-}
-
-static void Sop_argb1666_to_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length;
-
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-
-     while (w--) {
-          u8 b = S[0] & 0x3F;
-          u8 g = ((S[0] & 0xC0) >> 6) | ((S[1] & 0x0F) << 2);
-          u8 r = ((S[1] & 0xF0) >> 4) | ((S[2] & 0x03) << 4);
-          u8 a = (S[2] & 0x04) >> 2;
-
-          D->RGB.a = EXPAND_1to8( a );
-          D->RGB.r = EXPAND_6to8( r );
-          D->RGB.g = EXPAND_6to8( g );
-          D->RGB.b = EXPAND_6to8( b );
-
-          S +=3;
-          D++;
-     }
-}
-
-static void Sop_rgb18_to_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length;
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-
-     while (w--) {
-          u8 b = S[0] & 0x3F;
-          u8 g = ((S[0] & 0xC0) >> 6) | ((S[1] & 0x0F) << 2);
-          u8 r = ((S[1] & 0xF0) >> 4) | ((S[2] & 0x03) << 4);
-
-          D->RGB.a = 0xFF;
-          D->RGB.r = EXPAND_6to8( r );
-          D->RGB.g = EXPAND_6to8( g );
-          D->RGB.b = EXPAND_6to8( b );
-
-          S +=3;
-          D++;
-     }
-}
-
-static void Sop_argb8565_to_Dacc( GenefxState *gfxs )
-{
-     int w     = gfxs->length + 1;
-
-     GenefxAccumulator *D = gfxs->Dacc;
-     const u8          *S = gfxs->Sop[0];
-
-     while (--w) {
-
-#ifdef WORDS_BIGENDIAN
-          u8 a = S[0];
-          u8 r = (S[1] & 0xf8) >> 3;
-          u8 g = ((S[1] & 0x07) << 3)
-                 | ((S[2] & 0xe0) >> 5);
-          u8 b = S[2] & 0x1f;
-#else
-          u8 b = S[0] & 0x1f;
-          u8 g = ((S[1] & 0x07) << 3)
-                 | ((S[0] & 0xe0) >> 5);
-          u8 r = (S[1] & 0xf8) >> 3;
-          u8 a = S[2];
-#endif
-
-          D->RGB.a = a;
-          D->RGB.r = EXPAND_5to8 (r);
-          D->RGB.g = EXPAND_6to8 (g);
-          D->RGB.b = EXPAND_5to8 (b);
-
-          S += 3;
-          D++;
-     }
-}
-
-static void Sop_rgb24_to_Dacc( GenefxState *gfxs )
-{
-     int                w = gfxs->length;
-     GenefxAccumulator *D = gfxs->Dacc;
-     u8                *S = gfxs->Sop[0];
-
-     while (w--) {
-          D->RGB.a = 0xFF;
-          D->RGB.b = *S++;
-          D->RGB.g = *S++;
-          D->RGB.r = *S++;
-
-          D++;
-     }
-}
-
 static void Sop_a8_to_Dacc( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *D = gfxs->Dacc;
      u8                *S = gfxs->Sop[0];
 
-     while (w--) {
+     while (--w) {
           D->RGB.a = *S++;
           D->RGB.r = 0xFF;
           D->RGB.g = 0xFF;
           D->RGB.b = 0xFF;
 
-          D++;
+          ++D;
      }
 }
 
@@ -3995,11 +3386,11 @@ static void Sop_a4_to_Dacc( GenefxState *gfxs )
 
 static void Sop_yuy2_to_Dacc( GenefxState *gfxs )
 {
-     int                w = gfxs->length>>1;
+     int                w = (gfxs->length>>1)+1;
      GenefxAccumulator *D = gfxs->Dacc;
      u32               *S = gfxs->Sop[0];
 
-     while (w--) {
+     while (--w) {
           u32 s = *S++;
 
           D[0].YUV.a = D[1].YUV.a = 0xFF;
@@ -4030,11 +3421,11 @@ static void Sop_yuy2_to_Dacc( GenefxState *gfxs )
 
 static void Sop_rgb332_to_Dacc( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *D = gfxs->Dacc;
      u8                *S = gfxs->Sop[0];
 
-     while (w--) {
+     while (--w) {
           u8 s = *S++;
 
           D->RGB.a = 0xFF;
@@ -4042,17 +3433,17 @@ static void Sop_rgb332_to_Dacc( GenefxState *gfxs )
           D->RGB.g = EXPAND_3to8((s & 0x1C) >> 2);
           D->RGB.b = EXPAND_2to8(s & 0x03);
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_uyvy_to_Dacc( GenefxState *gfxs )
 {
-     int                w = gfxs->length>>1;
+     int                w = (gfxs->length>>1)+1;
      GenefxAccumulator *D = gfxs->Dacc;
      u32               *S = gfxs->Sop[0];
 
-     while (w--) {
+     while (--w) {
           u32 s = *S++;
 
           D[0].YUV.a = D[1].YUV.a = 0xFF;
@@ -4083,13 +3474,13 @@ static void Sop_uyvy_to_Dacc( GenefxState *gfxs )
 
 static void Sop_lut8_to_Dacc( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *D = gfxs->Dacc;
      u8                *S = gfxs->Sop[0];
 
      DFBColor *entries = gfxs->Slut->entries;
 
-     while (w--) {
+     while (--w) {
           u8 s = *S++;
 
           D->RGB.a = entries[s].a;
@@ -4097,19 +3488,19 @@ static void Sop_lut8_to_Dacc( GenefxState *gfxs )
           D->RGB.g = entries[s].g;
           D->RGB.b = entries[s].b;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_alut44_to_Dacc( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *D = gfxs->Dacc;
      u8                *S = gfxs->Sop[0];
 
      DFBColor *entries = gfxs->Slut->entries;
 
-     while (w--) {
+     while (--w) {
           u8 s = *S++;
 
           D->RGB.a = s & 0xF0;
@@ -4118,19 +3509,19 @@ static void Sop_alut44_to_Dacc( GenefxState *gfxs )
           D->RGB.g = entries[s].g;
           D->RGB.b = entries[s].b;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_i420_to_Dacc( GenefxState *gfxs )
 {
-     int                w  = gfxs->length>>1;
+    int                w  = (gfxs->length>>1)+1;
      GenefxAccumulator *D  = gfxs->Dacc;
      u8                *Sy = gfxs->Sop[0];
      u8                *Su = gfxs->Sop[1];
      u8                *Sv = gfxs->Sop[2];
 
-     while (w--) {
+     while (--w) {
           D[1].YUV.a = D[0].YUV.a = 0xFF;
           D[0].YUV.y = Sy[0];
           D[1].YUV.y = Sy[1];
@@ -4138,8 +3529,8 @@ static void Sop_i420_to_Dacc( GenefxState *gfxs )
           D[1].YUV.v = D[0].YUV.v = Sv[0];
 
           Sy += 2;
-          Su++;
-          Sv++;
+          ++Su;
+          ++Sv;
 
           D += 2;
      }
@@ -4147,12 +3538,12 @@ static void Sop_i420_to_Dacc( GenefxState *gfxs )
 
 static void Sop_nv12_to_Dacc( GenefxState *gfxs )
 {
-     int                w   = gfxs->length>>1;
+     int                w   = (gfxs->length>>1)+1;
      GenefxAccumulator *D   = gfxs->Dacc;
      u8                *Sy  = gfxs->Sop[0];
      u16               *Suv = gfxs->Sop[1];
 
-     while (w--) {
+     while (--w) {
           D[1].YUV.a = D[0].YUV.a = 0xFF;
           D[0].YUV.y = Sy[0];
           D[1].YUV.y = Sy[1];
@@ -4160,7 +3551,7 @@ static void Sop_nv12_to_Dacc( GenefxState *gfxs )
           D[1].YUV.v = D[0].YUV.v = Suv[0] >> 8;
 
           Sy += 2;
-          Suv++;
+          ++Suv;
 
           D += 2;
      }
@@ -4168,12 +3559,12 @@ static void Sop_nv12_to_Dacc( GenefxState *gfxs )
 
 static void Sop_nv21_to_Dacc( GenefxState *gfxs )
 {
-     int                w   = gfxs->length>>1;
+     int                w   = (gfxs->length>>1)+1;
      GenefxAccumulator *D   = gfxs->Dacc;
      u8                *Sy  = gfxs->Sop[0];
      u16               *Svu = gfxs->Sop[1];
 
-     while (w--) {
+     while (--w) {
           D[1].YUV.a = D[0].YUV.a = 0xFF;
           D[0].YUV.y = Sy[0];
           D[1].YUV.y = Sy[1];
@@ -4181,7 +3572,7 @@ static void Sop_nv21_to_Dacc( GenefxState *gfxs )
           D[1].YUV.v = D[0].YUV.v = Svu[0] & 0xFF;
 
           Sy += 2;
-          Svu++;
+          ++Svu;
 
           D += 2;
      }
@@ -4189,11 +3580,11 @@ static void Sop_nv21_to_Dacc( GenefxState *gfxs )
 
 static void Sop_ayuv_to_Dacc( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *D = gfxs->Dacc;
      u32               *S = gfxs->Sop[0];
 
-     while (w--) {
+     while (--w) {
           u32 s = *S++;
 
           D->YUV.a = (s >> 24);
@@ -4201,7 +3592,7 @@ static void Sop_ayuv_to_Dacc( GenefxState *gfxs )
           D->YUV.u = (s >>  8) & 0xff;
           D->YUV.v = (s      ) & 0xff;
 
-          D++;
+          ++D;
      }
 }
 
@@ -4219,7 +3610,7 @@ static void Sop_yuv444p_to_Dacc( GenefxState *gfxs )
           D->YUV.u = *Su++;
           D->YUV.v = *Sv++;
 
-          D++;
+          ++D;
      }
 }
 
@@ -4237,7 +3628,7 @@ static void Sop_avyu_to_Dacc( GenefxState *gfxs )
           D->YUV.y = (s >>  8) & 0xff;
           D->YUV.u = (s      ) & 0xff;
 
-          D++;
+          ++D;
      }
 }
 
@@ -4262,7 +3653,7 @@ static void Sop_vyu_to_Dacc( GenefxState *gfxs )
 #endif
 
           S += 3;
-          D++;
+          ++D;
      }
 }
 
@@ -4272,6 +3663,7 @@ static GenefxFunc Sop_PFI_to_Dacc[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Sop_rgb24_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Sop_rgb32_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Sop_argb_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Sop_abgr_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Sop_a8_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Sop_yuy2_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Sop_rgb332_to_Dacc,
@@ -4293,6 +3685,7 @@ static GenefxFunc Sop_PFI_to_Dacc[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Sop_argb1666_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Sop_argb6666_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Sop_rgb18_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Sop_xrgb4444_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Sop_xrgb1555_to_Dacc,
@@ -4300,6 +3693,7 @@ static GenefxFunc Sop_PFI_to_Dacc[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Sop_rgba5551_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Sop_yuv444p_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Sop_argb8565_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Sop_rgbaf88871_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Sop_avyu_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Sop_vyu_to_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -4308,188 +3702,26 @@ static GenefxFunc Sop_PFI_to_Dacc[DFB_NUM_PIXELFORMATS] = {
 
 /********************************* Sop_PFI_Kto_Dacc ***************************/
 
-static void Sop_argb6666_Kto_Dacc( GenefxState *gfxs )
-{
-     int                w    = gfxs->length;
-     GenefxAccumulator *D    = gfxs->Dacc;
-     u8                *S    = gfxs->Sop[0];
-     u32                Skey = gfxs->Skey;
-
-     while (w--) {
-          u8 s0 = S[0];
-          u8 s1 = S[1];
-          u8 s2 = S[2];
-
-          if (Skey != ((u32)(s2<<16 | s1<<8 | s0) & 0x3FFFF)) {
-               u8 b = s0 & 0x3F;
-               u8 g = ((s0 & 0xC0) >> 6) | ((s1 & 0x0F) << 2);
-               u8 r = ((s1 & 0xF0) >> 4) | ((s2 & 0x03) << 4);
-               u8 a = (s2 & 0xFC) >> 2;
-
-               D->RGB.a = EXPAND_6to8( a );
-               D->RGB.r = EXPAND_6to8( r );
-               D->RGB.g = EXPAND_6to8( g );
-               D->RGB.b = EXPAND_6to8( b );
-          }
-          else
-               D->RGB.a = 0xF000;
-
-          S += 3;
-          D++;
-     }
-}
-
-static void Sop_argb1666_Kto_Dacc( GenefxState *gfxs )
-{
-     int                w    = gfxs->length;
-     GenefxAccumulator *D    = gfxs->Dacc;
-     u8                *S    = gfxs->Sop[0];
-     u32                Skey = gfxs->Skey;
-
-     while (w--) {
-          u8 s0 = S[0];
-          u8 s1 = S[1];
-          u8 s2 = S[2];
-
-          if (Skey != ((u32)(s2<<16 | s1<<8 | s0) & 0x3FFFF)) {
-               u8 b = s0 & 0x3F;
-               u8 g = ((s0 & 0xC0) >> 6) | ((s1 & 0x0F) << 2);
-               u8 r = ((s1 & 0xF0) >> 4) | ((s2 & 0x03) << 4);
-               u8 a = (s2 & 0x04) >> 2;
-
-               D->RGB.a = EXPAND_1to8( a );
-               D->RGB.r = EXPAND_6to8( r );
-               D->RGB.g = EXPAND_6to8( g );
-               D->RGB.b = EXPAND_6to8( b );
-          }
-          else
-               D->RGB.a = 0xF000;
-
-          S += 3;
-          D++;
-     }
-}
-
-static void Sop_rgb18_Kto_Dacc( GenefxState *gfxs )
-{
-     int                w    = gfxs->length;
-     GenefxAccumulator *D    = gfxs->Dacc;
-     u8                *S    = gfxs->Sop[0];
-     u32                Skey = gfxs->Skey;
-
-     while (w--) {
-          u8 s0 = S[0];
-          u8 s1 = S[1];
-          u8 s2 = S[2];
-
-          if (Skey != ((u32)(s2<<16 | s1<<8 | s0) & 0x3ffff)) {
-               u8 b = s0 & 0x3F;
-               u8 g = ((s0 & 0xC0) >> 6) | ((s1 & 0x0F) << 2);
-               u8 r = ((s1 & 0xF0) >> 4) | ((s2 & 0x03) << 4);
-
-               D->RGB.a = 0xFF;
-               D->RGB.r = EXPAND_6to8( r );
-               D->RGB.g = EXPAND_6to8( g );
-               D->RGB.b = EXPAND_6to8( b );
-          }
-          else
-               D->RGB.a = 0xF000;
-
-          S += 3;
-          D++;
-     }
-}
-
-static void Sop_argb8565_Kto_Dacc( GenefxState *gfxs )
-{
-     int                w    = gfxs->length + 1;
-     GenefxAccumulator *D    = gfxs->Dacc;
-     u8                *S    = gfxs->Sop[0];
-     u32                Skey = gfxs->Skey;
-
-     while (--w) {
-
-#ifdef WORDS_BIGENDIAN
-          u32 s = S[1] << 8 | S[2];
-#else
-          u32 s = S[1] << 8 | S[0];
-#endif
-
-          if (Skey != s) {
-
-#ifdef WORDS_BIGENDIAN
-               u8 a = S[0];
-               u8 r = (S[1] & 0xf8) >> 3;
-               u8 g = ((S[1] & 0x07) << 3)
-                      | ((S[2] & 0xe0) >> 5);
-               u8 b = S[2] & 0x1f;
-
-#else
-               u8 b = S[0] & 0x1f;
-               u8 g = ((S[1] & 0x07) << 3)
-                      | ((S[0] & 0xe0) >> 5);
-               u8 r = (S[1] & 0xf8) >> 3;
-               u8 a = S[2];
-#endif
-
-               D->RGB.a = a;
-               D->RGB.r = EXPAND_5to8 (r);
-               D->RGB.g = EXPAND_6to8 (g);
-               D->RGB.b = EXPAND_5to8 (b);
-          }
-          else
-               D->RGB.a = 0xF000;
-
-          S += 3;
-          D++;
-     }
-}
-
-static void Sop_rgb24_Kto_Dacc( GenefxState *gfxs )
-{
-     int                w    = gfxs->length;
-     GenefxAccumulator *D    = gfxs->Dacc;
-     u8                *S    = gfxs->Sop[0];
-     u32                Skey = gfxs->Skey;
-
-     while (w--) {
-          u8 b = *S++;
-          u8 g = *S++;
-          u8 r = *S++;
-
-          if (Skey != (u32)(r<<16 | g<<8 | b)) {
-               D->RGB.a = 0xFF;
-               D->RGB.r = r;
-               D->RGB.g = g;
-               D->RGB.b = b;
-          }
-          else
-               D->RGB.a = 0xF000;
-
-          D++;
-     }
-}
-
 static void Sop_a8_Kto_Dacc( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *D = gfxs->Dacc;
      u8                *S = gfxs->Sop[0];
 
      /* no color to key */
-     while (w--) {
+     while (--w) {
           D->RGB.a = *S++;
           D->RGB.r = 0xFF;
           D->RGB.g = 0xFF;
           D->RGB.b = 0xFF;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_yuy2_Kto_Dacc( GenefxState *gfxs )
 {
-     int                w     = gfxs->length>>1;
+     int                w     = (gfxs->length>>1)+1;
      GenefxAccumulator *D     = gfxs->Dacc;
      u32               *S     = gfxs->Sop[0];
      u32                Skey  = gfxs->Skey;
@@ -4504,7 +3736,7 @@ static void Sop_yuy2_Kto_Dacc( GenefxState *gfxs )
 #define S1_MASK  0xFFFFFF00
 #endif
 
-     while (w--) {
+     while (--w) {
           u32 s = *S++;
 
           if (s != Skey) {
@@ -4566,12 +3798,12 @@ static void Sop_yuy2_Kto_Dacc( GenefxState *gfxs )
 
 static void Sop_rgb332_Kto_Dacc( GenefxState *gfxs )
 {
-     int                w    = gfxs->length;
+     int                w    = gfxs->length+1;
      GenefxAccumulator *D    = gfxs->Dacc;
      u8                *S    = gfxs->Sop[0];
      u32                Skey = gfxs->Skey;
 
-     while (w--) {
+     while (--w) {
           u8 s = *S++;
 
           if (s != Skey) {
@@ -4583,13 +3815,13 @@ static void Sop_rgb332_Kto_Dacc( GenefxState *gfxs )
           else
                D->RGB.a = 0xF000;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_uyvy_Kto_Dacc( GenefxState *gfxs )
 {
-     int                w     = gfxs->length>>1;
+     int                w     = (gfxs->length>>1)+1;
      GenefxAccumulator *D     = gfxs->Dacc;
      u32               *S     = gfxs->Sop[0];
      u32                Skey  = gfxs->Skey;
@@ -4604,7 +3836,7 @@ static void Sop_uyvy_Kto_Dacc( GenefxState *gfxs )
 #define S1_MASK 0xFFFF00FF
 #endif
 
-     while (w--) {
+     while (--w) {
           u32 s = *S++;
 
           if (s != Skey) {
@@ -4666,14 +3898,14 @@ static void Sop_uyvy_Kto_Dacc( GenefxState *gfxs )
 
 static void Sop_lut8_Kto_Dacc( GenefxState *gfxs )
 {
-     int                w    = gfxs->length;
+     int                w    = gfxs->length+1;
      GenefxAccumulator *D    = gfxs->Dacc;
      u8                *S    = gfxs->Sop[0];
      u32                Skey = gfxs->Skey;
 
      DFBColor *entries = gfxs->Slut->entries;
 
-     while (w--) {
+     while (--w) {
           u8 s = *S++;
 
           if (s != Skey) {
@@ -4685,20 +3917,20 @@ static void Sop_lut8_Kto_Dacc( GenefxState *gfxs )
           else
                D->RGB.a = 0xF000;
 
-          D++;
+          ++D;
      }
 }
 
 static void Sop_alut44_Kto_Dacc( GenefxState *gfxs )
 {
-     int                w    = gfxs->length;
+     int                w    = gfxs->length+1;
      GenefxAccumulator *D    = gfxs->Dacc;
      u8                *S    = gfxs->Sop[0];
      u32                Skey = gfxs->Skey;
 
      DFBColor *entries = gfxs->Slut->entries;
 
-     while (w--) {
+     while (--w) {
           u8 s = *S++;
 
           if ((s & 0x0F) != Skey) {
@@ -4711,7 +3943,7 @@ static void Sop_alut44_Kto_Dacc( GenefxState *gfxs )
           else
                D->RGB.a = 0xF000;
 
-          D++;
+          ++D;
      }
 }
 
@@ -4738,7 +3970,7 @@ static void Sop_yuv444p_Kto_Dacc( GenefxState *gfxs )
           else
                D->YUV.a = 0xF000;
 
-          D++;
+          ++D;
      }
 }
 
@@ -4761,7 +3993,7 @@ static void Sop_avyu_Kto_Dacc( GenefxState *gfxs )
           else
                D->YUV.a = 0xf000;
 
-          D++;
+          ++D;
      }
 }
 
@@ -4798,7 +4030,7 @@ static void Sop_vyu_Kto_Dacc( GenefxState *gfxs )
                D->YUV.a = 0xF000;
 
           S += 3;
-          D++;
+          ++D;
      }
 }
 
@@ -4808,6 +4040,7 @@ static const GenefxFunc Sop_PFI_Kto_Dacc[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Sop_rgb24_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Sop_rgb32_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Sop_argb_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Sop_abgr_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Sop_a8_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Sop_yuy2_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Sop_rgb332_Kto_Dacc,
@@ -4829,6 +4062,7 @@ static const GenefxFunc Sop_PFI_Kto_Dacc[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Sop_argb6666_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Sop_argb1666_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Sop_rgb18_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Sop_xrgb4444_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Sop_xrgb1555_Kto_Dacc,
@@ -4836,6 +4070,7 @@ static const GenefxFunc Sop_PFI_Kto_Dacc[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Sop_rgba5551_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Sop_yuv444p_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Sop_argb8565_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Sop_rgbaf88871_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Sop_avyu_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Sop_vyu_Kto_Dacc,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -4844,131 +4079,18 @@ static const GenefxFunc Sop_PFI_Kto_Dacc[DFB_NUM_PIXELFORMATS] = {
 
 /********************************* Sacc_to_Aop_PFI ****************************/
 
-static void Sacc_to_Aop_argb6666( GenefxState *gfxs )
+static void Sacc_to_Aop_a8( GenefxState *gfxs )
 {
-     int                w    = gfxs->length;
-     GenefxAccumulator *S = gfxs->Sacc;
-     u8                *D = gfxs->Aop[0];
-
-     while (w--) {
-          if (!(S->RGB.a & 0xF000)) {
-               u32 pixel = PIXEL_ARGB6666( (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a,
-                                           (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                           (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                           (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-
-               D[0] = pixel;
-               D[1] = pixel >> 8;
-               D[2] = pixel >> 16;
-          }
-          D +=3;
-          S++;
-     }
-}
-
-static void Sacc_to_Aop_argb1666( GenefxState *gfxs )
-{
-     int                w    = gfxs->length;
-     GenefxAccumulator *S = gfxs->Sacc;
-     u8                *D = gfxs->Aop[0];
-
-     while (w--) {
-          if (!(S->RGB.a & 0xF000)) {
-               u32 pixel = PIXEL_ARGB1666( (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a,
-                                           (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                           (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                           (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-
-               D[0] = pixel;
-               D[1] = pixel >> 8;
-               D[2] = pixel >> 16;
-          }
-          D +=3;
-          S++;
-     }
-}
-
-static void Sacc_to_Aop_rgb18( GenefxState *gfxs )
-{
-     int                w    = gfxs->length;
-     GenefxAccumulator *S = gfxs->Sacc;
-     u8                *D = gfxs->Aop[0];
-
-     while (w--) {
-          if (!(S->RGB.a & 0xF000)) {
-               u32 pixel = PIXEL_RGB18( (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                        (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                        (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-
-               D[0] = pixel;
-               D[1] = pixel >> 8;
-               D[2] = pixel >> 16;
-          }
-          D +=3;
-          S++;
-     }
-}
-
-static void Sacc_to_Aop_argb8565( GenefxState *gfxs )
-{
-     int                w = gfxs->length + 1;
+     int                w = gfxs->length+1;
      GenefxAccumulator *S = gfxs->Sacc;
      u8                *D = gfxs->Aop[0];
 
      while (--w) {
-          if (!(S->RGB.a & 0xF000)) {
-               u32 pixel = PIXEL_ARGB8565( (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a,
-                                           (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                           (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                           (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-#ifdef WORDS_BIGENDIAN
-               D[0] = (pixel >> 16) & 0xff;
-               D[1] = (pixel >>  8) & 0xff;
-               D[2] = (pixel >>  0) & 0xff;
-#else
-               D[0] = (pixel >>  0) & 0xff;
-               D[1] = (pixel >>  8) & 0xff;
-               D[2] = (pixel >> 16) & 0xff;
-#endif
-
-          }
-
-          D += 3;
-          S++;
-     }
-}
-
-static void Sacc_to_Aop_rgb24( GenefxState *gfxs )
-{
-     int                w = gfxs->length;
-     GenefxAccumulator *S = gfxs->Sacc;
-     u8                *D = gfxs->Aop[0];
-
-     while (w--) {
-          if (!(S->RGB.a & 0xF000)) {
-               *D++ = (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b;
-               *D++ = (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g;
-               *D++ = (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r;
-          }
-          else
-               D += 3;
-
-          S++;
-     }
-}
-
-static void Sacc_to_Aop_a8( GenefxState *gfxs )
-{
-     int                w = gfxs->length;
-     GenefxAccumulator *S = gfxs->Sacc;
-     u8                *D = gfxs->Aop[0];
-
-     while (w--) {
           if (!(S->RGB.a & 0xF000))
                *D = (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a;
 
-          D++;
-          S++;
+          ++D;
+          ++S;
      }
 }
 
@@ -4984,9 +4106,9 @@ static void Sacc_to_Aop_yuy2( GenefxState *gfxs )
                *D = ((S->YUV.y & 0xFF00) ? 0x00FF :  S->YUV.y)    |
                     ((S->YUV.v & 0xFF00) ? 0XFF00 : (S->YUV.v<<8));
           }
-          S++;
-          D++;
-          w--;
+          ++S;
+          ++D;
+          --w;
      }
 
      for (l = w>>1; l--;) {
@@ -5033,19 +4155,19 @@ static void Sacc_to_Aop_yuy2( GenefxState *gfxs )
 
 static void Sacc_to_Aop_rgb332( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *S = gfxs->Sacc;
      u8                *D = gfxs->Aop[0];
 
-     while (w--) {
+     while (--w) {
           if (!(S->RGB.a & 0xF000)) {
                *D = PIXEL_RGB332( (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
                                   (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
                                   (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
           }
 
-          D++;
-          S++;
+          ++D;
+          ++S;
      }
 }
 
@@ -5061,9 +4183,9 @@ static void Sacc_to_Aop_uyvy( GenefxState *gfxs )
                *D = ((S->YUV.v & 0xFF00) ? 0x00FF :  S->YUV.v)    |
                     ((S->YUV.y & 0xFF00) ? 0xFF00 : (S->YUV.y<<8));
           }
-          S++;
-          D++;
-          w--;
+          ++S;
+          ++D;
+          --w;
      }
 
      for (l = w>>1; l--;) {
@@ -5110,11 +4232,11 @@ static void Sacc_to_Aop_uyvy( GenefxState *gfxs )
 
 static void Sacc_to_Aop_lut8( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *S = gfxs->Sacc;
      u8                *D = gfxs->Aop[0];
 
-     while (w--) {
+     while (--w) {
           if (!(S->RGB.a & 0xF000)) {
                *D = dfb_palette_search( gfxs->Alut,
                                         (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
@@ -5123,18 +4245,18 @@ static void Sacc_to_Aop_lut8( GenefxState *gfxs )
                                         (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a );
           }
 
-          D++;
-          S++;
+          ++D;
+          ++S;
      }
 }
 
 static void Sacc_to_Aop_alut44( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *S = gfxs->Sacc;
      u8                *D = gfxs->Aop[0];
 
-     while (w--) {
+     while (--w) {
           if (!(S->RGB.a & 0xF000)) {
                *D = (S->RGB.a & 0xFF00) ? 0xF0 : (S->RGB.a & 0xF0) +
                     dfb_palette_search( gfxs->Alut,
@@ -5144,33 +4266,33 @@ static void Sacc_to_Aop_alut44( GenefxState *gfxs )
                                         0x80 );
           }
 
-          D++;
-          S++;
+          ++D;
+          ++S;
      }
 }
 
 static void Sacc_to_Aop_i420( GenefxState *gfxs )
 {
-     int                w  = gfxs->length;
+     int                w  = gfxs->length+1;
      GenefxAccumulator *S  = gfxs->Sacc;
      u8                *Dy = gfxs->Aop[0];
 
-     while (w--) {
+     while (--w) {
           if (!(S->YUV.a & 0xF000))
                *Dy = (S->YUV.y & 0xFF00) ? 0xFF : S->YUV.y;
 
-          S++;
-          Dy++;
+          ++S;
+          ++Dy;
      }
 
      if (gfxs->AopY & 1) {
           u8 *Du = gfxs->Aop[1];
           u8 *Dv = gfxs->Aop[2];
 
-          w = gfxs->length>>1;
+          w = (gfxs->length>>1)+1;
           S = gfxs->Sacc;
 
-          while (w--) {
+          while (--w) {
                if (!(S[0].YUV.a & 0xF000) && !(S[1].YUV.a & 0xF000)) {
                     u32 tmp;
 
@@ -5195,8 +4317,8 @@ static void Sacc_to_Aop_i420( GenefxState *gfxs )
                }
 
                S  += 2;
-               Du++;
-               Dv++;
+               ++Du;
+               ++Dv;
           }
      }
 }
@@ -5213,8 +4335,8 @@ static void Sacc_to_Aop_yv16( GenefxState *gfxs )
           if (!(S->YUV.a & 0xF000))
                *Dy = (S->YUV.y & 0xFF00) ? 0xFF : S->YUV.y;
 
-          S++;
-          Dy++;
+          ++S;
+          ++Dy;
      }
 
      w = (gfxs->length / 2) + 1;
@@ -5244,32 +4366,32 @@ static void Sacc_to_Aop_yv16( GenefxState *gfxs )
           }
 
           S += 2;
-          Du++;
-          Dv++;
+          ++Du;
+          ++Dv;
      }
 }
 
 static void Sacc_to_Aop_nv12( GenefxState *gfxs )
 {
-     int                w  = gfxs->length;
+     int                w  = gfxs->length+1;
      GenefxAccumulator *S  = gfxs->Sacc;
      u8                *Dy = gfxs->Aop[0];
 
-     while (w--) {
+     while (--w) {
           if (!(S->YUV.a & 0xF000))
                *Dy = (S->YUV.y & 0xFF00) ? 0xFF : S->YUV.y;
 
-          S++;
-          Dy++;
+          ++S;
+          ++Dy;
      }
 
      if (gfxs->dst_format == DSPF_NV16 || gfxs->AopY & 1) {
           u16 *Duv = gfxs->Aop[1];
 
-          w = gfxs->length>>1;
+          w = (gfxs->length>>1)+1;
           S = gfxs->Sacc;
 
-          while (w--) {
+          while (--w) {
                u32 cb, cr;
 
                if (!(S[0].YUV.a & 0xF000) && !(S[1].YUV.a & 0xF000)) {
@@ -5295,33 +4417,33 @@ static void Sacc_to_Aop_nv12( GenefxState *gfxs )
                }
 
                S += 2;
-               Duv++;
+               ++Duv;
           }
      }
 }
 
 static void Sacc_to_Aop_nv21( GenefxState *gfxs )
 {
-     int                w  = gfxs->length;
+     int                w  = gfxs->length+1;
      GenefxAccumulator *S  = gfxs->Sacc;
      u8                *Dy = gfxs->Aop[0];
 
-     while (w--) {
+     while (--w) {
           if (!(S->YUV.a & 0xF000))
                *Dy = (S->YUV.y & 0xFF00) ? 0xFF : S->YUV.y;
 
-          S++;
-          Dy++;
+          ++S;
+          ++Dy;
      }
 
      /* DSPF_NV16 added here since this func is executed as _nv12 for BigEndians */
      if (gfxs->dst_format == DSPF_NV16 || gfxs->AopY & 1) {
           u16 *Dvu = gfxs->Aop[1];
 
-          w = gfxs->length>>1;
+          w = (gfxs->length>>1)+1;
           S = gfxs->Sacc;
 
-          while (w--) {
+          while (--w) {
                u32 cb, cr;
 
                if (!(S[0].YUV.a & 0xF000) && !(S[1].YUV.a & 0xF000)) {
@@ -5347,18 +4469,18 @@ static void Sacc_to_Aop_nv21( GenefxState *gfxs )
                }
 
                S += 2;
-               Dvu++;
+               ++Dvu;
           }
      }
 }
 
 static void Sacc_to_Aop_ayuv( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *S = gfxs->Sacc;
      u32               *D = gfxs->Aop[0];
 
-     while (w--) {
+     while (--w) {
           if (!(S->YUV.a & 0xF000)) {
                *D = PIXEL_AYUV( (S->YUV.a & 0xFF00) ? 0xFF : S->YUV.a,
                                 (S->YUV.y & 0xFF00) ? 0xFF : S->YUV.y,
@@ -5366,8 +4488,8 @@ static void Sacc_to_Aop_ayuv( GenefxState *gfxs )
                                 (S->YUV.v & 0xFF00) ? 0xFF : S->YUV.v );
           }
 
-          D++;
-          S++;
+          ++D;
+          ++S;
      }
 }
 
@@ -5385,18 +4507,18 @@ static void Sacc_to_Aop_avyu( GenefxState *gfxs )
                                 (S->YUV.v & 0xFF00) ? 0xFF : S->YUV.v );
           }
 
-          D++;
-          S++;
+          ++D;
+          ++S;
      }
 }
 
 static void Sacc_to_Aop_a4( GenefxState *gfxs )
 {
-     int                w = gfxs->length>>1;
+     int                w = (gfxs->length>>1)+1;
      GenefxAccumulator *S = gfxs->Sacc;
      u8                *D = gfxs->Aop[0];
 
-     while (w--) {
+     while (--w) {
           if (!(S[0].RGB.a & 0xF000) && !(S[1].RGB.a & 0xF000)) {
                *D = ((S[0].RGB.a & 0xFF00) ? 0xF0 : (S[0].RGB.a & 0xF0)) |
                     ((S[1].RGB.a & 0XFF00) ? 0x0F : (S[1].RGB.a >> 4));
@@ -5408,7 +4530,7 @@ static void Sacc_to_Aop_a4( GenefxState *gfxs )
                *D = (*D & 0xF0) | ((S[1].RGB.a & 0XFF00) ? 0x0F : (S[1].RGB.a >> 4));
           }
 
-          D++;
+          ++D;
           S += 2;
      }
 
@@ -5462,7 +4584,7 @@ static void Sacc_to_Aop_vyu( GenefxState *gfxs )
           }
 
           D += 3;
-          S++;
+          ++S;
      }
 }
 
@@ -5472,6 +4594,7 @@ static GenefxFunc Sacc_to_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Sacc_to_Aop_rgb24,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Sacc_to_Aop_rgb32,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Sacc_to_Aop_argb,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Sacc_to_Aop_abgr,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Sacc_to_Aop_a8,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Sacc_to_Aop_yuy2,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Sacc_to_Aop_rgb332,
@@ -5493,6 +4616,7 @@ static GenefxFunc Sacc_to_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Sacc_to_Aop_argb1666,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Sacc_to_Aop_argb6666,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Sacc_to_Aop_rgb18,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Sacc_to_Aop_xrgb4444,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Sacc_to_Aop_xrgb1555,
@@ -5500,94 +4624,131 @@ static GenefxFunc Sacc_to_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Sacc_to_Aop_rgba5551,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Sacc_to_Aop_yuv444p,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Sacc_to_Aop_argb8565,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Sacc_to_Aop_rgbaf88871,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Sacc_to_Aop_avyu,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Sacc_to_Aop_vyu,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = Sacc_to_Aop_yv16,
 };
 
+/********************************* Sop_PFI_TEX_to_Dacc ****************************/
+
+static void Sop_a8_TEX_to_Dacc( GenefxState *gfxs )
+{
+     int                l     = gfxs->length+1;
+     int                s     = gfxs->s;
+     int                t     = gfxs->t;
+     int                SperD = gfxs->SperD;
+     int                TperD = gfxs->TperD;
+     u8                *S     = gfxs->Sop[0];
+     GenefxAccumulator *D     = gfxs->Dacc;
+
+     while (--l) {
+          D->RGB.a = S[(s>>16) + (t>>16) * gfxs->src_pitch];
+          D->RGB.r = 0xFF;
+          D->RGB.g = 0xFF;
+          D->RGB.b = 0xFF;
+
+          ++D;
+          s += SperD;
+          t += TperD;
+     }
+}
+
+static const GenefxFunc Sop_PFI_TEX_to_Dacc[DFB_NUM_PIXELFORMATS] = {
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = Sop_argb1555_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = Sop_rgb16_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Sop_rgb24_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Sop_rgb32_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Sop_argb_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Sop_abgr_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Sop_a8_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,//Sop_yuy2_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,//Sop_rgb332_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_UYVY)]     = NULL,//Sop_uyvy_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_I420)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV12)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT8)]     = NULL,//Sop_lut8_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ALUT44)]   = NULL,//Sop_alut44_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AiRGB)]    = Sop_airgb_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV12)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV16)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB2554)] = Sop_argb2554_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB4444)] = Sop_argb4444_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA4444)] = Sop_rgba4444_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Sop_argb1666_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Sop_argb6666_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Sop_rgb18_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Sop_xrgb4444_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Sop_xrgb1555_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = Sop_xbgr1555_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Sop_rgba5551_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = NULL,//Sop_yuv444p_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Sop_argb8565_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Sop_rgbaf88871_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = NULL,//Sop_avyu_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = NULL,//Sop_vyu_TEX_to_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
+};
+
+/********************************* Sop_PFI_TEX_Kto_Dacc ****************************/
+
+
+static const GenefxFunc Sop_PFI_TEX_Kto_Dacc[DFB_NUM_PIXELFORMATS] = {
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = Sop_argb1555_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = Sop_rgb16_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Sop_rgb24_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Sop_rgb32_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Sop_argb_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Sop_abgr_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,//Sop_a8_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,//Sop_yuy2_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,//Sop_rgb332_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_UYVY)]     = NULL,//Sop_uyvy_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_I420)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV12)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT8)]     = NULL,//Sop_lut8_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ALUT44)]   = NULL,//Sop_alut44_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AiRGB)]    = Sop_airgb_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV12)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV16)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB2554)] = Sop_argb2554_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB4444)] = Sop_argb4444_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA4444)] = Sop_rgba4444_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Sop_argb1666_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Sop_argb6666_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Sop_rgb18_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Sop_xrgb4444_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Sop_xrgb1555_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = Sop_xbgr1555_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Sop_rgba5551_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = NULL,//Sop_yuv444p_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Sop_argb8565_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Sop_rgbaf88871_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = NULL,//Sop_avyu_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = NULL,//Sop_vyu_TEX_Kto_Dacc,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
+};
+
 /********************************* Sacc_Sto_Aop_PFI ***************************/
 
-static void Sacc_Sto_Aop_argb6666( GenefxState *gfxs )
+static void Sacc_Sto_Aop_a8( GenefxState *gfxs )
 {
-     int                w    = gfxs->length;
-     int                i     = gfxs->Xphase;
-     GenefxAccumulator *Sacc  = gfxs->Sacc;
-     u8                *D     = gfxs->Aop[0];
-     int                SperD = gfxs->SperD;
-
-     while (w--) {
-          GenefxAccumulator *S = &Sacc[i>>16];
-
-          if (!(S->RGB.a & 0xF000)) {
-               u32 pixel = PIXEL_ARGB6666( (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a,
-                                           (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                           (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                           (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-
-               D[0] = pixel;
-               D[1] = pixel >> 8;
-               D[2] = pixel >> 16;
-          }
-          D +=3;
-          i += SperD;
-     }
-}
-
-static void Sacc_Sto_Aop_argb1666( GenefxState *gfxs )
-{
-     int                w    = gfxs->length;
-     int                i     = gfxs->Xphase;
-     GenefxAccumulator *Sacc  = gfxs->Sacc;
-     u8                *D     = gfxs->Aop[0];
-     int                SperD = gfxs->SperD;
-
-     while (w--) {
-          GenefxAccumulator *S = &Sacc[i>>16];
-
-          if (!(S->RGB.a & 0xF000)) {
-               u32 pixel = PIXEL_ARGB1666( (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a,
-                                           (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                           (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                           (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-
-               D[0] = pixel;
-               D[1] = pixel >> 8;
-               D[2] = pixel >> 16;
-          }
-          D +=3;
-          i += SperD;
-     }
-}
-
-static void Sacc_Sto_Aop_rgb18( GenefxState *gfxs )
-{
-     int                w    = gfxs->length;
-     int                i     = gfxs->Xphase;
-     GenefxAccumulator *Sacc  = gfxs->Sacc;
-     u8                *D     = gfxs->Aop[0];
-     int                SperD = gfxs->SperD;
-
-     while (w--) {
-          GenefxAccumulator *S = &Sacc[i>>16];
-
-          if (!(S->RGB.a & 0xF000)) {
-               u32 pixel = PIXEL_RGB18( (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                        (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                        (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-
-               D[0] = pixel;
-               D[1] = pixel >> 8;
-               D[2] = pixel >> 16;
-          }
-          D +=3;
-          i += SperD;
-     }
-}
-
-static void Sacc_Sto_Aop_argb8565( GenefxState *gfxs )
-{
-     int                w     = gfxs->length + 1;
+     int                w     = gfxs->length+1;
      int                i     = gfxs->Xphase;
      GenefxAccumulator *Sacc  = gfxs->Sacc;
      u8                *D     = gfxs->Aop[0];
@@ -5596,66 +4757,10 @@ static void Sacc_Sto_Aop_argb8565( GenefxState *gfxs )
      while (--w) {
           GenefxAccumulator *S = &Sacc[i>>16];
 
-          if (!(S->RGB.a & 0xF000)) {
-               u32 pixel = PIXEL_ARGB8565( (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a,
-                                           (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                           (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                           (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-#ifdef WORDS_BIGENDIAN
-               D[0] = (pixel >> 16) & 0xff;
-               D[1] = (pixel >>  8) & 0xff;
-               D[2] = (pixel >>  0) & 0xff;
-#else
-               D[0] = (pixel >>  0) & 0xff;
-               D[1] = (pixel >>  8) & 0xff;
-               D[2] = (pixel >> 16) & 0xff;
-#endif
-
-          }
-
-          D += 3;
-          i += SperD;
-     }
-}
-
-static void Sacc_Sto_Aop_rgb24( GenefxState *gfxs )
-{
-     int                w     = gfxs->length;
-     int                i     = gfxs->Xphase;
-     GenefxAccumulator *Sacc  = gfxs->Sacc;
-     u8                *D     = gfxs->Aop[0];
-     int                SperD = gfxs->SperD;
-
-     while (w--) {
-          GenefxAccumulator *S = &Sacc[i>>16];
-
-          if (!(S->RGB.a & 0xF000)) {
-               *D++ = (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b;
-               *D++ = (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g;
-               *D++ = (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r;
-          }
-          else
-               D += 3;
-
-          i += SperD;
-     }
-}
-
-static void Sacc_Sto_Aop_a8( GenefxState *gfxs )
-{
-     int                w     = gfxs->length;
-     int                i     = gfxs->Xphase;
-     GenefxAccumulator *Sacc  = gfxs->Sacc;
-     u8                *D     = gfxs->Aop[0];
-     int                SperD = gfxs->SperD;
-
-     while (w--) {
-          GenefxAccumulator *S = &Sacc[i>>16];
-
           if (!(S->RGB.a & 0xF000))
                *D = (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a;
 
-          D++;
+          ++D;
           i += SperD;
      }
 }
@@ -5676,8 +4781,8 @@ static void Sacc_Sto_Aop_yuy2( GenefxState *gfxs )
                *D = ((S->YUV.y & 0xFF00) ? 0x00FF :  S->YUV.y)    |
                     ((S->YUV.v & 0xFF00) ? 0XFF00 : (S->YUV.v<<8));
           }
-          D++;
-          w--;
+          ++D;
+          --w;
           i = SperD;
      }
 
@@ -5729,13 +4834,13 @@ static void Sacc_Sto_Aop_yuy2( GenefxState *gfxs )
 
 static void Sacc_Sto_Aop_rgb332( GenefxState *gfxs )
 {
-     int                w     = gfxs->length;
+     int                w     = gfxs->length+1;
      int                i     = gfxs->Xphase;
      GenefxAccumulator *Sacc  = gfxs->Sacc;
      u8                *D     = gfxs->Aop[0];
      int                SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           GenefxAccumulator *S = &Sacc[i>>16];
 
           if (!(S->RGB.a & 0xF000)) {
@@ -5744,7 +4849,7 @@ static void Sacc_Sto_Aop_rgb332( GenefxState *gfxs )
                                   (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
           }
 
-          D++;
+          ++D;
           i += SperD;
      }
 }
@@ -5765,8 +4870,8 @@ static void Sacc_Sto_Aop_uyvy( GenefxState *gfxs )
                *D = ((S->YUV.v & 0xFF00) ? 0x00FF :  S->YUV.v)    |
                     ((S->YUV.y & 0xFF00) ? 0xFF00 : (S->YUV.y<<8));
           }
-          D++;
-          w--;
+          ++D;
+          --w;
           i = SperD;
      }
 
@@ -5818,13 +4923,13 @@ static void Sacc_Sto_Aop_uyvy( GenefxState *gfxs )
 
 static void Sacc_Sto_Aop_lut8( GenefxState *gfxs )
 {
-     int                w     = gfxs->length;
+     int                w     = gfxs->length+1;
      int                i     = gfxs->Xphase;
      GenefxAccumulator *Sacc  = gfxs->Sacc;
      u8                *D     = gfxs->Aop[0];
      int                SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           GenefxAccumulator *S = &Sacc[i>>16];
 
           if (!(S->RGB.a & 0xF000)) {
@@ -5835,20 +4940,20 @@ static void Sacc_Sto_Aop_lut8( GenefxState *gfxs )
                                         (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a );
           }
 
-          D++;
+          ++D;
           i += SperD;
      }
 }
 
 static void Sacc_Sto_Aop_alut44( GenefxState *gfxs )
 {
-     int                w     = gfxs->length;
+     int                w     = gfxs->length+1;
      int                i     = gfxs->Xphase;
      GenefxAccumulator *Sacc  = gfxs->Sacc;
      u8                *D     = gfxs->Aop[0];
      int                SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           GenefxAccumulator *S = &Sacc[i>>16];
 
           if (!(S->RGB.a & 0xF000)) {
@@ -5860,7 +4965,7 @@ static void Sacc_Sto_Aop_alut44( GenefxState *gfxs )
                                         0x80 );
           }
 
-          D++;
+          ++D;
           i += SperD;
      }
 }
@@ -5868,18 +4973,18 @@ static void Sacc_Sto_Aop_alut44( GenefxState *gfxs )
 static void Sacc_Sto_Aop_i420( GenefxState *gfxs )
 {
      int                i      = gfxs->Xphase;
-     int                w      = gfxs->length;
+     int                w      = gfxs->length+1;
      GenefxAccumulator *Sacc   = gfxs->Sacc;
      u8                *Dy     = gfxs->Aop[0];
      int                SperD  = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           GenefxAccumulator *S = &Sacc[i>>16];
 
           if (!(S->YUV.a & 0xF000))
                *Dy = (S->YUV.y & 0xFF00) ? 0xFF : S->YUV.y;
 
-          Dy++;
+          ++Dy;
           i += SperD;
      }
 
@@ -5887,10 +4992,10 @@ static void Sacc_Sto_Aop_i420( GenefxState *gfxs )
           u8 *Du = gfxs->Aop[1];
           u8 *Dv = gfxs->Aop[2];
 
-          w = gfxs->length>>1;
+          w = (gfxs->length>>1)+1;
           i = gfxs->Xphase>>1;
 
-          while (w--) {
+          while (--w) {
                GenefxAccumulator *S0 = &Sacc[i>>16];
                GenefxAccumulator *S1 = &Sacc[(i+SperD)>>16];
 
@@ -5917,8 +5022,8 @@ static void Sacc_Sto_Aop_i420( GenefxState *gfxs )
                     *Dv = (*Dv + ((S1->YUV.v & 0xFF00) ? 0xFF : S1->YUV.v)) >> 1;
                }
 
-               Du++;
-               Dv++;
+               ++Du;
+               ++Dv;
                i += SperD << 1;
           }
      }
@@ -5982,28 +5087,28 @@ static void Sacc_Sto_Aop_yv16( GenefxState *gfxs )
 static void Sacc_Sto_Aop_nv12( GenefxState *gfxs )
 {
      int                i     = gfxs->Xphase;
-     int                w     = gfxs->length;
+     int                w     = gfxs->length+1;
      GenefxAccumulator *Sacc  = gfxs->Sacc;
      u8                *Dy    = gfxs->Aop[0];
      int                SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           GenefxAccumulator *S = &Sacc[i>>16];
 
           if (!(S->YUV.a & 0xF000))
                *Dy = (S->YUV.y & 0xFF00) ? 0xFF : S->YUV.y;
 
-          Dy++;
+          ++Dy;
           i += SperD;
      }
 
      if (gfxs->dst_format == DSPF_NV16 || gfxs->AopY & 1) {
           u16 *Duv = gfxs->Aop[1];
 
-          w = gfxs->length>>1;
+          w = (gfxs->length>>1)+1;
           i = gfxs->Xphase>>1;
 
-          while (w--) {
+          while (--w) {
                GenefxAccumulator *S0 = &Sacc[i>>16];
                GenefxAccumulator *S1 = &Sacc[(i+SperD)>>16];
                u32                cb, cr;
@@ -6030,7 +5135,7 @@ static void Sacc_Sto_Aop_nv12( GenefxState *gfxs )
                     *Duv = cb | (cr << 8);
                }
 
-               Duv++;
+               ++Duv;
 
                i += SperD << 1;
           }
@@ -6040,18 +5145,18 @@ static void Sacc_Sto_Aop_nv12( GenefxState *gfxs )
 static void Sacc_Sto_Aop_nv21( GenefxState *gfxs )
 {
      int                i     = gfxs->Xphase;
-     int                w     = gfxs->length;
+     int                w     = gfxs->length+1;
      GenefxAccumulator *Sacc  = gfxs->Sacc;
      u8                *Dy    = gfxs->Aop[0];
      int                SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           GenefxAccumulator *S = &Sacc[i>>16];
 
           if (!(S->YUV.a & 0xF000))
                *Dy = (S->YUV.y & 0xFF00) ? 0xFF : S->YUV.y;
 
-          Dy++;
+          ++Dy;
           i += SperD;
      }
 
@@ -6059,10 +5164,10 @@ static void Sacc_Sto_Aop_nv21( GenefxState *gfxs )
      if (gfxs->dst_format == DSPF_NV16 || gfxs->AopY & 1) {
           u16 *Dvu = gfxs->Aop[1];
 
-          w = gfxs->length>>1;
+          w = (gfxs->length>>1)+1;
           i = gfxs->Xphase>>1;
 
-          while (w--) {
+          while (--w) {
                GenefxAccumulator *S0 = &Sacc[i>>16];
                GenefxAccumulator *S1 = &Sacc[(i+SperD)>>16];
                u32                cb, cr;
@@ -6089,7 +5194,7 @@ static void Sacc_Sto_Aop_nv21( GenefxState *gfxs )
                     *Dvu = cr | (cb << 8);
                }
 
-               Dvu++;
+               ++Dvu;
 
                i += SperD << 1;
           }
@@ -6098,13 +5203,13 @@ static void Sacc_Sto_Aop_nv21( GenefxState *gfxs )
 
 static void Sacc_Sto_Aop_ayuv( GenefxState *gfxs )
 {
-     int                w     = gfxs->length;
+     int                w     = gfxs->length+1;
      int                i     = gfxs->Xphase;
      GenefxAccumulator *Sacc  = gfxs->Sacc;
      u32               *D     = gfxs->Aop[0];
      int                SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           GenefxAccumulator *S = &Sacc[i>>16];
 
           if (!(S->YUV.a & 0xF000)) {
@@ -6114,7 +5219,7 @@ static void Sacc_Sto_Aop_ayuv( GenefxState *gfxs )
                                 (S->YUV.v & 0xFF00) ? 0xFF : S->YUV.v );
           }
 
-          D++;
+          ++D;
           i += SperD;
      }
 }
@@ -6161,20 +5266,20 @@ static void Sacc_Sto_Aop_avyu( GenefxState *gfxs )
                                 (S->YUV.v & 0xFF00) ? 0xFF : S->YUV.v );
           }
 
-          D++;
+          ++D;
           i += SperD;
      }
 }
 
 static void Sacc_Sto_Aop_vyu( GenefxState *gfxs )
 {
-     int                w     = gfxs->length;
+     int                w     = gfxs->length+1;
      int                i     = gfxs->Xphase;
      GenefxAccumulator *Sacc  = gfxs->Sacc;
      u8                *D     = gfxs->Aop[0];
      int                SperD = gfxs->SperD;
 
-     while (w--) {
+     while (--w) {
           GenefxAccumulator *S = &Sacc[i>>16];
 
           if (!(S->YUV.a & 0xF000)) {
@@ -6182,7 +5287,7 @@ static void Sacc_Sto_Aop_vyu( GenefxState *gfxs )
                u8 u = (S->YUV.u & 0xFF00) ? 0xFF : S->YUV.u;
                u8 v = (S->YUV.v & 0xFF00) ? 0xFF : S->YUV.v;
 
-#ifdef BIG_ENDIAN
+#ifdef WORDS_BIGENDIAN
                D[0] = v;
                D[1] = y;
                D[2] = u;
@@ -6205,6 +5310,7 @@ static GenefxFunc Sacc_Sto_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Sacc_Sto_Aop_rgb24,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Sacc_Sto_Aop_rgb32,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Sacc_Sto_Aop_argb,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Sacc_Sto_Aop_abgr,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Sacc_Sto_Aop_a8,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Sacc_Sto_Aop_yuy2,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Sacc_Sto_Aop_rgb332,
@@ -6226,6 +5332,7 @@ static GenefxFunc Sacc_Sto_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Sacc_Sto_Aop_argb1666,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Sacc_Sto_Aop_argb6666,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Sacc_Sto_Aop_rgb18,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Sacc_Sto_Aop_xrgb4444,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Sacc_Sto_Aop_xrgb1555,
@@ -6233,6 +5340,7 @@ static GenefxFunc Sacc_Sto_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Sacc_Sto_Aop_rgba5551,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Sacc_Sto_Aop_yuv444p,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Sacc_Sto_Aop_argb8565,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Sacc_Sto_Aop_rgbaf88871,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Sacc_Sto_Aop_avyu,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Sacc_Sto_Aop_vyu,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -6241,146 +5349,19 @@ static GenefxFunc Sacc_Sto_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
 
 /********************************* Sacc_toK_Aop_PFI ***************************/
 
-static void Sacc_toK_Aop_argb6666( GenefxState *gfxs )
-{
-     int                w = gfxs->length;
-     GenefxAccumulator *S = gfxs->Sacc;
-     u8                *D = gfxs->Aop[0];
-     u32                Dkey = gfxs->Dkey;
-
-     while (w--) {
-          if (!(S->RGB.a & 0xF000) && Dkey == ((u32)(D[2]<<16 | D[1]<<8 | D[0]) & 0x3FFFF)) {
-               u32 pixel = PIXEL_ARGB6666( (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a,
-                                           (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                           (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                           (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-
-               D[0] = pixel;
-               D[1] = pixel >> 8;
-               D[2] = pixel >> 16;
-          }
-          D +=3;
-          S++;
-     }
-}
-
-static void Sacc_toK_Aop_argb1666( GenefxState *gfxs )
-{
-     int                w = gfxs->length;
-     GenefxAccumulator *S = gfxs->Sacc;
-     u8                *D = gfxs->Aop[0];
-     u32                Dkey = gfxs->Dkey;
-
-     while (w--) {
-          if (!(S->RGB.a & 0xF000) && Dkey == ((u32)(D[2]<<16 | D[1]<<8 | D[0]) & 0x3FFFF)) {
-               u32 pixel = PIXEL_ARGB1666( (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a,
-                                           (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                           (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                           (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-
-               D[0] = pixel;
-               D[1] = pixel >> 8;
-               D[2] = pixel >> 16;
-          }
-          D +=3;
-          S++;
-     }
-}
-
-static void Sacc_toK_Aop_rgb18( GenefxState *gfxs )
-{
-     int                w = gfxs->length;
-     GenefxAccumulator *S = gfxs->Sacc;
-     u8                *D = gfxs->Aop[0];
-     u32                Dkey = gfxs->Dkey;
-
-     while (w--) {
-          if (!(S->RGB.a & 0xF000) && Dkey == ((u32)(D[2]<<16 | D[1]<<8 | D[0]) & 0x3FFFF)) {
-               u32 pixel = PIXEL_RGB18( (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                        (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                        (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-
-               D[0] = pixel;
-               D[1] = pixel >> 8;
-               D[2] = pixel >> 16;
-          }
-          D +=3;
-          S++;
-     }
-}
-
-static void Sacc_toK_Aop_argb8565( GenefxState *gfxs )
-{
-     int                w = gfxs->length + 1;
-     GenefxAccumulator *S = gfxs->Sacc;
-     u8                *D = gfxs->Aop[0];
-     u32                Dkey = gfxs->Dkey;
-
-     while (--w) {
-
-#ifdef WORDS_BIGENDIAN
-          u32 d = D[1] << 8 | D[2];
-#else
-          u32 d = D[1] << 8 | D[0];
-#endif
-
-          if (!(S->RGB.a & 0xF000) && Dkey == d) {
-               u32 pixel = PIXEL_ARGB8565( (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a,
-                                           (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                           (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                           (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-#ifdef WORDS_BIGENDIAN
-               D[0] = (pixel >> 16) & 0xff;
-               D[1] = (pixel >>  8) & 0xff;
-               D[2] = (pixel >>  0) & 0xff;
-#else
-               D[0] = (pixel >>  0) & 0xff;
-               D[1] = (pixel >>  8) & 0xff;
-               D[2] = (pixel >> 16) & 0xff;
-#endif
-
-          }
-
-          D += 3;
-          S++;
-     }
-}
-
-static void Sacc_toK_Aop_rgb24( GenefxState *gfxs )
-{
-     int                w = gfxs->length;
-     GenefxAccumulator *S = gfxs->Sacc;
-     u8                *D = gfxs->Aop[0];
-     u8                 r = (gfxs->Dkey >> 16);
-     u8                 g = (gfxs->Dkey >>  8) & 0xff;
-     u8                 b = (gfxs->Dkey      ) & 0xff;
-
-     while (w--) {
-          if (!(S->RGB.a & 0xF000) && D[0] == b && D[1] == g && D[2] == r) {
-               *D++ = (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b;
-               *D++ = (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g;
-               *D++ = (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r;
-          }
-          else
-               D += 3;
-
-          S++;
-     }
-}
-
 static void Sacc_toK_Aop_a8( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *S = gfxs->Sacc;
      u8                *D = gfxs->Aop[0];
 
      /* FIXME: do all or do none? */
-     while (w--) {
+     while (--w) {
           if (!(S->RGB.a & 0xF000))
                *D = (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a;
 
-          D++;
-          S++;
+          ++D;
+          ++S;
      }
 }
 
@@ -6404,9 +5385,9 @@ static void Sacc_toK_Aop_yuy2( GenefxState *gfxs )
                *D = ((S->YUV.y & 0xFF00) ? 0x00FF :  S->YUV.y)    |
                     ((S->YUV.v & 0xFF00) ? 0xFF00 : (S->YUV.v<<8));
           }
-          S++;
-          D++;
-          w--;
+          ++S;
+          ++D;
+          --w;
      }
 
      for (l = w>>1; l--;) {
@@ -6455,20 +5436,20 @@ static void Sacc_toK_Aop_yuy2( GenefxState *gfxs )
 
 static void Sacc_toK_Aop_rgb332( GenefxState *gfxs )
 {
-     int                w    = gfxs->length;
+     int                w    = gfxs->length+1;
      GenefxAccumulator *S    = gfxs->Sacc;
      u8                *D    = gfxs->Aop[0];
      u32                Dkey = gfxs->Dkey;
 
-     while (w--) {
+     while (--w) {
           if (!(S->RGB.a & 0xF000) && (*D == Dkey)) {
                *D = PIXEL_RGB332( (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
                                   (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
                                   (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
           }
 
-          D++;
-          S++;
+          ++D;
+          ++S;
      }
 }
 
@@ -6492,9 +5473,9 @@ static void Sacc_toK_Aop_uyvy( GenefxState *gfxs )
                *D = ((S->YUV.v & 0xFF00) ? 0x00FF :  S->YUV.v)    |
                     ((S->YUV.y & 0xFF00) ? 0xFF00 : (S->YUV.y<<8));
           }
-          S++;
-          D++;
-          w--;
+          ++S;
+          ++D;
+          --w;
      }
 
      for (l = w>>1; l--;) {
@@ -6543,12 +5524,12 @@ static void Sacc_toK_Aop_uyvy( GenefxState *gfxs )
 
 static void Sacc_toK_Aop_lut8( GenefxState *gfxs )
 {
-     int                w    = gfxs->length;
+     int                w    = gfxs->length+1;
      GenefxAccumulator *S    = gfxs->Sacc;
      u8                *D    = gfxs->Aop[0];
      u32                Dkey = gfxs->Dkey;
 
-     while (w--) {
+     while (--w) {
           if (!(S->RGB.a & 0xF000) && (*D == Dkey)) {
                *D = dfb_palette_search( gfxs->Alut,
                                         (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
@@ -6557,19 +5538,19 @@ static void Sacc_toK_Aop_lut8( GenefxState *gfxs )
                                         (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a );
           }
 
-          D++;
-          S++;
+          ++D;
+          ++S;
      }
 }
 
 static void Sacc_toK_Aop_alut44( GenefxState *gfxs )
 {
-     int                w    = gfxs->length;
+     int                w    = gfxs->length+1;
      GenefxAccumulator *S    = gfxs->Sacc;
      u8                *D    = gfxs->Aop[0];
      u32                Dkey = gfxs->Dkey;
 
-     while (w--) {
+     while (--w) {
           if (!(S->RGB.a & 0xF000) && ((*D & 0x0F) == Dkey)) {
                *D = (S->RGB.a & 0xFF00) ? 0xF0 : (S->RGB.a & 0xF0) +
                     dfb_palette_search( gfxs->Alut,
@@ -6579,8 +5560,8 @@ static void Sacc_toK_Aop_alut44( GenefxState *gfxs )
                                         0x80 );
           }
 
-          D++;
-          S++;
+          ++D;
+          ++S;
      }
 }
 
@@ -6605,7 +5586,7 @@ static void Sacc_toK_Aop_yuv444p( GenefxState *gfxs )
           }
 
           ++Dy; ++Du; ++Dv;
-          S++;
+          ++S;
      }
 }
 
@@ -6625,8 +5606,8 @@ static void Sacc_toK_Aop_avyu( GenefxState *gfxs )
                              (S->YUV.u & 0xff00) ? 0xff : S->YUV.u,
                              (S->YUV.v & 0xff00) ? 0xff : S->YUV.v );
 
-          S++;
-          D++;
+          ++S;
+          ++D;
      }
 }
 
@@ -6662,7 +5643,7 @@ static void Sacc_toK_Aop_vyu( GenefxState *gfxs )
           }
 
           D += 3;
-          S++;
+          ++S;
      }
 }
 
@@ -6672,6 +5653,7 @@ static const GenefxFunc Sacc_toK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Sacc_toK_Aop_rgb24,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Sacc_toK_Aop_rgb32,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Sacc_toK_Aop_argb,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Sacc_toK_Aop_abgr,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Sacc_toK_Aop_a8,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Sacc_toK_Aop_yuy2,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Sacc_toK_Aop_rgb332,
@@ -6693,6 +5675,7 @@ static const GenefxFunc Sacc_toK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Sacc_toK_Aop_argb1666,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Sacc_toK_Aop_argb6666,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Sacc_toK_Aop_rgb18,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Sacc_toK_Aop_xrgb4444,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Sacc_toK_Aop_xrgb1555,
@@ -6700,6 +5683,7 @@ static const GenefxFunc Sacc_toK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Sacc_toK_Aop_rgba5551,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Sacc_toK_Aop_yuv444p,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Sacc_toK_Aop_argb8565,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Sacc_toK_Aop_rgbaf88871,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Sacc_toK_Aop_avyu,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Sacc_toK_Aop_vyu,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -6707,46 +5691,6 @@ static const GenefxFunc Sacc_toK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
 };
 
 /********************************* Sacc_StoK_Aop_PFI **************************/
-
-static void Sacc_StoK_Aop_argb8565( GenefxState *gfxs )
-{
-     int                w     = gfxs->length + 1;
-     int                i     = gfxs->Xphase;
-     int                SperD = gfxs->Xphase;
-     GenefxAccumulator *Sacc  = gfxs->Sacc;
-     u8                *D     = gfxs->Aop[0];
-     u32                Dkey  = gfxs->Dkey;
-
-     while (--w) {
-          GenefxAccumulator *S = &Sacc[i>>16];
-
-#ifdef WORDS_BIGENDIAN
-          u32 d = D[1] << 8 | D[2];
-#else
-          u32 d = D[1] << 8 | D[0];
-#endif
-
-          if (!(S->RGB.a & 0xF000) && Dkey == d) {
-               u32 pixel = PIXEL_ARGB8565( (S->RGB.a & 0xFF00) ? 0xFF : S->RGB.a,
-                                           (S->RGB.r & 0xFF00) ? 0xFF : S->RGB.r,
-                                           (S->RGB.g & 0xFF00) ? 0xFF : S->RGB.g,
-                                           (S->RGB.b & 0xFF00) ? 0xFF : S->RGB.b );
-#ifdef WORDS_BIGENDIAN
-               D[0] = (pixel >> 16) & 0xff;
-               D[1] = (pixel >>  8) & 0xff;
-               D[2] = (pixel >>  0) & 0xff;
-#else
-               D[0] = (pixel >>  0) & 0xff;
-               D[1] = (pixel >>  8) & 0xff;
-               D[2] = (pixel >> 16) & 0xff;
-#endif
-
-          }
-
-          D += 3;
-          i += SperD;
-     }
-}
 
 static void Sacc_StoK_Aop_yuv444p( GenefxState *gfxs )
 {
@@ -6795,7 +5739,7 @@ static void Sacc_StoK_Aop_avyu( GenefxState *gfxs )
                                 (S->YUV.u & 0xff00) ? 0xff : S->YUV.u,
                                 (S->YUV.v & 0xff00) ? 0xff : S->YUV.v );
 
-          D++;
+          ++D;
           i += SperD;
      }
 }
@@ -6842,9 +5786,10 @@ static void Sacc_StoK_Aop_vyu( GenefxState *gfxs )
 static const GenefxFunc Sacc_StoK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = Sacc_StoK_Aop_argb1555,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = Sacc_StoK_Aop_rgb16,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Sacc_StoK_Aop_rgb24,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Sacc_StoK_Aop_rgb32,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Sacc_StoK_Aop_argb,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Sacc_StoK_Aop_abgr,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,
@@ -6863,9 +5808,10 @@ static const GenefxFunc Sacc_StoK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Sacc_StoK_Aop_argb1666,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Sacc_StoK_Aop_argb6666,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Sacc_StoK_Aop_rgb18,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = Sacc_StoK_Aop_xrgb4444,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = Sacc_StoK_Aop_xrgb1555,
@@ -6873,6 +5819,7 @@ static const GenefxFunc Sacc_StoK_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Sacc_StoK_Aop_rgba5551,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Sacc_StoK_Aop_yuv444p,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Sacc_StoK_Aop_argb8565,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = Sacc_StoK_Aop_rgbaf88871,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Sacc_StoK_Aop_avyu,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Sacc_StoK_Aop_vyu,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -7118,14 +6065,14 @@ static void Bop_a8_set_alphapixel_Aop_argb8565( GenefxState *gfxs )
 #endif
 
      while (w>4) {
-          SET_PIXEL( D, *S ); D+=3; S++;
-          SET_PIXEL( D, *S ); D+=3; S++;
-          SET_PIXEL( D, *S ); D+=3; S++;
-          SET_PIXEL( D, *S ); D+=3; S++;
+          SET_PIXEL( D, *S ); D+=3; ++S;
+          SET_PIXEL( D, *S ); D+=3; ++S;
+          SET_PIXEL( D, *S ); D+=3; ++S;
+          SET_PIXEL( D, *S ); D+=3; ++S;
           w-=4;
      }
      while (w--) {
-          SET_PIXEL( D, *S ); D+=3, S++;
+          SET_PIXEL( D, *S ); D+=3; ++S;
      }
 
 #undef SET_PIXEL
@@ -7154,14 +6101,14 @@ static void Bop_a8_set_alphapixel_Aop_rgb24( GenefxState *gfxs )
      }
 
      while (w>4) {
-          SET_PIXEL( D, color.r, color.g, color.b, *S ); D+=3; S++;
-          SET_PIXEL( D, color.r, color.g, color.b, *S ); D+=3; S++;
-          SET_PIXEL( D, color.r, color.g, color.b, *S ); D+=3; S++;
-          SET_PIXEL( D, color.r, color.g, color.b, *S ); D+=3; S++;
+          SET_PIXEL( D, color.r, color.g, color.b, *S ); D+=3; ++S;
+          SET_PIXEL( D, color.r, color.g, color.b, *S ); D+=3; ++S;
+          SET_PIXEL( D, color.r, color.g, color.b, *S ); D+=3; ++S;
+          SET_PIXEL( D, color.r, color.g, color.b, *S ); D+=3; ++S;
           w-=4;
      }
      while (w--) {
-          SET_PIXEL( D, color.r, color.g, color.b, *S ); D+=3, S++;
+          SET_PIXEL( D, color.r, color.g, color.b, *S ); D+=3; ++S;
      }
 
 #undef SET_PIXEL
@@ -7238,14 +6185,14 @@ static void Bop_a8_set_alphapixel_Aop_vyu( GenefxState *gfxs )
 #endif
 
      while (w>4) {
-          SET_PIXEL( D, YCop, CbCop, CrCop, *S ); D+=3; S++;
-          SET_PIXEL( D, YCop, CbCop, CrCop, *S ); D+=3; S++;
-          SET_PIXEL( D, YCop, CbCop, CrCop, *S ); D+=3; S++;
-          SET_PIXEL( D, YCop, CbCop, CrCop, *S ); D+=3; S++;
+          SET_PIXEL( D, YCop, CbCop, CrCop, *S ); D+=3; ++S;
+          SET_PIXEL( D, YCop, CbCop, CrCop, *S ); D+=3; ++S;
+          SET_PIXEL( D, YCop, CbCop, CrCop, *S ); D+=3; ++S;
+          SET_PIXEL( D, YCop, CbCop, CrCop, *S ); D+=3; ++S;
           w-=4;
      }
      while (w--) {
-          SET_PIXEL( D, YCop, CbCop, CrCop, *S ); D+=3, S++;
+          SET_PIXEL( D, YCop, CbCop, CrCop, *S ); D+=3; ++S;
      }
 
 #undef SET_PIXEL
@@ -7281,6 +6228,7 @@ static void Bop_a8_set_alphapixel_Aop_argb( GenefxState *gfxs )
 
 #undef SET_PIXEL
 }
+
 
 static void Bop_a8_set_alphapixel_Aop_airgb( GenefxState *gfxs )
 {
@@ -7487,7 +6435,7 @@ static void Bop_a8_set_alphapixel_Aop_lut8( GenefxState *gfxs )
 
 static void Bop_a8_set_alphapixel_Aop_alut44( GenefxState *gfxs )
 {
-     int    w   = gfxs->length;
+     int    w   = gfxs->length+1;
      u8    *S   = gfxs->Bop[0];
      u8    *D   = gfxs->Aop[0];
      u32    Cop = gfxs->Cop;
@@ -7512,9 +6460,9 @@ static void Bop_a8_set_alphapixel_Aop_alut44( GenefxState *gfxs )
           }\
      }
 
-     while (w--) {
+     while (--w) {
           SET_PIXEL( *D, *S );
-          D++, S++;
+          ++D, ++S;
      }
 
 #undef SET_PIXEL
@@ -7563,6 +6511,7 @@ static const GenefxFunc Bop_a8_set_alphapixel_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_a8_set_alphapixel_Aop_rgb24,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_a8_set_alphapixel_Aop_rgb32,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_a8_set_alphapixel_Aop_argb,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_a8_set_alphapixel_Aop_argb,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Bop_a8_set_alphapixel_Aop_a8,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Bop_a8_set_alphapixel_Aop_yuy2,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Bop_a8_set_alphapixel_Aop_rgb332,
@@ -7584,6 +6533,7 @@ static const GenefxFunc Bop_a8_set_alphapixel_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_a8_set_alphapixel_Aop_argb1666,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_a8_set_alphapixel_Aop_argb6666,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_a8_set_alphapixel_Aop_rgb18,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = NULL,
@@ -7591,6 +6541,7 @@ static const GenefxFunc Bop_a8_set_alphapixel_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Bop_a8_set_alphapixel_Aop_rgba5551,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Bop_a8_set_alphapixel_Aop_yuv444p,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_a8_set_alphapixel_Aop_argb8565,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Bop_a8_set_alphapixel_Aop_argb,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = Bop_a8_set_alphapixel_Aop_vyu,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -7607,7 +6558,7 @@ static void Bop_a1_set_alphapixel_Aop_argb1555( GenefxState *gfxs )
      u16   *D   = gfxs->Aop[0];
      u16    Cop = gfxs->Cop | 0x8000;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = Cop;
      }
@@ -7621,7 +6572,7 @@ static void Bop_a1_set_alphapixel_Aop_rgba5551( GenefxState *gfxs )
      u16   *D   = gfxs->Aop[0];
      u16    Cop = gfxs->Cop | 0x0001;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = Cop;
      }
@@ -7635,7 +6586,7 @@ static void Bop_a1_set_alphapixel_Aop_rgb16( GenefxState *gfxs )
      u16   *D   = gfxs->Aop[0];
      u16    Cop = gfxs->Cop;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = Cop;
      }
@@ -7649,7 +6600,7 @@ static void Bop_a1_set_alphapixel_Aop_argb6666( GenefxState *gfxs )
      u8       *D     = gfxs->Aop[0];
      DFBColor  color = gfxs->color;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7))) {
                u32 pixel = PIXEL_ARGB6666( color.a, color.r, color.g, color.b );
 
@@ -7670,7 +6621,7 @@ static void Bop_a1_set_alphapixel_Aop_argb1666( GenefxState *gfxs )
      u8       *D     = gfxs->Aop[0];
      DFBColor  color = gfxs->color;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7))) {
                u32 pixel = PIXEL_ARGB1666( color.a, color.r, color.g, color.b );
 
@@ -7691,7 +6642,7 @@ static void Bop_a1_set_alphapixel_Aop_rgb18( GenefxState *gfxs )
      u8       *D     = gfxs->Aop[0];
      DFBColor  color = gfxs->color;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7))) {
                u32 pixel = PIXEL_RGB18( color.r, color.g, color.b );
 
@@ -7712,7 +6663,7 @@ static void Bop_a1_set_alphapixel_Aop_argb8565( GenefxState *gfxs )
      u8       *D   = gfxs->Aop[0];
      u32       Cop = gfxs->Cop | 0xFF0000;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7))) {
 
 #ifdef WORDS_BIGENDIAN
@@ -7739,7 +6690,7 @@ static void Bop_a1_set_alphapixel_Aop_rgb24( GenefxState *gfxs )
      u8       *D     = gfxs->Aop[0];
      DFBColor  color = gfxs->color;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7))) {
                D[0] = color.b;
                D[1] = color.g;
@@ -7758,7 +6709,7 @@ static void Bop_a1_set_alphapixel_Aop_rgb32( GenefxState *gfxs )
      u32   *D   = gfxs->Aop[0];
      u32    Cop = gfxs->Cop;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = Cop;
      }
@@ -7772,7 +6723,7 @@ static void Bop_a1_set_alphapixel_Aop_argb( GenefxState *gfxs )
      u32   *D   = gfxs->Aop[0];
      u32    Cop = gfxs->Cop | 0xFF000000;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = Cop;
      }
@@ -7786,7 +6737,7 @@ static void Bop_a1_set_alphapixel_Aop_airgb( GenefxState *gfxs )
      u32   *D   = gfxs->Aop[0];
      u32    Cop = gfxs->Cop & 0x00FFFFFF;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = Cop;
      }
@@ -7799,7 +6750,7 @@ static void Bop_a1_set_alphapixel_Aop_a8( GenefxState *gfxs )
      u8   *S = gfxs->Bop[0];
      u8   *D = gfxs->Aop[0];
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = 0xff;
      }
@@ -7814,7 +6765,7 @@ static void Bop_a1_set_alphapixel_Aop_yuy2( GenefxState *gfxs )
      u16    Cop0 = gfxs->YCop | (gfxs->CbCop << 8);
      u16    Cop1 = gfxs->YCop | (gfxs->CrCop << 8);
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7))) {
                D[i] = ((long)&D[i] & 2) ? Cop1 : Cop0;
           }
@@ -7829,7 +6780,7 @@ static void Bop_a1_set_alphapixel_Aop_rgb332( GenefxState *gfxs )
      u8   *D   = gfxs->Aop[0];
      u8    Cop = gfxs->Cop;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = Cop;
      }
@@ -7844,7 +6795,7 @@ static void Bop_a1_set_alphapixel_Aop_uyvy( GenefxState *gfxs )
      u16    Cop0 = gfxs->CbCop | (gfxs->YCop << 8);
      u16    Cop1 = gfxs->CrCop | (gfxs->YCop << 8);
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7))) {
                D[i] = ((long)&D[i] & 2) ? Cop1 : Cop0;
           }
@@ -7859,7 +6810,7 @@ static void Bop_a1_set_alphapixel_Aop_lut8( GenefxState *gfxs )
      u8   *D   = gfxs->Aop[0];
      u8    Cop = gfxs->Cop;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = Cop;
      }
@@ -7873,7 +6824,7 @@ static void Bop_a1_set_alphapixel_Aop_alut44( GenefxState *gfxs )
      u8   *D   = gfxs->Aop[0];
      u8    Cop = gfxs->Cop;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = Cop;
      }
@@ -7887,7 +6838,7 @@ static void Bop_a1_set_alphapixel_Aop_argb2554( GenefxState *gfxs )
      u16   *D   = gfxs->Aop[0];
      u16    Cop = gfxs->Cop | 0xC000;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = Cop;
      }
@@ -7901,7 +6852,7 @@ static void Bop_a1_set_alphapixel_Aop_argb4444( GenefxState *gfxs )
      u16   *D   = gfxs->Aop[0];
      u16    Cop = gfxs->Cop | 0xF000;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = Cop;
      }
@@ -7915,7 +6866,7 @@ static void Bop_a1_set_alphapixel_Aop_rgba4444( GenefxState *gfxs )
      u16   *D   = gfxs->Aop[0];
      u16    Cop = gfxs->Cop | 0x000F;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7)))
                D[i] = Cop;
      }
@@ -7930,7 +6881,7 @@ static void Bop_a1_set_alphapixel_Aop_yuv444p( GenefxState *gfxs )
      u8       * __restrict Du = gfxs->Aop[1];
      u8       * __restrict Dv = gfxs->Aop[2];
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (0x80 >> (i&7))) {
                Dy[i] = gfxs->YCop;
                Du[i] = gfxs->CbCop;
@@ -7945,6 +6896,7 @@ static const GenefxFunc Bop_a1_set_alphapixel_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_a1_set_alphapixel_Aop_rgb24,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_a1_set_alphapixel_Aop_rgb32,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_a1_set_alphapixel_Aop_argb,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_a1_set_alphapixel_Aop_argb,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Bop_a1_set_alphapixel_Aop_a8,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Bop_a1_set_alphapixel_Aop_yuy2,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Bop_a1_set_alphapixel_Aop_rgb332,
@@ -7966,6 +6918,7 @@ static const GenefxFunc Bop_a1_set_alphapixel_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_a1_set_alphapixel_Aop_argb1666,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_a1_set_alphapixel_Aop_argb6666,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_a1_set_alphapixel_Aop_rgb18,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = NULL,
@@ -7973,6 +6926,7 @@ static const GenefxFunc Bop_a1_set_alphapixel_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = Bop_a1_set_alphapixel_Aop_rgba5551,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = Bop_a1_set_alphapixel_Aop_yuv444p,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_a1_set_alphapixel_Aop_argb8565,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = Bop_a1_set_alphapixel_Aop_argb,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -7989,7 +6943,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_argb1555( GenefxState *gfxs )
      u16   *D   = gfxs->Aop[0];
      u16    Cop = gfxs->Cop | 0x8000;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7)))
                D[i] = Cop;
      }
@@ -8003,7 +6957,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_rgb16( GenefxState *gfxs )
      u16   *D   = gfxs->Aop[0];
      u16    Cop = gfxs->Cop;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7)))
                D[i] = Cop;
      }
@@ -8017,7 +6971,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_argb6666( GenefxState *gfxs )
      u8       *D     = gfxs->Aop[0];
      DFBColor  color = gfxs->color;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7))) {
                u32 pixel = PIXEL_ARGB6666( color.a, color.r, color.g, color.b );
 
@@ -8038,7 +6992,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_argb1666( GenefxState *gfxs )
      u8       *D     = gfxs->Aop[0];
      DFBColor  color = gfxs->color;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7))) {
                u32 pixel = PIXEL_ARGB1666( color.a, color.r, color.g, color.b );
 
@@ -8059,7 +7013,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_rgb18( GenefxState *gfxs )
      u8       *D     = gfxs->Aop[0];
      DFBColor  color = gfxs->color;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7))) {
                u32 pixel = PIXEL_RGB18( color.r, color.g, color.b );
 
@@ -8080,7 +7034,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_rgb24( GenefxState *gfxs )
      u8       *D     = gfxs->Aop[0];
      DFBColor  color = gfxs->color;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7))) {
                D[0] = color.b;
                D[1] = color.g;
@@ -8099,7 +7053,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_rgb32( GenefxState *gfxs )
      u32   *D   = gfxs->Aop[0];
      u32    Cop = gfxs->Cop;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7)))
                D[i] = Cop;
      }
@@ -8113,7 +7067,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_argb( GenefxState *gfxs )
      u32   *D   = gfxs->Aop[0];
      u32    Cop = gfxs->Cop | 0xFF000000;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7)))
                D[i] = Cop;
      }
@@ -8127,7 +7081,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_airgb( GenefxState *gfxs )
      u32   *D   = gfxs->Aop[0];
      u32    Cop = gfxs->Cop & 0x00FFFFFF;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7)))
                D[i] = Cop;
      }
@@ -8140,7 +7094,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_a8( GenefxState *gfxs )
      u8   *S = gfxs->Bop[0];
      u8   *D = gfxs->Aop[0];
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7)))
                D[i] = 0xff;
      }
@@ -8155,7 +7109,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_yuy2( GenefxState *gfxs )
      u16    Cop0 = gfxs->YCop | (gfxs->CbCop << 8);
      u16    Cop1 = gfxs->YCop | (gfxs->CrCop << 8);
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7))) {
                D[i] = ((long)&D[i] & 2) ? Cop1 : Cop0;
           }
@@ -8170,7 +7124,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_rgb332( GenefxState *gfxs )
      u8   *D   = gfxs->Aop[0];
      u8    Cop = gfxs->Cop;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7)))
                D[i] = Cop;
      }
@@ -8185,7 +7139,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_uyvy( GenefxState *gfxs )
      u16    Cop0 = gfxs->CbCop | (gfxs->YCop << 8);
      u16    Cop1 = gfxs->CrCop | (gfxs->YCop << 8);
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7))) {
                D[i] = ((long)&D[i] & 2) ? Cop1 : Cop0;
           }
@@ -8200,7 +7154,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_lut8( GenefxState *gfxs )
      u8   *D   = gfxs->Aop[0];
      u8    Cop = gfxs->Cop;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7)))
                D[i] = Cop;
      }
@@ -8214,7 +7168,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_alut44( GenefxState *gfxs )
      u8   *D   = gfxs->Aop[0];
      u8    Cop = gfxs->Cop;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7)))
                D[i] = Cop;
      }
@@ -8228,7 +7182,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_argb2554( GenefxState *gfxs )
      u16   *D   = gfxs->Aop[0];
      u16    Cop = gfxs->Cop | 0xC000;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7)))
                D[i] = Cop;
      }
@@ -8242,7 +7196,7 @@ static void Bop_a1_lsb_set_alphapixel_Aop_argb4444( GenefxState *gfxs )
      u16   *D   = gfxs->Aop[0];
      u16    Cop = gfxs->Cop | 0xF000;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (S[i>>3] & (1 << (i&7)))
                D[i] = Cop;
      }
@@ -8254,6 +7208,7 @@ static const GenefxFunc Bop_a1_lsb_set_alphapixel_Aop_PFI[DFB_NUM_PIXELFORMATS] 
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = Bop_a1_lsb_set_alphapixel_Aop_rgb24,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_a1_lsb_set_alphapixel_Aop_rgb32,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_a1_lsb_set_alphapixel_Aop_argb,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = Bop_a1_lsb_set_alphapixel_Aop_argb,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Bop_a1_lsb_set_alphapixel_Aop_a8,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = Bop_a1_lsb_set_alphapixel_Aop_yuy2,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = Bop_a1_lsb_set_alphapixel_Aop_rgb332,
@@ -8275,6 +7230,7 @@ static const GenefxFunc Bop_a1_lsb_set_alphapixel_Aop_PFI[DFB_NUM_PIXELFORMATS] 
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = Bop_a1_lsb_set_alphapixel_Aop_argb1666,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = Bop_a1_lsb_set_alphapixel_Aop_argb6666,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = Bop_a1_lsb_set_alphapixel_Aop_rgb18,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = NULL,
@@ -8282,6 +7238,7 @@ static const GenefxFunc Bop_a1_lsb_set_alphapixel_Aop_PFI[DFB_NUM_PIXELFORMATS] 
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -8298,7 +7255,7 @@ static void Bop_lut2_translate_to_Aop_lut8( GenefxState *gfxs )
      u8  *S = gfxs->Bop[0];
      u8  *D = gfxs->Aop[0];
 
-     for (i=0; i<W; i++, D+=4, w-=4) {
+     for (i=0; i<W; ++i, D+=4, w-=4) {
           u8 index;
           u8 pixels = S[i];
 
@@ -8335,7 +7292,7 @@ static void Xacc_blend_zero( GenefxState *gfxs )
      GenefxAccumulator *X = gfxs->Xacc;
      GenefxAccumulator *Y = gfxs->Yacc;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           if (!(Y[i].RGB.a & 0xF000))
                X[i].RGB.a = X[i].RGB.r = X[i].RGB.g = X[i].RGB.b = 0;
           else
@@ -8350,21 +7307,21 @@ static void Xacc_blend_one( GenefxState *gfxs )
      GenefxAccumulator *X = gfxs->Xacc;
      GenefxAccumulator *Y = gfxs->Yacc;
 
-     for (i=0; i<w; i++) {
+     for (i=0; i<w; ++i) {
           X[i] = Y[i];
      }
 }
 
 static void Xacc_blend_srccolor( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *X = gfxs->Xacc;
      GenefxAccumulator *Y = gfxs->Yacc;
 
      if (gfxs->Sacc) {
           GenefxAccumulator *S = gfxs->Sacc;
 
-          while (w--) {
+          while (--w) {
                if (!(Y->RGB.a & 0xF000)) {
                     X->RGB.r = ((S->RGB.r + 1) * Y->RGB.r) >> 8;
                     X->RGB.g = ((S->RGB.g + 1) * Y->RGB.g) >> 8;
@@ -8373,9 +7330,9 @@ static void Xacc_blend_srccolor( GenefxState *gfxs )
                } else
                     *X = *Y;
 
-               X++;
-               Y++;
-               S++;
+               ++X;
+               ++Y;
+               ++S;
           }
      }
      else {
@@ -8385,7 +7342,7 @@ static void Xacc_blend_srccolor( GenefxState *gfxs )
           Cacc.RGB.b = Cacc.RGB.b + 1;
           Cacc.RGB.a = Cacc.RGB.a + 1;
 
-          while (w--) {
+          while (--w) {
                if (!(Y->RGB.a & 0xF000)) {
                     X->RGB.r = (Cacc.RGB.r * Y->RGB.r) >> 8;
                     X->RGB.g = (Cacc.RGB.g * Y->RGB.g) >> 8;
@@ -8394,22 +7351,22 @@ static void Xacc_blend_srccolor( GenefxState *gfxs )
                } else
                     *X = *Y;
 
-               X++;
-               Y++;
+               ++X;
+               ++Y;
           }
      }
 }
 
 static void Xacc_blend_invsrccolor( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *X = gfxs->Xacc;
      GenefxAccumulator *Y = gfxs->Yacc;
 
      if (gfxs->Sacc) {
           GenefxAccumulator *S = gfxs->Sacc;
 
-          while (w--) {
+          while (--w) {
                if (!(Y->RGB.a & 0xF000)) {
                     X->RGB.r = ((0x100 - S->RGB.r) * Y->RGB.r) >> 8;
                     X->RGB.g = ((0x100 - S->RGB.g) * Y->RGB.g) >> 8;
@@ -8418,9 +7375,9 @@ static void Xacc_blend_invsrccolor( GenefxState *gfxs )
                } else
                     *X = *Y;
 
-               X++;
-               Y++;
-               S++;
+               ++X;
+               ++Y;
+               ++S;
           }
      }
      else {
@@ -8430,7 +7387,7 @@ static void Xacc_blend_invsrccolor( GenefxState *gfxs )
           Cacc.RGB.b = 0x100 - Cacc.RGB.b;
           Cacc.RGB.a = 0x100 - Cacc.RGB.a;
 
-          while (w--) {
+          while (--w) {
                if (!(Y->RGB.a & 0xF000)) {
                     X->RGB.r = (Cacc.RGB.r * Y->RGB.r) >> 8;
                     X->RGB.g = (Cacc.RGB.g * Y->RGB.g) >> 8;
@@ -8439,22 +7396,22 @@ static void Xacc_blend_invsrccolor( GenefxState *gfxs )
                } else
                     *X = *Y;
 
-               X++;
-               Y++;
+               ++X;
+               ++Y;
           }
      }
 }
 
 static void Xacc_blend_srcalpha( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *X = gfxs->Xacc;
      GenefxAccumulator *Y = gfxs->Yacc;
 
      if (gfxs->Sacc) {
           GenefxAccumulator *S = gfxs->Sacc;
 
-          while (w--) {
+          while (--w) {
                if (!(Y->RGB.a & 0xF000)) {
                     register u16 Sa = S->RGB.a + 1;
 
@@ -8465,15 +7422,15 @@ static void Xacc_blend_srcalpha( GenefxState *gfxs )
                } else
                     *X = *Y;
 
-               X++;
-               Y++;
-               S++;
+               ++X;
+               ++Y;
+               ++S;
           }
      }
      else {
           register u16 Sa = gfxs->color.a + 1;
 
-          while (w--) {
+          while (--w) {
                if (!(Y->RGB.a & 0xF000)) {
                     X->RGB.r = (Sa * Y->RGB.r) >> 8;
                     X->RGB.g = (Sa * Y->RGB.g) >> 8;
@@ -8482,22 +7439,22 @@ static void Xacc_blend_srcalpha( GenefxState *gfxs )
                } else
                     *X = *Y;
 
-               X++;
-               Y++;
+               ++X;
+               ++Y;
           }
      }
 }
 
 static void Xacc_blend_invsrcalpha( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *X = gfxs->Xacc;
      GenefxAccumulator *Y = gfxs->Yacc;
 
      if (gfxs->Sacc) {
           GenefxAccumulator *S = gfxs->Sacc;
 
-          while (w--) {
+          while (--w) {
                if (!(Y->RGB.a & 0xF000)) {
                     register u16 Sa = 0x100 - S->RGB.a;
 
@@ -8508,15 +7465,15 @@ static void Xacc_blend_invsrcalpha( GenefxState *gfxs )
                } else
                     *X = *Y;
 
-               X++;
-               Y++;
-               S++;
+               ++X;
+               ++Y;
+               ++S;
           }
      }
      else {
           register u16 Sa = 0x100 - gfxs->color.a;
 
-          while (w--) {
+          while (--w) {
                if (!(Y->RGB.a & 0xF000)) {
                     X->RGB.a = (Sa * Y->RGB.a) >> 8;
                     X->RGB.r = (Sa * Y->RGB.r) >> 8;
@@ -8525,20 +7482,20 @@ static void Xacc_blend_invsrcalpha( GenefxState *gfxs )
                } else
                     *X = *Y;
 
-               X++;
-               Y++;
+               ++X;
+               ++Y;
           }
      }
 }
 
 static void Xacc_blend_dstalpha( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *X = gfxs->Xacc;
      GenefxAccumulator *Y = gfxs->Yacc;
      GenefxAccumulator *D = gfxs->Dacc;
 
-     while (w--) {
+     while (--w) {
           if (!(Y->RGB.a & 0xF000)) {
                register u16 Da = D->RGB.a + 1;
 
@@ -8549,20 +7506,20 @@ static void Xacc_blend_dstalpha( GenefxState *gfxs )
           } else
                *X = *Y;
 
-          X++;
-          Y++;
-          D++;
+          ++X;
+          ++Y;
+          ++D;
      }
 }
 
 static void Xacc_blend_invdstalpha( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *X = gfxs->Xacc;
      GenefxAccumulator *Y = gfxs->Yacc;
      GenefxAccumulator *D = gfxs->Dacc;
 
-     while (w--) {
+     while (--w) {
           if (!(Y->RGB.a & 0xF000)) {
                register u16 Da = 0x100 - D->RGB.a;
 
@@ -8573,20 +7530,20 @@ static void Xacc_blend_invdstalpha( GenefxState *gfxs )
           } else
                *X = *Y;
 
-          X++;
-          Y++;
-          D++;
+          ++X;
+          ++Y;
+          ++D;
      }
 }
 
 static void Xacc_blend_destcolor( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *X = gfxs->Xacc;
      GenefxAccumulator *Y = gfxs->Yacc;
      GenefxAccumulator *D = gfxs->Dacc;
 
-     while (w--) {
+     while (--w) {
           if (!(Y->RGB.a & 0xF000)) {
                X->RGB.r = ((D->RGB.r + 1) * Y->RGB.r) >> 8;
                X->RGB.g = ((D->RGB.g + 1) * Y->RGB.g) >> 8;
@@ -8595,20 +7552,20 @@ static void Xacc_blend_destcolor( GenefxState *gfxs )
           } else
                *X = *Y;
 
-          X++;
-          Y++;
-          D++;
+          ++X;
+          ++Y;
+          ++D;
      }
 }
 
 static void Xacc_blend_invdestcolor( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *X = gfxs->Xacc;
      GenefxAccumulator *Y = gfxs->Yacc;
      GenefxAccumulator *D = gfxs->Dacc;
 
-     while (w--) {
+     while (--w) {
           if (!(Y->RGB.a & 0xF000)) {
                X->RGB.r = ((0x100 - D->RGB.r) * Y->RGB.r) >> 8;
                X->RGB.g = ((0x100 - D->RGB.g) * Y->RGB.g) >> 8;
@@ -8617,15 +7574,15 @@ static void Xacc_blend_invdestcolor( GenefxState *gfxs )
           } else
                *X = *Y;
 
-          X++;
-          Y++;
-          D++;
+          ++X;
+          ++Y;
+          ++D;
      }
 }
 
 static void Xacc_blend_srcalphasat( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *X = gfxs->Xacc;
      GenefxAccumulator *Y = gfxs->Yacc;
      GenefxAccumulator *D = gfxs->Dacc;
@@ -8633,7 +7590,7 @@ static void Xacc_blend_srcalphasat( GenefxState *gfxs )
      if (gfxs->Sacc) {
           GenefxAccumulator *S = gfxs->Sacc;
 
-          while (w--) {
+          while (--w) {
                if (!(Y->RGB.a & 0xF000)) {
                     register u16 Sa = MIN( S->RGB.a + 1, 0x100 - D->RGB.a );
 
@@ -8644,14 +7601,14 @@ static void Xacc_blend_srcalphasat( GenefxState *gfxs )
                } else
                     *X = *Y;
 
-               X++;
-               Y++;
-               D++;
-               S++;
+               ++X;
+               ++Y;
+               ++D;
+               ++S;
           }
      }
      else {
-          while (w--) {
+          while (--w) {
                if (!(Y->RGB.a & 0xF000)) {
                     register u16 Sa = MIN( gfxs->color.a + 1, 0x100 - D->RGB.a );
 
@@ -8662,9 +7619,9 @@ static void Xacc_blend_srcalphasat( GenefxState *gfxs )
                } else
                     *X = *Y;
 
-               X++;
-               Y++;
-               D++;
+               ++X;
+               ++Y;
+               ++D;
           }
      }
 }
@@ -8687,59 +7644,59 @@ static GenefxFunc Xacc_blend[] = {
 
 static void Dacc_set_alpha( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *D = gfxs->Dacc;
      int                a = gfxs->color.a;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                D->RGB.a = a;
           }
 
-          D++;
+          ++D;
      }
 }
 
 static void Dacc_modulate_alpha( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *D = gfxs->Dacc;
      int                a = gfxs->Cacc.RGB.a;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                D->RGB.a = (a * D->RGB.a) >> 8;
           }
 
-          D++;
+          ++D;
      }
 }
 
 static void Dacc_modulate_rgb( GenefxState *gfxs )
 {
-     int                w    = gfxs->length;
+     int                w    = gfxs->length+1;
      GenefxAccumulator *D    = gfxs->Dacc;
      GenefxAccumulator  Cacc = gfxs->Cacc;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                D->RGB.r = (Cacc.RGB.r * D->RGB.r) >> 8;
                D->RGB.g = (Cacc.RGB.g * D->RGB.g) >> 8;
                D->RGB.b = (Cacc.RGB.b * D->RGB.b) >> 8;
           }
 
-          D++;
+          ++D;
      }
 }
 
 static void Dacc_modulate_rgb_set_alpha( GenefxState *gfxs )
 {
-     int                w    = gfxs->length;
+     int                w    = gfxs->length+1;
      GenefxAccumulator *D    = gfxs->Dacc;
      GenefxAccumulator  Cacc = gfxs->Cacc;
      int                a    = gfxs->color.a;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                D->RGB.a = a;
                D->RGB.r = (Cacc.RGB.r * D->RGB.r) >> 8;
@@ -8747,17 +7704,17 @@ static void Dacc_modulate_rgb_set_alpha( GenefxState *gfxs )
                D->RGB.b = (Cacc.RGB.b * D->RGB.b) >> 8;
           }
 
-          D++;
+          ++D;
      }
 }
 
 static void Dacc_modulate_argb( GenefxState *gfxs )
 {
-     int                w    = gfxs->length;
+     int                w    = gfxs->length+1;
      GenefxAccumulator *D    = gfxs->Dacc;
      GenefxAccumulator  Cacc = gfxs->Cacc;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                D->RGB.a = (Cacc.RGB.a * D->RGB.a) >> 8;
                D->RGB.r = (Cacc.RGB.r * D->RGB.r) >> 8;
@@ -8765,7 +7722,7 @@ static void Dacc_modulate_argb( GenefxState *gfxs )
                D->RGB.b = (Cacc.RGB.b * D->RGB.b) >> 8;
           }
 
-          D++;
+          ++D;
      }
 }
 
@@ -8785,14 +7742,216 @@ static GenefxFunc Dacc_modulation[] = {
       | DSBLIT_BLEND_COLORALPHA]   = Dacc_modulate_argb
 };
 
+/********************************* SRC_MASK_ALPHA ****************/
+
+static void Dacc_modulate_mask_alpha_ARGB( GenefxState *gfxs )
+{
+     int                w = gfxs->length+1;
+     GenefxAccumulator *D = gfxs->Dacc;
+     const u32         *m = gfxs->Mop[0];
+
+     while (--w) {
+          if (!(D->RGB.a & 0xF000))
+               D->RGB.a = (((*m >> 24) + 1) * D->RGB.a) >> 8;
+
+          ++D;
+          ++m;
+     }
+}
+
+static void Dacc_modulate_mask_alpha_A8( GenefxState *gfxs )
+{
+     int                w = gfxs->length+1;
+     GenefxAccumulator *D = gfxs->Dacc;
+     const u8          *m = gfxs->Mop[0];
+
+     while (--w) {
+          if (!(D->RGB.a & 0xF000))
+               D->RGB.a = ((*m + 1) * D->RGB.a) >> 8;
+
+          ++D;
+          ++m;
+     }
+}
+
+static const GenefxFunc Dacc_modulate_mask_alpha_from_PFI[DFB_NUM_PIXELFORMATS] = {
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Dacc_modulate_mask_alpha_ARGB,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = Dacc_modulate_mask_alpha_A8,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_UYVY)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_I420)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV12)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT8)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ALUT44)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AiRGB)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV12)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV16)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB2554)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB4444)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA4444)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
+};
+
+/********************************* SRC_MASK_COLOR ****************/
+
+static void Dacc_modulate_mask_rgb_ARGB( GenefxState *gfxs )
+{
+     int                w = gfxs->length+1;
+     GenefxAccumulator *D = gfxs->Dacc;
+     const u32         *m = gfxs->Mop[0];
+
+     while (--w) {
+          if (!(D->RGB.a & 0xF000)) {
+               D->RGB.r = ((((*m >> 16) & 0xff) + 1) * D->RGB.r) >> 8;
+               D->RGB.g = ((((*m >>  8) & 0xff) + 1) * D->RGB.g) >> 8;
+               D->RGB.b = ((((*m      ) & 0xff) + 1) * D->RGB.b) >> 8;
+          }
+
+          ++D;
+          ++m;
+     }
+}
+
+static const GenefxFunc Dacc_modulate_mask_rgb_from_PFI[DFB_NUM_PIXELFORMATS] = {
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Dacc_modulate_mask_rgb_ARGB,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_UYVY)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_I420)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV12)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT8)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ALUT44)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AiRGB)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV12)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV16)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB2554)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB4444)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA4444)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
+};
+
+/********************************* SRC_MASK_ALPHA/COLOR ****************/
+
+static void Dacc_modulate_mask_argb_ARGB( GenefxState *gfxs )
+{
+     int                w = gfxs->length+1;
+     GenefxAccumulator *D = gfxs->Dacc;
+     const u8          *m = gfxs->Mop[0];
+
+     while (--w) {
+          if (!(D->RGB.a & 0xF000)) {
+               D->RGB.a = ((((*m >> 24)       ) + 1) * D->RGB.a) >> 8;
+               D->RGB.r = ((((*m >> 16) & 0xff) + 1) * D->RGB.r) >> 8;
+               D->RGB.g = ((((*m >>  8) & 0xff) + 1) * D->RGB.g) >> 8;
+               D->RGB.b = ((((*m      ) & 0xff) + 1) * D->RGB.b) >> 8;
+          }
+
+          ++D;
+          ++m;
+     }
+}
+
+static const GenefxFunc Dacc_modulate_mask_argb_from_PFI[DFB_NUM_PIXELFORMATS] = {
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Dacc_modulate_mask_argb_ARGB,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_UYVY)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_I420)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV12)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT8)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ALUT44)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AiRGB)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV12)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV16)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB2554)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB4444)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA4444)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
+};
+
 /********************************* misc accumulator operations ****************/
 
 static void Dacc_premultiply( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *D = gfxs->Dacc;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                register u16 Da = D->RGB.a + 1;
 
@@ -8801,33 +7960,33 @@ static void Dacc_premultiply( GenefxState *gfxs )
                D->RGB.b = (Da * D->RGB.b) >> 8;
           }
 
-          D++;
+          ++D;
      }
 }
 
 static void Dacc_premultiply_color_alpha( GenefxState *gfxs )
 {
-     int                w  = gfxs->length;
+     int                w  = gfxs->length+1;
      GenefxAccumulator *D  = gfxs->Dacc;
      register u16       Ca = gfxs->Cacc.RGB.a;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                D->RGB.r = (Ca * D->RGB.r) >> 8;
                D->RGB.g = (Ca * D->RGB.g) >> 8;
                D->RGB.b = (Ca * D->RGB.b) >> 8;
           }
 
-          D++;
+          ++D;
      }
 }
 
 static void Dacc_demultiply( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *D = gfxs->Dacc;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                register u16 Da = D->RGB.a + 1;
 
@@ -8836,17 +7995,17 @@ static void Dacc_demultiply( GenefxState *gfxs )
                D->RGB.b = (D->RGB.b << 8) / Da;
           }
 
-          D++;
+          ++D;
      }
 }
 
 static void Dacc_xor_C( GenefxState *gfxs )
 {
-     int                w     = gfxs->length;
+     int                w     = gfxs->length+1;
      GenefxAccumulator *D     = gfxs->Dacc;
      DFBColor           color = gfxs->color;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                D->RGB.a ^= color.a;
                D->RGB.r ^= color.r;
@@ -8854,7 +8013,7 @@ static void Dacc_xor_C( GenefxState *gfxs )
                D->RGB.b ^= color.b;
           }
 
-          D++;
+          ++D;
      }
 }
 
@@ -8862,10 +8021,10 @@ static GenefxFunc Dacc_xor = Dacc_xor_C;
 
 static void Dacc_clamp_C( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *D = gfxs->Dacc;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                if (D->RGB.a > 0xff)
                     D->RGB.a = 0xff;
@@ -8877,7 +8036,7 @@ static void Dacc_clamp_C( GenefxState *gfxs )
                     D->RGB.b = 0xff;
           }
 
-          D++;
+          ++D;
      }
 }
 
@@ -8885,19 +8044,19 @@ static const GenefxFunc Dacc_clamp = Dacc_clamp_C;
 
 static void Sacc_xor_Dacc_C( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *S = gfxs->Sacc;
      GenefxAccumulator *D = gfxs->Dacc;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                D->RGB.a ^= S->RGB.a;
                D->RGB.r ^= S->RGB.r;
                D->RGB.g ^= S->RGB.g;
                D->RGB.b ^= S->RGB.b;
           }
-          D++;
-          S++;
+          ++D;
+          ++S;
      }
 }
 
@@ -8905,28 +8064,28 @@ static const GenefxFunc Sacc_xor_Dacc = Sacc_xor_Dacc_C;
 
 static void Cacc_to_Dacc( GenefxState *gfxs )
 {
-     int                w    = gfxs->length;
+     int                w    = gfxs->length+1;
      GenefxAccumulator *D    = gfxs->Dacc;
      GenefxAccumulator  Cacc = gfxs->Cacc;
 
-     while (w--)
+     while (--w)
           *D++ = Cacc;
 }
 
 static void SCacc_add_to_Dacc_C( GenefxState *gfxs )
 {
-     int                w     = gfxs->length;
+     int                w     = gfxs->length+1;
      GenefxAccumulator *D     = gfxs->Dacc;
      GenefxAccumulator  SCacc = gfxs->SCacc;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                D->RGB.a += SCacc.RGB.a;
                D->RGB.r += SCacc.RGB.r;
                D->RGB.g += SCacc.RGB.g;
                D->RGB.b += SCacc.RGB.b;
           }
-          D++;
+          ++D;
      }
 }
 
@@ -8934,19 +8093,19 @@ static GenefxFunc SCacc_add_to_Dacc = SCacc_add_to_Dacc_C;
 
 static void Sacc_add_to_Dacc_C( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *S = gfxs->Sacc;
      GenefxAccumulator *D = gfxs->Dacc;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                D->RGB.a += S->RGB.a;
                D->RGB.r += S->RGB.r;
                D->RGB.g += S->RGB.g;
                D->RGB.b += S->RGB.b;
           }
-          D++;
-          S++;
+          ++D;
+          ++S;
      }
 }
 
@@ -9039,12 +8198,12 @@ static void Bop_argb_blend_alphachannel_src_invsrc_Aop_rgb16( GenefxState *gfxs 
 
 static void Bop_argb_blend_alphachannel_src_invsrc_Aop_rgb32( GenefxState *gfxs )
 {
-     int  w = gfxs->length;
+     int  w = gfxs->length+1;
      int Dstep = gfxs->Astep;
      u32 *S = gfxs->Bop[0];
      u32 *D = gfxs->Aop[0];
 
-     while (w--) {
+     while (--w) {
           u32 dp32   = *D;
           u32 sp32   = *S++;
           int salpha = (sp32 >> 25) + 1;
@@ -9110,6 +8269,7 @@ static const GenefxFunc Bop_argb_blend_alphachannel_src_invsrc_Aop_PFI[DFB_NUM_P
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_argb_blend_alphachannel_src_invsrc_Aop_rgb32,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,
@@ -9131,6 +8291,7 @@ static const GenefxFunc Bop_argb_blend_alphachannel_src_invsrc_Aop_PFI[DFB_NUM_P
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = NULL,
@@ -9138,6 +8299,7 @@ static const GenefxFunc Bop_argb_blend_alphachannel_src_invsrc_Aop_PFI[DFB_NUM_P
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = Bop_argb_blend_alphachannel_src_invsrc_Aop_argb8565,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -9150,15 +8312,24 @@ static const GenefxFunc Bop_argb_blend_alphachannel_src_invsrc_Aop_PFI[DFB_NUM_P
 #define SET_PIXEL_DUFFS_DEVICE( D, S, w ) \
      SET_PIXEL_DUFFS_DEVICE_N( D, S, w, 3 )
 
-#define SET_PIXEL( D, S )                                   \
-do {                                                        \
-     int invsrc = 256 - (S >> 24);                          \
-                                                            \
-     u32 Drb = ((D & 0x00ff00ff) * invsrc) >> 8;            \
-     u32 Dag = ((D & 0xff00ff00) >> 8) * invsrc;            \
-                                                            \
-     D = S + (Drb & 0x00ff00ff) + (Dag & 0xff00ff00);       \
-} while (0)
+#define SET_PIXEL( D, S )                                                  \
+     switch (S >> 24) {                                                    \
+          case 0:                                                          \
+               D += S;                                                     \
+               break;                                                      \
+          case 0xff:                                                       \
+               D = S;                                                      \
+               break;                                                      \
+          default:                                                         \
+               {                                                           \
+                    int invsrc = 256 - (S >> 24);                          \
+                                                                           \
+                    u32 Drb = ((D & 0x00ff00ff) * invsrc) >> 8;            \
+                    u32 Dag = ((D & 0xff00ff00) >> 8) * invsrc;            \
+                                                                           \
+                    D = S + (Drb & 0x00ff00ff) + (Dag & 0xff00ff00);       \
+               }                                                           \
+     } while (0)
 
 static void Bop_argb_blend_alphachannel_one_invsrc_Aop_argb( GenefxState *gfxs )
 {
@@ -9178,6 +8349,7 @@ static const GenefxFunc Bop_argb_blend_alphachannel_one_invsrc_Aop_PFI[DFB_NUM_P
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_argb_blend_alphachannel_one_invsrc_Aop_argb,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_argb_blend_alphachannel_one_invsrc_Aop_argb,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,
@@ -9199,6 +8371,7 @@ static const GenefxFunc Bop_argb_blend_alphachannel_one_invsrc_Aop_PFI[DFB_NUM_P
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = NULL,
@@ -9206,6 +8379,92 @@ static const GenefxFunc Bop_argb_blend_alphachannel_one_invsrc_Aop_PFI[DFB_NUM_P
      [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
+};
+
+/**********************************************************************************************************************/
+
+/* change the last value to adjust the size of the device (1-4) */
+#define SET_PIXEL_DUFFS_DEVICE( D, S, w ) \
+     SET_PIXEL_DUFFS_DEVICE_N( D, S, w, 3 )
+
+#define SET_PIXEL( D, S )                                                  \
+     switch (S >> 24) {                                                    \
+          case 0:                                                          \
+               break;                                                      \
+          case 0xff:                                                       \
+               D = S;                                                      \
+               break;                                                      \
+          default:                                                         \
+               {                                                           \
+                    int src    = (S >> 24) + 1;                            \
+                    int invsrc = 256 - (S >> 24);                          \
+                                                                           \
+                    u32 Drb = ((D & 0x00ff00ff) * invsrc) >> 8;            \
+                    u32 Dag = ((D & 0xff00ff00) >> 8) * invsrc;            \
+                                                                           \
+                    u32 Srb = ((S & 0x00ff00ff) * src) >> 8;               \
+                    u32 Sxg = ((S & 0xff00ff00) >> 8) * src;               \
+                                                                           \
+                    D = (Srb & 0x00ff00ff) + (Sxg & 0x0000ff00) +          \
+                        (Drb & 0x00ff00ff) + (Dag & 0xff00ff00) +          \
+                        (S   & 0xff000000);                                \
+               }                                                           \
+     } while (0)
+
+static void Bop_argb_blend_alphachannel_one_invsrc_premultiply_Aop_argb( GenefxState *gfxs )
+{
+     int  w = gfxs->length;
+     u32 *S = gfxs->Bop[0];
+     u32 *D = gfxs->Aop[0];
+
+     SET_PIXEL_DUFFS_DEVICE( D, S, w );
+}
+
+#undef SET_PIXEL_DUFFS_DEVICE
+#undef SET_PIXEL
+
+static const GenefxFunc Bop_argb_blend_alphachannel_one_invsrc_premultiply_Aop_PFI[DFB_NUM_PIXELFORMATS] = {
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = Bop_argb_blend_alphachannel_one_invsrc_premultiply_Aop_argb,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = Bop_argb_blend_alphachannel_one_invsrc_premultiply_Aop_argb,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ABGR)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_UYVY)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_I420)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YV12)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT8)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ALUT44)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AiRGB)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A1)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV12)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV16)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB2554)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB4444)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA4444)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT1)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = NULL,
+     [DFB_PIXELFORMAT_INDEX(DSPF_RGBAF88871)] = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = NULL,
      [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
@@ -9217,17 +8476,17 @@ static const GenefxFunc Bop_argb_blend_alphachannel_one_invsrc_Aop_PFI[DFB_NUM_P
 /* A8/A1 to YCbCr */
 static void Dacc_Alpha_to_YCbCr( GenefxState *gfxs )
 {
-     int                w = gfxs->length;
+     int                w = gfxs->length+1;
      GenefxAccumulator *D = gfxs->Dacc;
 
-     while (w--) {
+     while (--w) {
           if (!(D->RGB.a & 0xF000)) {
                D->YUV.y = 235;
                D->YUV.u = 128;
                D->YUV.v = 128;
           }
 
-          D++;
+          ++D;
      }
 }
 
@@ -9345,7 +8604,7 @@ void gGetDriverInfo( GraphicsDriverInfo *info )
      snprintf( info->vendor, DFB_GRAPHICS_DRIVER_INFO_VENDOR_LENGTH, "directfb.org" );
 
      info->version.major = 0;
-     info->version.minor = 6;
+     info->version.minor = 7;
 }
 
 void gGetDeviceInfo( GraphicsDeviceInfo *info )
@@ -9390,13 +8649,13 @@ Bop_rgb24_to_Aop_rgb16_LE( GenefxState *gfxs )
           *D++ = PIXEL_RGB16( S[0], S[1], S[2] );
 
           S += 3;
-          w -= 1;
+          --w;
      }
 
      if ((unsigned long)D & 2) {
           *D++ = PIXEL_RGB16( S[0], S[1], S[2] );
 
-          w -= 1;
+          --w;
           S += 3;
 
           while (w > 1) {
@@ -9427,7 +8686,7 @@ Bop_rgb24_to_Aop_rgb16_LE( GenefxState *gfxs )
      while (w > 0) {
           *D++ = PIXEL_RGB16( S[0], S[1], S[2] );
 
-          w -= 1;
+          --w;
           S += 3;
      }
 }
@@ -9447,8 +8706,8 @@ Bop_rgb32_to_Aop_rgb16_LE( GenefxState *gfxs )
 
           d[0] = RGB32_TO_RGB16( S[0] );
 
-          w--;
-          S++;
+          --w;
+          ++S;
 
           D = (u32*)(d+1);
      }
@@ -9458,7 +8717,7 @@ Bop_rgb32_to_Aop_rgb16_LE( GenefxState *gfxs )
 
           w -= 2;
           S += 2;
-          D += 1;
+          ++D;
      }
 
      if (w > 0) {
@@ -9469,20 +8728,16 @@ Bop_rgb32_to_Aop_rgb16_LE( GenefxState *gfxs )
 }
 #endif  /* #ifndef WORDS_BIGENDIAN */
 
-bool gAcquire( CardState *state, DFBAccelerationMask accel )
+/**********************************************************************************************************************/
+/**********************************************************************************************************************/
+
+bool
+gAcquireCheck( CardState *state, DFBAccelerationMask accel )
 {
-     DFBResult    ret;
      GenefxState *gfxs;
-     GenefxFunc  *funcs;
-     int          dst_pfi;
-     int          src_pfi     = 0;
      CoreSurface *destination = state->destination;
      CoreSurface *source      = state->source;
-     DFBColor     color       = state->color;
-     bool         src_ycbcr   = false;
-     bool         dst_ycbcr   = false;
-
-     CoreSurfaceAccessFlags access = CSAF_WRITE;
+     CoreSurface *source_mask = state->source_mask;
 
      if (dfb_config->hardware_only) {
           if (dfb_config->software_warn) {
@@ -9510,8 +8765,7 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
           state->gfxs = gfxs;
      }
 
-     gfxs  = state->gfxs;
-     funcs = gfxs->funcs;
+     gfxs = state->gfxs;
 
      /* Destination may have been destroyed. */
      if (!destination)
@@ -9522,8 +8776,33 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
           return false;
 
      /* Source may have been destroyed. */
-     if (DFB_BLITTING_FUNCTION( accel ) && !source)
-          return false;
+     if (DFB_BLITTING_FUNCTION( accel )) {
+          if (!source)
+               return false;
+
+          if (state->blittingflags & (DSBLIT_SRC_MASK_ALPHA | DSBLIT_SRC_MASK_COLOR)) {
+               if (!source_mask)
+                    return false;
+          }
+     }
+
+     return true;
+}
+
+static DFBResult
+gAcquireLockBuffers( CardState *state, DFBAccelerationMask accel )
+{
+     DFBResult    ret;
+     CoreSurface *destination = state->destination;
+     CoreSurface *source      = state->source;
+     CoreSurface *source_mask = state->source_mask;
+
+     CoreSurfaceAccessFlags access = CSAF_WRITE;
+
+     D_ASSERT( !dfb_config->task_manager );
+
+     if (core_dfb->shutdown_running)
+          return DFB_DEAD;
 
      /*
       * Destination setup
@@ -9539,12 +8818,122 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
           access |= CSAF_READ;
 
      /* Lock destination */
-     ret = dfb_surface_lock_buffer( destination, state->to, CSAID_CPU, access, &state->dst );
+     ret = dfb_surface_lock_buffer2( destination, state->to, destination->flips,
+                                     state->to_eye,
+                                     CSAID_CPU, access, &state->dst );
      if (ret) {
           D_DERROR( ret, "DirectFB/Genefx: Could not lock destination!\n" );
-          return false;
+          return ret;
      }
 
+     /*
+      * Source setup
+      */
+
+     if (DFB_BLITTING_FUNCTION( accel )) {
+#if FIXME_SC_3
+          DFBSurfaceLockFlags flags = DSLF_READ;
+
+          if (accel == DFXL_STRETCHBLIT)
+               flags |= CSLF_FORCE;
+#endif
+
+          /* Lock source */
+          ret = dfb_surface_lock_buffer2( source, state->from, source->flips,
+                                          state->from_eye,
+                                          CSAID_CPU, CSAF_READ, &state->src );
+          if (ret) {
+               D_DERROR( ret, "DirectFB/Genefx: Could not lock source!\n" );
+               dfb_surface_unlock_buffer( destination, &state->dst );
+               return ret;
+          }
+
+          state->flags |= CSF_SOURCE_LOCKED;
+
+
+          /*
+           * Mask setup
+           */
+
+          if (state->blittingflags & (DSBLIT_SRC_MASK_ALPHA | DSBLIT_SRC_MASK_COLOR)) {
+               /* Lock source */
+               ret = dfb_surface_lock_buffer2( source_mask, state->from, source_mask->flips,
+                                               state->from_eye,
+                                               CSAID_CPU, CSAF_READ, &state->src_mask );
+               if (ret) {
+                    D_DERROR( ret, "DirectFB/Genefx: Could not lock source mask!\n" );
+                    dfb_surface_unlock_buffer( destination, &state->dst );
+
+                    if (state->flags & CSF_SOURCE_LOCKED) {
+                         dfb_surface_unlock_buffer( state->source, &state->src );
+
+                         state->flags &= ~CSF_SOURCE_LOCKED;
+                    }
+                    return ret;
+               }
+
+               state->flags |= CSF_SOURCE_MASK_LOCKED;
+          }
+     }
+
+     return DFB_OK;
+}
+
+static DFBResult
+gAcquireUnlockBuffers( CardState *state )
+{
+     dfb_surface_unlock_buffer( state->destination, &state->dst );
+
+     if (state->flags & CSF_SOURCE_LOCKED) {
+          dfb_surface_unlock_buffer( state->source, &state->src );
+
+          state->flags &= ~CSF_SOURCE_LOCKED;
+     }
+
+     if (state->flags & CSF_SOURCE_MASK_LOCKED) {
+          dfb_surface_unlock_buffer( state->source_mask, &state->src_mask );
+
+          state->flags &= ~CSF_SOURCE_MASK_LOCKED;
+     }
+
+     return DFB_OK;
+}
+
+bool
+gAcquireSetup( CardState *state, DFBAccelerationMask accel )
+{
+     GenefxState *gfxs;
+     GenefxFunc  *funcs;
+     int          dst_pfi;
+     int          src_pfi     = 0;
+     int          mask_pfi    = 0;
+     CoreSurface *destination = state->destination;
+     CoreSurface *source      = state->source;
+     DFBColor     color       = state->color;
+     bool         src_ycbcr   = false;
+     bool         dst_ycbcr   = false;
+
+     DFBSurfaceBlittingFlags  simpld_blittingflags = state->blittingflags;
+
+     dfb_simplify_blittingflags( &simpld_blittingflags );
+
+     if (!state->gfxs) {
+          gfxs = D_CALLOC( 1, sizeof(GenefxState) );
+          if (!gfxs) {
+               D_ERROR( "DirectFB/Genefx: Couldn't allocate state struct!\n" );
+               return false;
+          }
+
+          state->gfxs = gfxs;
+     }
+
+     gfxs  = state->gfxs;
+     funcs = gfxs->funcs;
+
+
+     /*
+      * Destination setup
+      */
      gfxs->dst_caps   = destination->config.caps;
      gfxs->dst_height = destination->config.size.h;
      gfxs->dst_format = destination->config.format;
@@ -9588,20 +8977,7 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
       */
 
      if (DFB_BLITTING_FUNCTION( accel )) {
-#if FIXME_SC_3
-          DFBSurfaceLockFlags flags = DSLF_READ;
-
-          if (accel == DFXL_STRETCHBLIT)
-               flags |= CSLF_FORCE;
-#endif
-
-          /* Lock source */
-          ret = dfb_surface_lock_buffer( source, state->from, CSAID_CPU, CSAF_READ, &state->src );
-          if (ret) {
-               D_DERROR( ret, "DirectFB/Genefx: Could not lock source!\n" );
-               dfb_surface_unlock_buffer( destination, &state->dst );
-               return false;
-          }
+          CoreSurface *source_mask = state->source_mask;
 
           gfxs->src_caps   = source->config.caps;
           gfxs->src_height = source->config.size.h;
@@ -9640,9 +9016,45 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
 
           gfxs->src_field_offset = gfxs->src_height/2 * gfxs->src_pitch;
 
-          state->flags |= CSF_SOURCE_LOCKED;
-     }
+          if (simpld_blittingflags & (DSBLIT_SRC_MASK_ALPHA | DSBLIT_SRC_MASK_COLOR)) {
+               gfxs->mask_caps   = source_mask->config.caps;
+               gfxs->mask_height = source_mask->config.size.h;
+               gfxs->mask_format = source_mask->config.format;
+               gfxs->mask_bpp    = DFB_BYTES_PER_PIXEL( gfxs->mask_format );
+               mask_pfi          = DFB_PIXELFORMAT_INDEX( gfxs->mask_format );
 
+               gfxs->mask_org[0] = state->src_mask.addr;
+               gfxs->mask_pitch  = state->src_mask.pitch;
+
+               switch (gfxs->mask_format) {
+                    case DSPF_I420:
+                         gfxs->mask_org[1] = gfxs->mask_org[0] + gfxs->mask_height * gfxs->mask_pitch;
+                         gfxs->mask_org[2] = gfxs->mask_org[1] + gfxs->mask_height/2 * gfxs->mask_pitch/2;
+                         break;
+                    case DSPF_YV12:
+                         gfxs->mask_org[2] = gfxs->mask_org[0] + gfxs->mask_height * gfxs->mask_pitch;
+                         gfxs->mask_org[1] = gfxs->mask_org[2] + gfxs->mask_height/2 * gfxs->mask_pitch/2;
+                         break;
+                    case DSPF_YV16:
+                         gfxs->mask_org[2] = gfxs->mask_org[0] + gfxs->mask_height * gfxs->mask_pitch;
+                         gfxs->mask_org[1] = gfxs->mask_org[2] + gfxs->mask_height * gfxs->mask_pitch/2;
+                         break;
+                    case DSPF_NV12:
+                    case DSPF_NV21:
+                    case DSPF_NV16:
+                         gfxs->mask_org[1] = gfxs->mask_org[0] + gfxs->mask_height * gfxs->mask_pitch;
+                         break;
+                    case DSPF_YUV444P:
+                         gfxs->mask_org[1] = gfxs->mask_org[0] + gfxs->mask_height * gfxs->mask_pitch;
+                         gfxs->mask_org[2] = gfxs->mask_org[1] + gfxs->mask_height * gfxs->mask_pitch;
+                         break;
+                    default:
+                         break;
+               }
+
+               gfxs->mask_field_offset = gfxs->mask_height/2 * gfxs->mask_pitch;
+          }
+     }
 
      /* premultiply source (color) */
      if (DFB_DRAWING_FUNCTION(accel) && (state->drawingflags & DSDRAW_SRC_PREMULTIPLY)) {
@@ -9679,6 +9091,9 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
           case DSPF_ARGB:
                gfxs->Cop = PIXEL_ARGB( color.a, color.r, color.g, color.b );
                break;
+          case DSPF_ABGR:
+               gfxs->Cop = PIXEL_ABGR( color.a, color.r, color.g, color.b );
+               break;
           case DSPF_AiRGB:
                gfxs->Cop = PIXEL_AiRGB( color.a, color.r, color.g, color.b );
                break;
@@ -9714,17 +9129,14 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
           case DSPF_YV12:
           case DSPF_YV16:
           case DSPF_NV12:
+          case DSPF_NV21:
           case DSPF_NV16:
           case DSPF_YUV444P:
                RGB_TO_YCBCR( color.r, color.g, color.b,
                              gfxs->YCop, gfxs->CbCop, gfxs->CrCop );
                gfxs->Cop = gfxs->YCop;
                break;
-          case DSPF_NV21:
-               RGB_TO_YCBCR( color.r, color.g, color.b,
-                             gfxs->YCop, gfxs->CrCop, gfxs->CbCop );
-               gfxs->Cop = gfxs->YCop;
-               break;
+          case DSPF_LUT1:
           case DSPF_LUT2:
           case DSPF_LUT8:
                gfxs->Cop  = state->color_index;
@@ -9760,6 +9172,9 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
           case DSPF_RGBA5551:
                gfxs->Cop = PIXEL_RGBA5551( color.a, color.r, color.g, color.b );
                break;
+          case DSPF_RGBAF88871:
+               gfxs->Cop = PIXEL_RGBAF88871( color.a, color.r, color.g, color.b );
+               break;
           case DSPF_AVYU:
                RGB_TO_YCBCR( color.r, color.g, color.b,
                              gfxs->YCop, gfxs->CbCop, gfxs->CrCop );
@@ -9775,13 +9190,14 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                break;
           default:
                D_ONCE("unsupported destination format");
-               goto error;
+               return false;
      }
 
      dst_ycbcr = is_ycbcr[DFB_PIXELFORMAT_INDEX(gfxs->dst_format)];
 
      if (DFB_BLITTING_FUNCTION( accel )) {
           switch (gfxs->src_format) {
+               case DSPF_LUT1:
                case DSPF_LUT2:
                case DSPF_LUT8:
                case DSPF_ALUT44:
@@ -9799,23 +9215,25 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                case DSPF_RGB24:
                case DSPF_RGB32:
                case DSPF_ARGB:
+               case DSPF_ABGR:
                case DSPF_AiRGB:
                case DSPF_RGB332:
                case DSPF_RGB444:
                case DSPF_RGB555:
                case DSPF_BGR555:
+               case DSPF_RGBAF88871:
                     if (dst_ycbcr &&
-                        state->blittingflags & (DSBLIT_COLORIZE |
+                        simpld_blittingflags & (DSBLIT_COLORIZE |
                                                 DSBLIT_SRC_PREMULTCOLOR))
-                         goto error;
+                         return false;
                case DSPF_A1:
                case DSPF_A1_LSB:
                case DSPF_A4:
                case DSPF_A8:
                     if (DFB_PLANAR_PIXELFORMAT(gfxs->dst_format) &&
                         gfxs->dst_format != DSPF_YUV444P &&
-                        state->blittingflags & DSBLIT_DST_COLORKEY)
-                         goto error;
+                        simpld_blittingflags & DSBLIT_DST_COLORKEY)
+                         return false;
                     break;
                case DSPF_I420:
                case DSPF_YV12:
@@ -9823,38 +9241,38 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                case DSPF_NV12:
                case DSPF_NV21:
                case DSPF_NV16:
-                    if (state->blittingflags & DSBLIT_SRC_COLORKEY)
-                         goto error;
+                    if (simpld_blittingflags & DSBLIT_SRC_COLORKEY)
+                         return false;
                case DSPF_YUY2:
                case DSPF_UYVY:
                case DSPF_AYUV:
                     if (dst_ycbcr) {
-                         if (state->blittingflags & (DSBLIT_COLORIZE     |
+                         if (simpld_blittingflags & (DSBLIT_COLORIZE     |
                                                      DSBLIT_SRC_PREMULTCOLOR))
-                              goto error;
+                              return false;
 
                          if (DFB_PLANAR_PIXELFORMAT(gfxs->dst_format) &&
                              gfxs->dst_format != DSPF_YUV444P &&
-                             state->blittingflags & DSBLIT_DST_COLORKEY)
-                              goto error;
+                             simpld_blittingflags & DSBLIT_DST_COLORKEY)
+                              return false;
                     }
                     break;
                case DSPF_YUV444P:
                case DSPF_AVYU:
                case DSPF_VYU:
                     if (dst_ycbcr) {
-                         if (state->blittingflags & (DSBLIT_SRC_PREMULTCOLOR))
-                              goto error;
+                         if (simpld_blittingflags & (DSBLIT_SRC_PREMULTCOLOR))
+                              return false;
 
                          if (DFB_PLANAR_PIXELFORMAT(gfxs->dst_format) &&
                              gfxs->dst_format != DSPF_YUV444P &&
-                             state->blittingflags & DSBLIT_DST_COLORKEY)
-                              goto error;
+                             simpld_blittingflags & DSBLIT_DST_COLORKEY)
+                              return false;
                     }
                     break;
                default:
                     D_ONCE("unsupported source format");
-                    goto error;
+                    return false;
           }
      }
 
@@ -9908,21 +9326,18 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                     *funcs++ = Dacc_is_Aacc;
                     *funcs++ = Sop_PFI_to_Dacc[dst_pfi];
 
+                    if (dst_ycbcr)
+                         *funcs++ = Dacc_YCbCr_to_RGB;
+
                     /* premultiply destination */
                     if (state->drawingflags & DSDRAW_DST_PREMULTIPLY)
                          *funcs++ = Dacc_premultiply;
 
                     /* load source (color) */
                     Cacc.RGB.a = color.a;
-                    if (!dst_ycbcr) {
-                         Cacc.RGB.r = color.r;
-                         Cacc.RGB.g = color.g;
-                         Cacc.RGB.b = color.b;
-                    } else {
-                         Cacc.YUV.y = gfxs->YCop;
-                         Cacc.YUV.u = gfxs->CbCop;
-                         Cacc.YUV.v = gfxs->CrCop;
-                    }
+                    Cacc.RGB.r = color.r;
+                    Cacc.RGB.g = color.g;
+                    Cacc.RGB.b = color.b;
 
                     /* premultiply source (color) */
                     /*if (state->drawingflags & DSDRAW_SRC_PREMULTIPLY) {
@@ -10043,16 +9458,33 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                               *funcs++ = Sacc_xor_Dacc;
 
                               *funcs++ = Sacc_is_Tacc;
+
+                              if (dst_ycbcr)
+                                   *funcs++ = Dacc_is_Tacc;
                          }
                          else {
                               *funcs++ = Dacc_xor;
                               *funcs++ = Sacc_is_Aacc;
+
+                              if (dst_ycbcr)
+                                   *funcs++ = Dacc_is_Aacc;
                          }
                     }
-                    else if (state->drawingflags & DSDRAW_BLEND)
+                    else if (state->drawingflags & DSDRAW_BLEND) {
                          *funcs++ = Sacc_is_Tacc;
-                    else
+
+                         if (dst_ycbcr)
+                              *funcs++ = Dacc_is_Tacc;
+                    }
+                    else {
                          *funcs++ = Sacc_is_Aacc;
+
+                         if (dst_ycbcr)
+                              *funcs++ = Dacc_is_Aacc;
+                    }
+
+                    if (dst_ycbcr)
+                         *funcs++ = Dacc_RGB_to_YCbCr;
 
                     /* write to destination */
                     if (state->drawingflags & DSDRAW_DST_COLORKEY) {
@@ -10078,7 +9510,7 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                }
                break;
           case DFXL_BLIT:
-               if (state->blittingflags == DSBLIT_BLEND_ALPHACHANNEL &&
+               if (simpld_blittingflags == DSBLIT_BLEND_ALPHACHANNEL &&
                    state->src_blend     == DSBF_SRCALPHA             &&
                    state->dst_blend     == DSBF_INVSRCALPHA)
                {
@@ -10089,7 +9521,7 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                          break;
                     }
                }
-               if (state->blittingflags == DSBLIT_BLEND_ALPHACHANNEL &&
+               if (simpld_blittingflags == DSBLIT_BLEND_ALPHACHANNEL &&
                    state->src_blend     == DSBF_ONE                  &&
                    state->dst_blend     == DSBF_INVSRCALPHA)
                {
@@ -10100,11 +9532,22 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                          break;
                     }
                }
-               if (((state->blittingflags == (DSBLIT_COLORIZE | DSBLIT_BLEND_ALPHACHANNEL |
+               if (simpld_blittingflags == (DSBLIT_BLEND_ALPHACHANNEL | DSBLIT_SRC_PREMULTIPLY) &&
+                   state->src_blend     == DSBF_ONE                  &&
+                   state->dst_blend     == DSBF_INVSRCALPHA)
+               {
+                    if (gfxs->src_format == DSPF_ARGB &&
+                        Bop_argb_blend_alphachannel_one_invsrc_premultiply_Aop_PFI[dst_pfi])
+                    {
+                         *funcs++ = Bop_argb_blend_alphachannel_one_invsrc_premultiply_Aop_PFI[dst_pfi];
+                         break;
+                    }
+               }
+               if (((simpld_blittingflags == (DSBLIT_COLORIZE | DSBLIT_BLEND_ALPHACHANNEL |
                                               DSBLIT_SRC_PREMULTIPLY) &&
                      state->src_blend == DSBF_ONE)
                     ||
-                    (state->blittingflags == (DSBLIT_COLORIZE | DSBLIT_BLEND_ALPHACHANNEL) &&
+                    (simpld_blittingflags == (DSBLIT_COLORIZE | DSBLIT_BLEND_ALPHACHANNEL) &&
                      state->src_blend == DSBF_SRCALPHA))
                    &&
                    state->dst_blend == DSBF_INVSRCALPHA)
@@ -10123,14 +9566,14 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                     }
                }
 #ifndef WORDS_BIGENDIAN
-               if (state->blittingflags       == DSBLIT_NOFX &&
+               if (simpld_blittingflags       == DSBLIT_NOFX &&
                    source->config.format      == DSPF_RGB24 &&
                    destination->config.format == DSPF_RGB16)
                {
                     *funcs++ = Bop_rgb24_to_Aop_rgb16_LE;
                     break;
                }
-               if (state->blittingflags == DSBLIT_NOFX &&
+               if (simpld_blittingflags == DSBLIT_NOFX &&
                    (source->config.format == DSPF_RGB32 || source->config.format == DSPF_ARGB) &&
                    destination->config.format == DSPF_RGB16)
                {
@@ -10139,16 +9582,21 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                }
 #endif
                /* fallthru */
+          case DFXL_TEXTRIANGLES:
           case DFXL_STRETCHBLIT: {
-                    int  modulation = state->blittingflags & MODULATION_FLAGS;
+                    int  modulation = simpld_blittingflags & MODULATION_FLAGS;
 
-                    if (modulation) {
+                    if (modulation || (accel == DFXL_TEXTRIANGLES &&
+                                       (src_pfi != dst_pfi || simpld_blittingflags)) ||
+                        (simpld_blittingflags & (DSBLIT_SRC_MASK_ALPHA | DSBLIT_SRC_MASK_COLOR)) ||
+                        ((simpld_blittingflags & DSBLIT_ROTATE90) && accel == DFXL_STRETCHBLIT))
+                    {
                          bool read_destination = false;
                          bool source_needs_destination = false;
                          bool scale_from_accumulator;
 
                          /* check if destination has to be read */
-                         if (state->blittingflags & (DSBLIT_BLEND_ALPHACHANNEL |
+                         if (simpld_blittingflags & (DSBLIT_BLEND_ALPHACHANNEL |
                                                      DSBLIT_BLEND_COLORALPHA)) {
                               switch (state->src_blend) {
                                    case DSBF_DESTALPHA:
@@ -10163,9 +9611,9 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
 
                               read_destination = source_needs_destination        ||
                                                  (state->dst_blend != DSBF_ZERO) ||
-                                                 (state->blittingflags & DSBLIT_XOR);
+                                                 (simpld_blittingflags & DSBLIT_XOR);
                          }
-                         else if (state->blittingflags & DSBLIT_XOR) {
+                         else if (simpld_blittingflags & DSBLIT_XOR) {
                               read_destination = true;
                          }
 
@@ -10180,7 +9628,10 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                               *funcs++ = Dacc_is_Aacc;
                               *funcs++ = Sop_PFI_to_Dacc[dst_pfi];
 
-                              if (state->blittingflags & DSBLIT_DST_PREMULTIPLY)
+                              if (dst_ycbcr)
+                                   *funcs++ = Dacc_YCbCr_to_RGB;
+
+                              if (simpld_blittingflags & DSBLIT_DST_PREMULTIPLY)
                                    *funcs++ = Dacc_premultiply;
                          }
                          else if (scale_from_accumulator) {
@@ -10192,33 +9643,37 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                          if (DFB_PIXELFORMAT_IS_INDEXED(gfxs->src_format))
                               *funcs++ = Slut_is_Blut;
                          *funcs++ = Dacc_is_Bacc;
-                         if (state->blittingflags & DSBLIT_SRC_COLORKEY) {
-                              gfxs->Skey = state->src_colorkey;
-                              if (accel == DFXL_BLIT || scale_from_accumulator)
-                                   *funcs++ = Sop_PFI_Kto_Dacc[src_pfi];
-                              else
-                                   *funcs++ = Sop_PFI_SKto_Dacc[src_pfi];
+                         if (accel == DFXL_TEXTRIANGLES) {
+                              if (simpld_blittingflags & DSBLIT_SRC_COLORKEY) {
+                                   gfxs->Skey = state->src_colorkey;
+
+                                   *funcs++ = Sop_PFI_TEX_Kto_Dacc[src_pfi];
+                              }
+                              else {
+                                   *funcs++ = Sop_PFI_TEX_to_Dacc[src_pfi];
+                              }
                          }
                          else {
-                              if (accel == DFXL_BLIT || scale_from_accumulator)
-                                   *funcs++ = Sop_PFI_to_Dacc[src_pfi];
-                              else
-                                   *funcs++ = Sop_PFI_Sto_Dacc[src_pfi];
+                              if (simpld_blittingflags & DSBLIT_SRC_COLORKEY) {
+                                   gfxs->Skey = state->src_colorkey;
+                                   if (accel == DFXL_BLIT || scale_from_accumulator)
+                                        *funcs++ = Sop_PFI_Kto_Dacc[src_pfi];
+                                   else
+                                        *funcs++ = Sop_PFI_SKto_Dacc[src_pfi];
+                              }
+                              else {
+                                   if (accel == DFXL_BLIT || scale_from_accumulator)
+                                        *funcs++ = Sop_PFI_to_Dacc[src_pfi];
+                                   else
+                                        *funcs++ = Sop_PFI_Sto_Dacc[src_pfi];
+                              }
                          }
 
-                         if (!src_ycbcr && dst_ycbcr) {
-                              if (DFB_COLOR_BITS_PER_PIXEL(gfxs->src_format))
-                                   *funcs++ = Dacc_RGB_to_YCbCr;
-                              /*else
-                                   *funcs++ = Dacc_Alpha_to_YCbCr;*/
-                         }
-                         else if (src_ycbcr && !dst_ycbcr) {
-                              if (DFB_COLOR_BITS_PER_PIXEL(gfxs->dst_format))
-                                   *funcs++ = Dacc_YCbCr_to_RGB;
-                         }
+                         if (src_ycbcr)
+                              *funcs++ = Dacc_YCbCr_to_RGB;
 
                          /* Premultiply color alpha? */
-                         if (state->blittingflags & DSBLIT_SRC_PREMULTCOLOR) {
+                         if (simpld_blittingflags & DSBLIT_SRC_PREMULTCOLOR) {
                               gfxs->Cacc.RGB.a = color.a + 1;
                               *funcs++ = Dacc_premultiply_color_alpha;
                          }
@@ -10229,27 +9684,37 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                                                            | DSBLIT_BLEND_COLORALPHA)]) {
                               /* modulation source */
                               gfxs->Cacc.RGB.a = color.a + 1;
-                              if (!dst_ycbcr) {
-                                   gfxs->Cacc.RGB.r = color.r + 1;
-                                   gfxs->Cacc.RGB.g = color.g + 1;
-                                   gfxs->Cacc.RGB.b = color.b + 1;
-                              } else {
-                                   gfxs->Cacc.YUV.y = gfxs->YCop  + 1;
-                                   gfxs->Cacc.YUV.u = gfxs->CbCop + 1;
-                                   gfxs->Cacc.YUV.v = gfxs->CrCop + 1;
-                              }
+                              gfxs->Cacc.RGB.r = color.r + 1;
+                              gfxs->Cacc.RGB.g = color.g + 1;
+                              gfxs->Cacc.RGB.b = color.b + 1;
 
                               *funcs++ = Dacc_modulation[modulation & (DSBLIT_COLORIZE
                                                                        | DSBLIT_BLEND_ALPHACHANNEL
                                                                        | DSBLIT_BLEND_COLORALPHA)];
                          }
 
+                         /* modulate the source with mask if requested */
+                         if (simpld_blittingflags & DSBLIT_SRC_MASK_ALPHA) {
+                              if (simpld_blittingflags & DSBLIT_SRC_MASK_COLOR) {
+                                   if (Dacc_modulate_mask_argb_from_PFI[mask_pfi])
+                                        *funcs++ = Dacc_modulate_mask_argb_from_PFI[mask_pfi];
+                              }
+                              else {
+                                   if (Dacc_modulate_mask_alpha_from_PFI[mask_pfi])
+                                        *funcs++ = Dacc_modulate_mask_alpha_from_PFI[mask_pfi];
+                              }
+                         }
+                         else if (simpld_blittingflags & DSBLIT_SRC_MASK_COLOR) {
+                              if (Dacc_modulate_mask_rgb_from_PFI[mask_pfi])
+                                   *funcs++ = Dacc_modulate_mask_rgb_from_PFI[mask_pfi];
+                         }
+
                          /* Premultiply (modulated) source alpha? */
-                         if (state->blittingflags & DSBLIT_SRC_PREMULTIPLY)
+                         if (simpld_blittingflags & DSBLIT_SRC_PREMULTIPLY)
                               *funcs++ = Dacc_premultiply;
 
                          /* do blend functions and combine both accumulators */
-                         if (state->blittingflags & (DSBLIT_BLEND_ALPHACHANNEL | DSBLIT_BLEND_COLORALPHA)) {
+                         if (simpld_blittingflags & (DSBLIT_BLEND_ALPHACHANNEL | DSBLIT_BLEND_COLORALPHA)) {
                               /* Xacc will be blended and written to while
                                  Sacc and Dacc point to the SRC and DST
                                  as referenced by the blending functions */
@@ -10290,37 +9755,42 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                               }
                          }
 
-                         if (state->blittingflags & DSBLIT_DEMULTIPLY) {
+                         if (simpld_blittingflags & DSBLIT_DEMULTIPLY) {
                               *funcs++ = Dacc_is_Bacc;
                               *funcs++ = Dacc_demultiply;
                          }
 
                          /* Xor source with destination */
-                         if (state->blittingflags & DSBLIT_XOR) {
+                         if (simpld_blittingflags & DSBLIT_XOR) {
                               *funcs++ = Sacc_is_Aacc;
                               *funcs++ = Dacc_is_Bacc;
                               *funcs++ = Dacc_clamp;
                               *funcs++ = Sacc_xor_Dacc;
                          }
 
+                         if (dst_ycbcr) {
+                              *funcs++ = Dacc_is_Bacc;
+                              *funcs++ = Dacc_RGB_to_YCbCr;
+                         }
+
                          /* write source to destination */
                          *funcs++ = Sacc_is_Bacc;
                          if (scale_from_accumulator) {
                               *funcs++ = Len_is_Dlen;
-                              if (state->blittingflags & DSBLIT_DST_COLORKEY ) {
+                              if (simpld_blittingflags & DSBLIT_DST_COLORKEY ) {
                                    gfxs->Dkey = state->dst_colorkey;
                                    *funcs++ = Sacc_StoK_Aop_PFI[dst_pfi];
                               } else
                                    *funcs++ = Sacc_Sto_Aop_PFI[dst_pfi];
                          } else {
-                              if (state->blittingflags & DSBLIT_DST_COLORKEY ) {
+                              if (simpld_blittingflags & DSBLIT_DST_COLORKEY ) {
                                    gfxs->Dkey = state->dst_colorkey;
                                    *funcs++ = Sacc_toK_Aop_PFI[dst_pfi];
                               } else
                                    *funcs++ = Sacc_to_Aop_PFI[dst_pfi];
                          }
                     }
-                    else if (state->blittingflags == DSBLIT_INDEX_TRANSLATION &&
+                    else if (simpld_blittingflags == DSBLIT_INDEX_TRANSLATION &&
                              DFB_PIXELFORMAT_IS_INDEXED(gfxs->src_format) &&
                              DFB_PIXELFORMAT_IS_INDEXED(gfxs->dst_format))
                     {
@@ -10352,47 +9822,65 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                                 dfb_palette_equal( gfxs->Alut, gfxs->Blut )))   ||
                               ((gfxs->src_format == DSPF_I420 || gfxs->src_format == DSPF_YV12 || gfxs->src_format == DSPF_YV16) &&
                                (gfxs->dst_format == DSPF_I420 || gfxs->dst_format == DSPF_YV12 || gfxs->dst_format == DSPF_YV16))) &&
-                             (accel == DFXL_BLIT || !(state->blittingflags & (DSBLIT_ROTATE90  |
-                                                                              DSBLIT_ROTATE180 |
-                                                                              DSBLIT_ROTATE270 |
-                                                                              DSBLIT_FLIP_HORIZONTAL))))
+                             (accel == DFXL_BLIT || !(simpld_blittingflags & (DSBLIT_ROTATE90 | DSBLIT_FLIP_HORIZONTAL))))
                     {
                          gfxs->need_accumulator = false;
 
-                         if (accel == DFXL_BLIT) {
-                              if (state->blittingflags & DSBLIT_SRC_COLORKEY &&
-                                  state->blittingflags & DSBLIT_DST_COLORKEY) {
-                                   gfxs->Skey = state->src_colorkey;
-                                   gfxs->Dkey = state->dst_colorkey;
-                                   *funcs++ = Bop_PFI_KtoK_Aop_PFI[dst_pfi];
-                              } else if (state->blittingflags & DSBLIT_SRC_COLORKEY) {
-                                   gfxs->Skey = state->src_colorkey;
-                                   *funcs++ = Bop_PFI_Kto_Aop_PFI[dst_pfi];
-                              } else if (state->blittingflags & DSBLIT_DST_COLORKEY) {
-                                   gfxs->Dkey = state->dst_colorkey;
-                                   *funcs++ = Bop_PFI_toK_Aop_PFI[dst_pfi];
-                              } else if (state->blittingflags & (DSBLIT_ROTATE90  |
-                                                                 DSBLIT_ROTATE180 |
-                                                                 DSBLIT_ROTATE270 |
-                                                                 DSBLIT_FLIP_HORIZONTAL)) {
-                                   *funcs++ = Bop_PFI_toR_Aop_PFI[dst_pfi];
-                              } else
-                                   *funcs++ = Bop_PFI_to_Aop_PFI[dst_pfi];
-                         }
-                         else {
-                              if (state->blittingflags & DSBLIT_SRC_COLORKEY &&
-                                  state->blittingflags & DSBLIT_DST_COLORKEY) {
-                                   gfxs->Skey = state->src_colorkey;
-                                   gfxs->Dkey = state->dst_colorkey;
-                                   *funcs++ = Bop_PFI_SKtoK_Aop_PFI[dst_pfi];
-                              } else if (state->blittingflags & DSBLIT_SRC_COLORKEY) {
-                                   gfxs->Skey = state->src_colorkey;
-                                   *funcs++ = Bop_PFI_SKto_Aop_PFI[dst_pfi];
-                              } else if (state->blittingflags & DSBLIT_DST_COLORKEY) {
-                                   gfxs->Dkey = state->dst_colorkey;
-                                   *funcs++ = Bop_PFI_StoK_Aop_PFI[dst_pfi];
-                              } else
-                                   *funcs++ = Bop_PFI_Sto_Aop_PFI[dst_pfi];
+                         switch (accel) {
+                              case DFXL_BLIT:
+                                   if (simpld_blittingflags & DSBLIT_SRC_COLORKEY &&
+                                       simpld_blittingflags & DSBLIT_DST_COLORKEY) {
+                                        gfxs->Skey = state->src_colorkey;
+                                        gfxs->Dkey = state->dst_colorkey;
+                                        *funcs++ = Bop_PFI_KtoK_Aop_PFI[dst_pfi];
+                                   } else if (simpld_blittingflags & DSBLIT_SRC_COLORKEY) {
+                                        gfxs->Skey = state->src_colorkey;
+                                        *funcs++ = Bop_PFI_Kto_Aop_PFI[dst_pfi];
+                                   } else if (simpld_blittingflags & DSBLIT_DST_COLORKEY) {
+                                        gfxs->Dkey = state->dst_colorkey;
+                                        *funcs++ = Bop_PFI_toK_Aop_PFI[dst_pfi];
+                                   } else if (simpld_blittingflags & (DSBLIT_ROTATE90 | DSBLIT_FLIP_HORIZONTAL)) {
+                                        *funcs++ = Bop_PFI_toR_Aop_PFI[dst_pfi];
+                                   } else
+                                        *funcs++ = Bop_PFI_to_Aop_PFI[dst_pfi];
+                                   break;
+
+                              case DFXL_STRETCHBLIT:
+                                   if (simpld_blittingflags & DSBLIT_SRC_COLORKEY &&
+                                       simpld_blittingflags & DSBLIT_DST_COLORKEY) {
+                                        gfxs->Skey = state->src_colorkey;
+                                        gfxs->Dkey = state->dst_colorkey;
+                                        *funcs++ = Bop_PFI_SKtoK_Aop_PFI[dst_pfi];
+                                   } else if (simpld_blittingflags & DSBLIT_SRC_COLORKEY) {
+                                        gfxs->Skey = state->src_colorkey;
+                                        *funcs++ = Bop_PFI_SKto_Aop_PFI[dst_pfi];
+                                   } else if (simpld_blittingflags & DSBLIT_DST_COLORKEY) {
+                                        gfxs->Dkey = state->dst_colorkey;
+                                        *funcs++ = Bop_PFI_StoK_Aop_PFI[dst_pfi];
+                                   } else
+                                        *funcs++ = Bop_PFI_Sto_Aop_PFI[dst_pfi];
+                                   break;
+
+                              case DFXL_TEXTRIANGLES:
+/*
+                                   if (simpld_blittingflags & DSBLIT_SRC_COLORKEY &&
+                                       simpld_blittingflags & DSBLIT_DST_COLORKEY) {
+                                        gfxs->Skey = state->src_colorkey;
+                                        gfxs->Dkey = state->dst_colorkey;
+                                        *funcs++ = Bop_PFI_TEX_KtoK_Aop_PFI[dst_pfi];
+                                   } else if (simpld_blittingflags & DSBLIT_SRC_COLORKEY) {
+                                        gfxs->Skey = state->src_colorkey;
+                                        *funcs++ = Bop_PFI_TEX_Kto_Aop_PFI[dst_pfi];
+                                   } else if (simpld_blittingflags & DSBLIT_DST_COLORKEY) {
+                                        gfxs->Dkey = state->dst_colorkey;
+                                        *funcs++ = Bop_PFI_TEX_toK_Aop_PFI[dst_pfi];
+                                   } else
+*/
+                                        *funcs++ = Bop_PFI_TEX_to_Aop_PFI[dst_pfi];
+                                   break;
+
+                              default:
+                                   break;
                          }
                     }
                     else {
@@ -10408,7 +9896,7 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                               *funcs++ = Slut_is_Blut;
 
                          if (accel == DFXL_BLIT || scale_from_accumulator) {
-                              if (state->blittingflags & DSBLIT_SRC_COLORKEY ) {
+                              if (simpld_blittingflags & DSBLIT_SRC_COLORKEY ) {
                                    gfxs->Skey = state->src_colorkey;
                                    *funcs++ = Sop_PFI_Kto_Dacc[src_pfi];
                               }
@@ -10417,7 +9905,7 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                          }
                          else { /* DFXL_STRETCHBLIT */
 
-                              if (state->blittingflags & DSBLIT_SRC_COLORKEY ) {
+                              if (simpld_blittingflags & DSBLIT_SRC_COLORKEY ) {
                                    gfxs->Skey = state->src_colorkey;
                                    *funcs++ = Sop_PFI_SKto_Dacc[src_pfi];
                               }
@@ -10439,13 +9927,13 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
 
                          if (scale_from_accumulator) {
                               *funcs++ = Len_is_Dlen;
-                              if (state->blittingflags & DSBLIT_DST_COLORKEY ) {
+                              if (simpld_blittingflags & DSBLIT_DST_COLORKEY ) {
                                    gfxs->Dkey = state->dst_colorkey;
                                    *funcs++ = Sacc_StoK_Aop_PFI[dst_pfi];
                               } else
                                    *funcs++ = Sacc_Sto_Aop_PFI[dst_pfi];
                          } else {
-                              if (state->blittingflags & DSBLIT_DST_COLORKEY ) {
+                              if (simpld_blittingflags & DSBLIT_DST_COLORKEY ) {
                                    gfxs->Dkey = state->dst_colorkey;
                                    *funcs++ = Sacc_toK_Aop_PFI[dst_pfi];
                               } else
@@ -10456,1568 +9944,71 @@ bool gAcquire( CardState *state, DFBAccelerationMask accel )
                }
           default:
                D_ONCE("unimplemented drawing/blitting function");
-               gRelease( state );
                return false;
      }
 
      *funcs = NULL;
 
+     // FIXME
      dfb_state_update( state, state->flags & CSF_SOURCE_LOCKED );
 
      return true;
-
- error:
-     gRelease( state );
-     return false;
-}
-
-void gRelease( CardState *state )
-{
-     dfb_surface_unlock_buffer( state->destination, &state->dst );
-
-     if (state->flags & CSF_SOURCE_LOCKED) {
-          dfb_surface_unlock_buffer( state->source, &state->src );
-          state->flags &= ~CSF_SOURCE_LOCKED;
-     }
-}
-
-#define CHECK_PIPELINE()                                                             \
-     {                                                                               \
-          if (!gfxs->funcs[0])                                                       \
-               return;                                                               \
-                                                                                     \
-          if (dfb_config->software_trace) {                                          \
-               int         i;                                                        \
-               GenefxFunc *funcs = gfxs->funcs;                                      \
-                                                                                     \
-               direct_log_lock( NULL );                                              \
-               direct_log_printf( NULL, "  Software Fallback Pipeline:\n" );         \
-                                                                                     \
-               for (i=0; funcs[i]; ++i)                                              \
-                    direct_log_printf( NULL, "    [%2d] %s\n", i,                    \
-                                       direct_trace_lookup_symbol_at( funcs[i] ) );  \
-                                                                                     \
-               direct_log_printf( NULL, "\n" );                                      \
-               direct_log_unlock( NULL );                                            \
-          }                                                                          \
-     }
-
-#define RUN_PIPELINE()                     \
-     {                                     \
-          int         i;                   \
-          GenefxFunc *funcs = gfxs->funcs; \
-                                           \
-          for (i=0; funcs[i]; ++i)         \
-               funcs[i]( gfxs );           \
-     }
-
-/**********************************************************************************************************************/
-
-typedef void (*XopAdvanceFunc)( GenefxState *gfxs );
-
-static inline void Aop_xy( GenefxState *gfxs, int x, int y )
-{
-     int pitch = gfxs->dst_pitch;
-
-     gfxs->Aop[0] = gfxs->dst_org[0];
-     gfxs->AopY   = y;
-
-     if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-          gfxs->Aop_field = y & 1;
-          if (gfxs->Aop_field)
-               gfxs->Aop[0] += gfxs->dst_field_offset;
-
-          y /= 2;
-     }
-
-     D_ASSUME( !(x & DFB_PIXELFORMAT_ALIGNMENT(gfxs->dst_format)) );
-
-     gfxs->Aop[0] += y * pitch + DFB_BYTES_PER_LINE( gfxs->dst_format, x );
-
-     if (DFB_PLANAR_PIXELFORMAT(gfxs->dst_format)) {
-          int dst_field_offset = gfxs->dst_field_offset;
-
-          switch (gfxs->dst_format) {
-               case DSPF_YV12:
-               case DSPF_I420:
-                    dst_field_offset /= 4;
-                    pitch /= 2;
-                    y /= 2;
-                    x /= 2;
-                    break;
-               case DSPF_YV16:
-                    dst_field_offset /= 2;
-                    pitch /= 2;
-                    x /= 2;
-                    break;
-               case DSPF_NV12:
-               case DSPF_NV21:
-                    dst_field_offset /= 2;
-                    y /= 2;
-               case DSPF_NV16:
-                    x &= ~1;
-                    break;
-               case DSPF_YUV444P: /* nothing to adjust */
-               default:
-                    break;
-          }
-
-          gfxs->Aop[1] = gfxs->dst_org[1];
-          gfxs->Aop[2] = gfxs->dst_org[2];
-
-          if (gfxs->dst_caps & DSCAPS_SEPARATED && gfxs->Aop_field) {
-               gfxs->Aop[1] += dst_field_offset;
-               gfxs->Aop[2] += dst_field_offset;
-          }
-
-          gfxs->Aop[1] += y * pitch + x;
-          gfxs->Aop[2] += y * pitch + x;
-     }
-}
-
-static void Aop_crab( GenefxState *gfxs )
-{
-     gfxs->Aop[0] += gfxs->dst_bpp;
-     gfxs->AopY++;
-}
-
-static void Aop_next( GenefxState *gfxs )
-{
-     int pitch = gfxs->dst_pitch;
-
-     if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-          gfxs->Aop_field++;
-
-          if (gfxs->Aop_field & 1)
-               gfxs->Aop[0] += gfxs->dst_field_offset;
-          else
-               gfxs->Aop[0] += pitch - gfxs->dst_field_offset;
-     }
-     else
-          gfxs->Aop[0] += pitch;
-
-     if (DFB_PLANAR_PIXELFORMAT(gfxs->dst_format)) {
-          if (gfxs->dst_format == DSPF_YV12 || gfxs->dst_format == DSPF_I420) {
-               if (gfxs->AopY & 1) {
-                    if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-                         if (gfxs->Aop_field & 2) {
-                              gfxs->Aop[1] += gfxs->dst_field_offset/4;
-                              gfxs->Aop[2] += gfxs->dst_field_offset/4;
-                         }
-                         else {
-                              gfxs->Aop[1] += pitch/2 - gfxs->dst_field_offset/4;
-                              gfxs->Aop[2] += pitch/2 - gfxs->dst_field_offset/4;
-                         }
-                    }
-                    else {
-                         gfxs->Aop[1] += pitch/2;
-                         gfxs->Aop[2] += pitch/2;
-                    }
-               }
-          }
-          else if (gfxs->dst_format == DSPF_YV16) {
-               if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-                    if (gfxs->Aop_field & 2) {
-                         gfxs->Aop[1] += gfxs->dst_field_offset/2;
-                         gfxs->Aop[2] += gfxs->dst_field_offset/2;
-                    }
-                    else {
-                         gfxs->Aop[1] += pitch/2 - gfxs->dst_field_offset/2;
-                         gfxs->Aop[2] += pitch/2 - gfxs->dst_field_offset/2;
-                    }
-               }
-               else {
-                    gfxs->Aop[1] += pitch/2;
-                    gfxs->Aop[2] += pitch/2;
-               }
-          }
-          else if (gfxs->dst_format == DSPF_NV12 || gfxs->dst_format == DSPF_NV21) {
-               if (gfxs->AopY & 1) {
-                    if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-                         if (gfxs->Aop_field & 2)
-                              gfxs->Aop[1] += gfxs->dst_field_offset/2;
-                         else
-                              gfxs->Aop[1] += pitch - gfxs->dst_field_offset/2;
-                    }
-                    else {
-                         gfxs->Aop[1] += pitch;
-                    }
-               }
-          }
-          else if (gfxs->dst_format == DSPF_YUV444P) {
-               if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-                    if (gfxs->Aop_field & 1) {
-                         gfxs->Aop[1] += gfxs->dst_field_offset;
-                         gfxs->Aop[2] += gfxs->dst_field_offset;
-                    }
-                    else {
-                         gfxs->Aop[1] += pitch - gfxs->dst_field_offset;
-                         gfxs->Aop[2] += pitch - gfxs->dst_field_offset;
-                    }
-               }
-               else {
-                    gfxs->Aop[1] += pitch;
-                    gfxs->Aop[2] += pitch;
-               }
-          }
-          else { /* NV16 */
-               if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-                    if (gfxs->Aop_field & 1)
-                         gfxs->Aop[1] += gfxs->dst_field_offset;
-                    else
-                         gfxs->Aop[1] += pitch - gfxs->dst_field_offset;
-               }
-               else {
-                    gfxs->Aop[1] += pitch;
-               }
-          }
-     }
-
-     gfxs->AopY++;
-}
-
-static void Aop_prev( GenefxState *gfxs )
-{
-     int pitch = gfxs->dst_pitch;
-
-     if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-          gfxs->Aop_field++;
-
-          if (gfxs->Aop_field & 1)
-               gfxs->Aop[0] += gfxs->dst_field_offset - pitch;
-          else
-               gfxs->Aop[0] -= gfxs->dst_field_offset;
-     }
-     else
-          gfxs->Aop[0] -= pitch;
-
-     if (DFB_PLANAR_PIXELFORMAT(gfxs->dst_format)) {
-          if (gfxs->dst_format == DSPF_YV12 || gfxs->dst_format == DSPF_I420) {
-               if (gfxs->AopY & 1) {
-                    if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-                         if (gfxs->Aop_field & 2) {
-                              gfxs->Aop[1] += gfxs->dst_field_offset/4 - pitch/2;
-                              gfxs->Aop[2] += gfxs->dst_field_offset/4 - pitch/2;
-                         }
-                         else {
-                              gfxs->Aop[1] -= gfxs->dst_field_offset/4;
-                              gfxs->Aop[2] -= gfxs->dst_field_offset/4;
-                         }
-                    }
-                    else {
-                         gfxs->Aop[1] -= pitch/2;
-                         gfxs->Aop[2] -= pitch/2;
-                    }
-               }
-          }
-          else if (gfxs->dst_format == DSPF_YV16) {
-               if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-                   if (gfxs->Aop_field & 2) {
-                        gfxs->Aop[1] += gfxs->dst_field_offset/2 - pitch/2;
-                        gfxs->Aop[2] += gfxs->dst_field_offset/2 - pitch/2;
-                   }
-                   else {
-                        gfxs->Aop[1] -= gfxs->dst_field_offset/2;
-                        gfxs->Aop[2] -= gfxs->dst_field_offset/2;
-                   }
-               }
-               else {
-                    gfxs->Aop[1] -= pitch/2;
-                    gfxs->Aop[2] -= pitch/2;
-               }
-          }
-          else if (gfxs->dst_format == DSPF_NV12 || gfxs->dst_format == DSPF_NV21) {
-               if (gfxs->AopY & 1) {
-                    if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-                         if (gfxs->Aop_field & 2)
-                              gfxs->Aop[1] += gfxs->dst_field_offset/2 - pitch;
-                         else
-                              gfxs->Aop[1] -= gfxs->dst_field_offset/2;
-                    }
-                    else {
-                         gfxs->Aop[1] -= pitch;
-                    }
-               }
-          }
-          else if (gfxs->dst_format == DSPF_YUV444P) {
-               if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-                    if (gfxs->Aop_field & 1) {
-                         gfxs->Aop[1] += gfxs->dst_field_offset - pitch;
-                         gfxs->Aop[2] += gfxs->dst_field_offset - pitch;
-                    }
-                    else {
-                         gfxs->Aop[1] -= gfxs->dst_field_offset;
-                         gfxs->Aop[2] -= gfxs->dst_field_offset;
-                    }
-               }
-               else {
-                    gfxs->Aop[1] -= pitch;
-                    gfxs->Aop[2] -= pitch;
-               }
-          }
-          else { /* NV16 */
-               if (gfxs->dst_caps & DSCAPS_SEPARATED) {
-                    if (gfxs->Aop_field & 1)
-                         gfxs->Aop[1] += gfxs->dst_field_offset - pitch;
-                    else
-                         gfxs->Aop[1] -= gfxs->dst_field_offset;
-               }
-               else {
-                    gfxs->Aop[1] -= pitch;
-               }
-          }
-     }
-
-     gfxs->AopY--;
-}
-
-
-static inline void Bop_xy( GenefxState *gfxs, int x, int y )
-{
-     int pitch = gfxs->src_pitch;
-
-     gfxs->Bop[0] = gfxs->src_org[0];
-     gfxs->BopY   = y;
-
-     if (gfxs->src_caps & DSCAPS_SEPARATED) {
-          gfxs->Bop_field = y & 1;
-          if (gfxs->Bop_field)
-               gfxs->Bop[0] += gfxs->src_field_offset;
-
-          y /= 2;
-     }
-
-     D_ASSUME( !(x & DFB_PIXELFORMAT_ALIGNMENT(gfxs->src_format)) );
-
-     gfxs->Bop[0] += y * pitch + DFB_BYTES_PER_LINE( gfxs->src_format, x );
-
-     if (DFB_PLANAR_PIXELFORMAT(gfxs->src_format)) {
-          int src_field_offset = gfxs->src_field_offset;
-
-          switch (gfxs->src_format) {
-               case DSPF_YV12:
-               case DSPF_I420:
-                    src_field_offset /= 4;
-                    pitch /= 2;
-                    y /= 2;
-                    x /= 2;
-                    break;
-               case DSPF_YV16:
-                    src_field_offset /= 2;
-                    pitch /= 2;
-                    x /= 2;
-                    break;
-               case DSPF_NV12:
-               case DSPF_NV21:
-                    src_field_offset /= 2;
-                    y /= 2;
-               case DSPF_NV16:
-                    x &= ~1;
-                    break;
-               case DSPF_YUV444P: /* nothing to adjust */
-               default:
-                    break;
-          }
-
-          gfxs->Bop[1] = gfxs->src_org[1];
-          gfxs->Bop[2] = gfxs->src_org[2];
-
-          if (gfxs->src_caps & DSCAPS_SEPARATED && gfxs->Bop_field) {
-               gfxs->Bop[1] += src_field_offset;
-               gfxs->Bop[2] += src_field_offset;
-          }
-
-          gfxs->Bop[1] += y * pitch + x;
-          gfxs->Bop[2] += y * pitch + x;
-     }
-}
-
-static void Bop_next( GenefxState *gfxs )
-{
-     int pitch = gfxs->src_pitch;
-
-     if (gfxs->src_caps & DSCAPS_SEPARATED) {
-          gfxs->Bop_field++;
-
-          if (gfxs->Bop_field & 1)
-               gfxs->Bop[0] += gfxs->src_field_offset;
-          else
-               gfxs->Bop[0] += pitch - gfxs->src_field_offset;
-     }
-     else
-          gfxs->Bop[0] += pitch;
-
-     if (DFB_PLANAR_PIXELFORMAT(gfxs->src_format)) {
-          if (gfxs->src_format == DSPF_YV12 || gfxs->src_format == DSPF_I420) {
-               if (gfxs->BopY & 1) {
-                    if (gfxs->src_caps & DSCAPS_SEPARATED) {
-                         if (gfxs->Bop_field & 2) {
-                              gfxs->Bop[1] += gfxs->src_field_offset/4;
-                              gfxs->Bop[2] += gfxs->src_field_offset/4;
-                         }
-                         else {
-                              gfxs->Bop[1] += pitch/2 - gfxs->src_field_offset/4;
-                              gfxs->Bop[2] += pitch/2 - gfxs->src_field_offset/4;
-                         }
-                    }
-                    else {
-                         gfxs->Bop[1] += pitch/2;
-                         gfxs->Bop[2] += pitch/2;
-                    }
-               }
-          }
-          else if (gfxs->src_format == DSPF_YV16) {
-               if (gfxs->src_caps & DSCAPS_SEPARATED) {
-                    if (gfxs->Bop_field & 2) {
-                         gfxs->Bop[1] += gfxs->src_field_offset/2;
-                         gfxs->Bop[2] += gfxs->src_field_offset/2;
-                    }
-                    else {
-                         gfxs->Bop[1] += pitch/2 - gfxs->src_field_offset/2;
-                         gfxs->Bop[2] += pitch/2 - gfxs->src_field_offset/2;
-                    }
-               }
-               else {
-                    gfxs->Bop[1] += pitch/2;
-                    gfxs->Bop[2] += pitch/2;
-               }
-          }
-          else if (gfxs->src_format == DSPF_NV12 || gfxs->src_format == DSPF_NV21) {
-               if (gfxs->BopY & 1) {
-                    if (gfxs->src_caps & DSCAPS_SEPARATED) {
-                         if (gfxs->Bop_field & 2)
-                              gfxs->Bop[1] += gfxs->src_field_offset/2;
-                         else
-                              gfxs->Bop[1] += pitch - gfxs->src_field_offset/2;
-                    }
-                    else {
-                         gfxs->Bop[1] += pitch;
-                    }
-               }
-          }
-          else if (gfxs->src_format == DSPF_YUV444P) {
-               if (gfxs->src_caps & DSCAPS_SEPARATED) {
-                    if (gfxs->Bop_field & 1) {
-                         gfxs->Bop[1] += gfxs->src_field_offset;
-                         gfxs->Bop[2] += gfxs->src_field_offset;
-                    }
-                    else {
-                         gfxs->Bop[1] += pitch - gfxs->src_field_offset;
-                         gfxs->Bop[2] += pitch - gfxs->src_field_offset;
-                    }
-               }
-               else {
-                    gfxs->Bop[1] += pitch;
-                    gfxs->Bop[2] += pitch;
-               }
-          }
-          else { /* NV16 */
-               if (gfxs->src_caps & DSCAPS_SEPARATED) {
-                    if (gfxs->Bop_field & 1)
-                         gfxs->Bop[1] += gfxs->src_field_offset;
-                    else
-                         gfxs->Bop[1] += pitch - gfxs->src_field_offset;
-               }
-               else {
-                    gfxs->Bop[1] += pitch;
-               }
-          }
-     }
-
-     gfxs->BopY++;
-}
-
-static void Bop_prev( GenefxState *gfxs )
-{
-     int pitch = gfxs->src_pitch;
-
-     if (gfxs->src_caps & DSCAPS_SEPARATED) {
-          gfxs->Bop_field++;
-
-          if (gfxs->Bop_field & 1)
-               gfxs->Bop[0] += gfxs->src_field_offset - pitch;
-          else
-               gfxs->Bop[0] -= gfxs->src_field_offset;
-     }
-     else
-          gfxs->Bop[0] -= pitch;
-
-     if (DFB_PLANAR_PIXELFORMAT(gfxs->src_format)) {
-          if (gfxs->src_format == DSPF_YV12 || gfxs->src_format == DSPF_I420) {
-               if (gfxs->BopY & 1) {
-                    if (gfxs->src_caps & DSCAPS_SEPARATED) {
-                         if (gfxs->Bop_field & 2) {
-                              gfxs->Bop[1] += gfxs->src_field_offset/4 - pitch/2;
-                              gfxs->Bop[2] += gfxs->src_field_offset/4 - pitch/2;
-                         }
-                         else {
-                              gfxs->Bop[1] -= gfxs->src_field_offset/4;
-                              gfxs->Bop[2] -= gfxs->src_field_offset/4;
-                         }
-                    }
-                    else {
-                         gfxs->Bop[1] -= pitch/2;
-                         gfxs->Bop[2] -= pitch/2;
-                    }
-               }
-          }
-          else if (gfxs->src_format == DSPF_YV16) {
-               if (gfxs->src_caps & DSCAPS_SEPARATED) {
-                    if (gfxs->Bop_field & 2) {
-                         gfxs->Bop[1] += gfxs->src_field_offset/2 - pitch/2;
-                         gfxs->Bop[2] += gfxs->src_field_offset/2 - pitch/2;
-                    }
-                    else {
-                         gfxs->Bop[1] -= gfxs->src_field_offset/2;
-                         gfxs->Bop[2] -= gfxs->src_field_offset/2;
-                    }
-               }
-               else {
-                    gfxs->Bop[1] -= pitch/2;
-                    gfxs->Bop[2] -= pitch/2;
-               }
-          }
-          else if (gfxs->src_format == DSPF_NV12 || gfxs->src_format == DSPF_NV21) {
-               if (gfxs->BopY & 1) {
-                    if (gfxs->src_caps & DSCAPS_SEPARATED) {
-                         if (gfxs->Bop_field & 2)
-                              gfxs->Bop[1] += gfxs->src_field_offset/2 - pitch;
-                         else
-                              gfxs->Bop[1] -= gfxs->src_field_offset/2;
-                    }
-                    else {
-                         gfxs->Bop[1] -= pitch;
-                    }
-               }
-          }
-          else if (gfxs->src_format == DSPF_YUV444P) {
-               if (gfxs->src_caps & DSCAPS_SEPARATED) {
-                    if (gfxs->Bop_field & 1) {
-                         gfxs->Bop[1] += gfxs->src_field_offset - pitch;
-                         gfxs->Bop[2] += gfxs->src_field_offset - pitch;
-                    }
-                    else {
-                         gfxs->Bop[1] -= gfxs->src_field_offset;
-                         gfxs->Bop[2] -= gfxs->src_field_offset;
-                    }
-               }
-               else {
-                    gfxs->Bop[1] -= pitch;
-                    gfxs->Bop[2] -= pitch;
-               }
-          }
-          else { /* NV16 */
-               if (gfxs->src_caps & DSCAPS_SEPARATED) {
-                    if (gfxs->Bop_field & 1)
-                         gfxs->Bop[1] += gfxs->src_field_offset - pitch;
-                    else
-                         gfxs->Bop[1] -= gfxs->src_field_offset;
-               }
-               else {
-                    gfxs->Bop[1] -= pitch;
-               }
-          }
-     }
-
-     gfxs->BopY--;
 }
 
 /**********************************************************************************************************************/
 
-static bool
-ABacc_prepare( GenefxState *gfxs, int width )
+bool
+gAcquire( CardState *state, DFBAccelerationMask accel )
 {
-     int size;
+     DFBResult ret;
 
-     if (!gfxs->need_accumulator)
-          return true;
+     if (!gAcquireCheck( state, accel ))
+          return false;
 
-     size = (width + 31) & ~31;
+     /*
+      * Push our own identity for buffer locking calls (locality of accessor)
+      */
+     Core_PushIdentity( 0 );
 
-     if (gfxs->ABsize < size) {
-          void *ABstart = D_MALLOC( size * sizeof(GenefxAccumulator) * 3 + 31 );
-
-          if (!ABstart) {
-               D_WARN( "out of memory" );
-               return false;
-          }
-
-          if (gfxs->ABstart)
-               D_FREE( gfxs->ABstart );
-
-          gfxs->ABstart = ABstart;
-          gfxs->ABsize  = size;
-          gfxs->Aacc    = (GenefxAccumulator*) (((unsigned long)ABstart+31) & ~31);
-          gfxs->Bacc    = gfxs->Aacc + size;
-          gfxs->Tacc    = gfxs->Aacc + size + size;
+     ret = gAcquireLockBuffers( state, accel );
+     if (ret) {
+          Core_PopIdentity();
+          return false;
      }
 
-     gfxs->Sacc = gfxs->Dacc = gfxs->Aacc;
+     if (!gAcquireSetup( state, accel )) {
+          gAcquireUnlockBuffers( state );
+          Core_PopIdentity();
+          return false;
+     }
 
      return true;
 }
 
-static void
-ABacc_flush( GenefxState *gfxs )
+void
+gRelease( CardState *state )
 {
-     if (dfb_config->keep_accumulators >= 0 && gfxs->ABsize > dfb_config->keep_accumulators) {
-          D_FREE( gfxs->ABstart );
+     gAcquireUnlockBuffers( state );
 
-          gfxs->ABsize  = 0;
-          gfxs->ABstart = NULL;
-          gfxs->Aacc    = NULL;
-          gfxs->Bacc    = NULL;
-          gfxs->Sacc    = NULL;
-          gfxs->Dacc    = NULL;
-     }
+     Core_PopIdentity();
 }
 
 /**********************************************************************************************************************/
 
-void gFillRectangle( CardState *state, DFBRectangle *rect )
+bool
+gAcquire2( CardState *state, DFBAccelerationMask accel )
 {
-     int          h;
-     GenefxState *gfxs = state->gfxs;
-
-     D_ASSERT( gfxs != NULL );
-
-     if (dfb_config->software_warn) {
-          D_WARN( "FillRectangle (%4d,%4d-%4dx%4d) %6s, flags 0x%08x, color 0x%02x%02x%02x%02x",
-                  DFB_RECTANGLE_VALS(rect), dfb_pixelformat_name(gfxs->dst_format), state->drawingflags,
-                  state->color.a, state->color.r, state->color.g, state->color.b );
-     }
-
-     D_ASSERT( state->clip.x1 <= rect->x );
-     D_ASSERT( state->clip.y1 <= rect->y );
-     D_ASSERT( state->clip.x2 >= (rect->x + rect->w - 1) );
-     D_ASSERT( state->clip.y2 >= (rect->y + rect->h - 1) );
-
-     CHECK_PIPELINE();
-
-     if (!ABacc_prepare( gfxs, rect->w ))
-          return;
-
-     gfxs->length = rect->w;
-
-     Aop_xy( gfxs, rect->x, rect->y );
-
-     h = rect->h;
-     while (h--) {
-          RUN_PIPELINE();
-
-          Aop_next( gfxs );
-     }
-
-     ABacc_flush( gfxs );
-}
-
-void gDrawLine( CardState *state, DFBRegion *line )
-{
-     GenefxState *gfxs = state->gfxs;
-
-     int i,dx,dy,sdy,dxabs,dyabs,x,y,px,py;
-
-     D_ASSERT( gfxs != NULL );
-
-     CHECK_PIPELINE();
-
-     /* the horizontal distance of the line */
-     dx = line->x2 - line->x1;
-     dxabs = abs(dx);
-
-     if (!ABacc_prepare( gfxs, dxabs ))
-          return;
-
-     /* the vertical distance of the line */
-     dy = line->y2 - line->y1;
-     dyabs = abs(dy);
-
-     if (!dx || !dy) {              /* draw horizontal/vertical line */
-          DFBRectangle rect = {
-               MIN (line->x1, line->x2),
-               MIN (line->y1, line->y2),
-               dxabs + 1, dyabs + 1};
-
-          gFillRectangle( state, &rect );
-          return;
-     }
-
-     if (dfb_config->software_warn) {
-          D_WARN( "DrawLine      (%4d,%4d-%4d,%4d) %6s, flags 0x%08x, color 0x%02x%02x%02x%02x",
-                  DFB_RECTANGLE_VALS_FROM_REGION(line), dfb_pixelformat_name(gfxs->dst_format), state->drawingflags,
-                  state->color.a, state->color.r, state->color.g, state->color.b );
-     }
-
-     sdy = SIGN(dy) * SIGN(dx);
-     x = dyabs >> 1;
-     y = dxabs >> 1;
-
-     if (dx > 0) {
-          px  = line->x1;
-          py  = line->y1;
-     }
-     else {
-          px  = line->x2;
-          py  = line->y2;
-     }
-
-     if (dxabs >= dyabs) { /* the line is more horizontal than vertical */
-
-          for (i=0, gfxs->length=1; i<dxabs; i++, gfxs->length++) {
-               y += dyabs;
-               if (y >= dxabs) {
-                    Aop_xy( gfxs, px, py );
-                    RUN_PIPELINE();
-                    px += gfxs->length;
-                    gfxs->length = 0;
-                    y -= dxabs;
-                    py += sdy;
-               }
-          }
-          Aop_xy( gfxs, px, py );
-          RUN_PIPELINE();
-     }
-     else { /* the line is more vertical than horizontal */
-
-          gfxs->length = 1;
-          Aop_xy( gfxs, px, py );
-          RUN_PIPELINE();
-
-          for (i=0; i<dyabs; i++) {
-               x += dxabs;
-               if (x >= dyabs) {
-                    x -= dyabs;
-                    px++;
-               }
-               py += sdy;
-
-               Aop_xy( gfxs, px, py );
-               RUN_PIPELINE();
-          }
-     }
-
-     ABacc_flush( gfxs );
-}
-
-void gBlit( CardState *state, DFBRectangle *rect, int dx, int dy )
-{
-     GenefxState    *gfxs = state->gfxs;
-     int             h;
-     XopAdvanceFunc  Aop_advance;
-     XopAdvanceFunc  Bop_advance;
-     int             Aop_X;
-     int             Aop_Y;
-     int             Bop_X;
-     int             Bop_Y;
-
-     D_ASSERT( gfxs != NULL );
-
-     if (dfb_config->software_warn) {
-          D_WARN( "Blit          (%4d,%4d-%4dx%4d) %6s, flags 0x%08x, funcs %d/%d, color 0x%02x%02x%02x%02x, source (%4d,%4d) %6s",
-                  dx, dy, rect->w, rect->h, dfb_pixelformat_name(gfxs->dst_format), state->blittingflags,
-                  state->src_blend, state->dst_blend,
-                  state->color.a, state->color.r, state->color.g, state->color.b, rect->x, rect->y,
-                  dfb_pixelformat_name(gfxs->src_format) );
-     }
-
-     D_ASSERT( state->clip.x1 <= dx );
-     D_ASSERT( state->clip.y1 <= dy );
-     D_ASSERT( (state->blittingflags & (DSBLIT_ROTATE90 | DSBLIT_ROTATE270)) || state->clip.x2 >= (dx + rect->w - 1) );
-     D_ASSERT( (state->blittingflags & (DSBLIT_ROTATE90 | DSBLIT_ROTATE270)) || state->clip.y2 >= (dy + rect->h - 1) );
-     D_ASSERT( !(state->blittingflags & (DSBLIT_ROTATE90 | DSBLIT_ROTATE270)) || state->clip.x2 >= (dx + rect->h - 1) );
-     D_ASSERT( !(state->blittingflags & (DSBLIT_ROTATE90 | DSBLIT_ROTATE270)) || state->clip.y2 >= (dy + rect->w - 1) );
-
-     CHECK_PIPELINE();
-
-     if (!ABacc_prepare( gfxs, rect->w ))
-          return;
-
-
-     switch (gfxs->src_format) {
-          case DSPF_A4:
-          case DSPF_YUY2:
-          case DSPF_UYVY:
-               rect->x &= ~1;
-               break;
-          default:
-               break;
-     }
-
-     switch (gfxs->dst_format) {
-          case DSPF_A4:
-          case DSPF_YUY2:
-          case DSPF_UYVY:
-               dx &= ~1;
-               break;
-          default:
-               break;
-     }
-
-     gfxs->length = rect->w;
-
-
-     if (gfxs->src_org[0] == gfxs->dst_org[0] && dy == rect->y && dx > rect->x)
-          /* we must blit from right to left */
-          gfxs->Astep = gfxs->Bstep = -1;
-     else
-          /* we must blit from left to right*/
-          gfxs->Astep = gfxs->Bstep = 1;
-
-
-
-     if ((state->blittingflags & DSBLIT_ROTATE180)
-         || D_FLAGS_ARE_SET (state->blittingflags, (DSBLIT_FLIP_HORIZONTAL
-                                                    | DSBLIT_FLIP_VERTICAL))) {
-          gfxs->Astep *= -1;
-
-          Aop_X = dx + rect->w - 1;
-          Aop_Y = dy;
-
-          Bop_X = rect->x;
-          Bop_Y = rect->y + rect->h - 1;
-
-          Aop_advance = Aop_next;
-          Bop_advance = Bop_prev;
-     }
-     else if (state->blittingflags & DSBLIT_FLIP_HORIZONTAL) {
-          gfxs->Astep *= -1;
-
-          Aop_X = dx + rect->w - 1;
-          Aop_Y = dy;
-
-          Bop_X = rect->x;
-          Bop_Y = rect->y;
-
-          Aop_advance = Aop_next;
-          Bop_advance = Bop_next;
-     }
-     else if (state->blittingflags & DSBLIT_FLIP_VERTICAL) {
-          Aop_X = dx;
-          Aop_Y = dy + rect->h - 1;
-
-          Bop_X = rect->x;
-          Bop_Y = rect->y;
-
-          Aop_advance = Aop_prev;
-          Bop_advance = Bop_next;
-     }
-     else if (state->blittingflags & DSBLIT_ROTATE270) {
-          gfxs->Astep *= gfxs->dst_pitch / gfxs->dst_bpp;
-
-          Aop_X = dx;
-          Aop_Y = dy;
-
-          Bop_X = rect->x;
-          Bop_Y = rect->y + rect->h - 1;
-
-          Aop_advance = Aop_crab;
-          Bop_advance = Bop_prev;
-     }
-     else if (state->blittingflags & DSBLIT_ROTATE90) {
-          gfxs->Astep *= -gfxs->dst_pitch / gfxs->dst_bpp;
-
-          Aop_X = dx;
-          Aop_Y = dy + rect->w - 1;
-
-          Bop_X = rect->x;
-          Bop_Y = rect->y;
-
-          Aop_advance = Aop_crab;
-          Bop_advance = Bop_next;
-     }
-     else if (gfxs->src_org[0] == gfxs->dst_org[0] && dy > rect->y && !(state->blittingflags & DSBLIT_DEINTERLACE)) {
-          /* we must blit from bottom to top */
-          Aop_X = dx;
-          Aop_Y = dy + rect->h - 1;
-
-          Bop_X = rect->x;
-          Bop_Y = rect->y + rect->h - 1;
-
-          Aop_advance = Aop_prev;
-          Bop_advance = Bop_prev;
-     }
-     else {
-          /* we must blit from top to bottom */
-          Aop_X = dx;
-          Aop_Y = dy;
-
-          Bop_X = rect->x;
-          Bop_Y = rect->y;
-
-          Aop_advance = Aop_next;
-          Bop_advance = Bop_next;
-     }
-
-
-
-     Aop_xy( gfxs, Aop_X, Aop_Y );
-     Bop_xy( gfxs, Bop_X, Bop_Y );
-
-     if (state->blittingflags & DSBLIT_DEINTERLACE) {
-          if (state->source->field) {
-               Aop_advance( gfxs );
-               Bop_advance( gfxs );
-               rect->h--;
-          }
-
-          for (h = rect->h/2; h; h--) {
-               RUN_PIPELINE();
-
-               Aop_advance( gfxs );
-
-               RUN_PIPELINE();
-
-               Aop_advance( gfxs );
-
-               Bop_advance( gfxs );
-               Bop_advance( gfxs );
-          }
-     } /* ! DSBLIT_DEINTERLACE */
-     else {
-          for (h = rect->h; h; h--) {
-               RUN_PIPELINE();
-
-               Aop_advance( gfxs );
-               Bop_advance( gfxs );
-          }
-     }
-
-     ABacc_flush( gfxs );
-}
-
-/**********************************************************************************************************************/
-/*********           **************************************************************************************************/
-/*** Smooth scaling routines ******************************************************************************************/
-/*********           **************************************************************************************************/
-/**********************************************************************************************************************/
-
-#if DFB_SMOOTH_SCALING
-
-typedef struct {
-     DFBRegion   clip;
-     const void *colors;
-     ulong       protect;
-     ulong       key;
-} StretchCtx;
-
-typedef void (*StretchHVx)( void             *dst,
-                            int               dpitch,
-                            const void       *src,
-                            int               spitch,
-                            int               width,
-                            int               height,
-                            int               dst_width,
-                            int               dst_height,
-                            const StretchCtx *ctx );
-
-#define STRETCH_NONE           0
-#define STRETCH_SRCKEY         1
-#define STRETCH_PROTECT        2
-#define STRETCH_SRCKEY_PROTECT 3
-#define STRETCH_NUM            4
-
-typedef struct {
-     struct {
-          StretchHVx     up[STRETCH_NUM];
-          StretchHVx     down[STRETCH_NUM];
-     } f[DFB_NUM_PIXELFORMATS];
-} StretchFunctionTable;
-
-/**********************************************************************************************************************/
-/*** 16 bit RGB 565 scalers *******************************************************************************************/
-/**********************************************************************************************************************/
-
-#define DST_FORMAT              DSPF_RGB16
-#define TABLE_NAME              stretch_hvx_RGB16
-#define FUNC_NAME(UPDOWN,K,P,F) stretch_hvx_RGB16_ ## UPDOWN ## _ ## K ## P ## _ ## F
-#define SHIFT_R5                5
-#define SHIFT_R6                6
-#define X_F81F                  0xf81f
-#define X_07E0                  0x07e0
-#define MASK_RGB                0xffff
-
-#define FORMAT_RGB16
-#include "stretch_up_down_16.h"
-#undef FORMAT_RGB16
-
-#undef DST_FORMAT
-#undef TABLE_NAME
-#undef FUNC_NAME
-#undef SHIFT_R5
-#undef SHIFT_R6
-#undef X_F81F
-#undef X_07E0
-#undef MASK_RGB
-
-/**********************************************************************************************************************/
-/*** 16 bit ARGB 4444 scalers *****************************************************************************************/
-/**********************************************************************************************************************/
-
-#define DST_FORMAT              DSPF_ARGB4444
-#define TABLE_NAME              stretch_hvx_ARGB4444
-#define FUNC_NAME(UPDOWN,K,P,F) stretch_hvx_ARGB4444_ ## UPDOWN ## _ ## K ## P ## _ ## F
-#define SHIFT_R5          4
-#define SHIFT_R6          4
-#define X_F81F            0x0f0f
-#define X_07E0            0xf0f0
-#define MASK_RGB          0x0fff
-#define HAS_ALPHA
-
-#define FORMAT_ARGB4444
-#include "stretch_up_down_16.h"
-#undef FORMAT_ARGB4444
-
-#undef DST_FORMAT
-#undef TABLE_NAME
-#undef FUNC_NAME
-#undef SHIFT_R5
-#undef SHIFT_R6
-#undef X_F81F
-#undef X_07E0
-#undef MASK_RGB
-#undef HAS_ALPHA
-
-/**********************************************************************************************************************/
-/*** 16 bit RGBA 4444 scalers *****************************************************************************************/
-/**********************************************************************************************************************/
-
-#define DST_FORMAT              DSPF_RGBA4444
-#define TABLE_NAME              stretch_hvx_RGBA4444
-#define FUNC_NAME(UPDOWN,K,P,F) stretch_hvx_RGBA4444_ ## UPDOWN ## _ ## K ## P ## _ ## F
-#define SHIFT_R5          4
-#define SHIFT_R6          4
-#define X_F81F            0x0f0f
-#define X_07E0            0xf0f0
-#define MASK_RGB          0xfff0
-#define HAS_ALPHA
-
-#define FORMAT_RGBA4444
-#include "stretch_up_down_16.h"
-#undef FORMAT_RGBA4444
-
-#undef DST_FORMAT
-#undef TABLE_NAME
-#undef FUNC_NAME
-#undef SHIFT_R5
-#undef SHIFT_R6
-#undef X_F81F
-#undef X_07E0
-#undef MASK_RGB
-#undef HAS_ALPHA
-
-/**********************************************************************************************************************/
-/*** 32 bit ARGB 8888 scalers *****************************************************************************************/
-/**********************************************************************************************************************/
-
-#define DST_FORMAT              DSPF_ARGB
-#define TABLE_NAME              stretch_hvx_ARGB
-#define FUNC_NAME(UPDOWN,K,P,F) stretch_hvx_ARGB_ ## UPDOWN ## _ ## K ## P ## _ ## F
-#define SHIFT_R8                8
-#define SHIFT_L8                8
-#define X_00FF00FF              0x00ff00ff
-#define X_FF00FF00              0xff00ff00
-#define MASK_RGB                0x00ffffff
-#define HAS_ALPHA
-
-#include "stretch_up_down_32.h"
-
-#undef DST_FORMAT
-#undef TABLE_NAME
-#undef FUNC_NAME
-#undef SHIFT_R8
-#undef SHIFT_L8
-#undef X_00FF00FF
-#undef X_FF00FF00
-#undef MASK_RGB
-#undef HAS_ALPHA
-
-/**********************************************************************************************************************/
-/*** 32 bit RGB 888 scalers *******************************************************************************************/
-/**********************************************************************************************************************/
-
-#define DST_FORMAT              DSPF_RGB32
-#define TABLE_NAME              stretch_hvx_RGB32
-#define FUNC_NAME(UPDOWN,K,P,F) stretch_hvx_RGB32_ ## UPDOWN ## _ ## K ## P ## _ ## F
-#define SHIFT_R8                8
-#define SHIFT_L8                8
-#define X_00FF00FF              0x00ff00ff
-#define X_FF00FF00              0x0000ff00
-#define MASK_RGB                0x00ffffff
-
-#include "stretch_up_down_32.h"
-
-#undef DST_FORMAT
-#undef TABLE_NAME
-#undef FUNC_NAME
-#undef SHIFT_R8
-#undef SHIFT_L8
-#undef X_00FF00FF
-#undef X_FF00FF00
-#undef MASK_RGB
-
-#if 0
-/**********************************************************************************************************************/
-/*** 16 bit YUV 422 scalers *******************************************************************************************/
-/**********************************************************************************************************************/
-
-#define FUNC_NAME(UPDOWN) stretch_hvx_nv16_ ## UPDOWN
-
-#include "stretch_up_down_8.h"
-
-#undef FUNC_NAME
-
-/**********************************************************************************************************************/
-
-#define FUNC_NAME(UPDOWN) stretch_hvx_nv16_uv_ ## UPDOWN
-
-#include "stretch_up_down_88.h"
-
-#undef FUNC_NAME
-
-#endif
-/**********************************************************************************************************************/
-/**********************************************************************************************************************/
-
-static const StretchFunctionTable *stretch_tables[DFB_NUM_PIXELFORMATS] = {
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1555)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB16)]    = &stretch_hvx_RGB16,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB24)]    = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB32)]    = &stretch_hvx_RGB32,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB)]     = &stretch_hvx_ARGB,
-     [DFB_PIXELFORMAT_INDEX(DSPF_A8)]       = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_YUY2)]     = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB332)]   = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_UYVY)]     = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_I420)]     = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_YV12)]     = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_LUT8)]     = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ALUT44)]   = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_AiRGB)]    = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_A1)]       = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_NV12)]     = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_NV16)]     = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB2554)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB4444)] = &stretch_hvx_ARGB4444,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA4444)] = &stretch_hvx_RGBA4444,
-     [DFB_PIXELFORMAT_INDEX(DSPF_NV21)]     = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_AYUV)]     = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_A4)]       = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB1666)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB6666)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB18)]    = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_LUT2)]     = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB444)]   = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGB555)]   = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_BGR555)]   = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_RGBA5551)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_YUV444P)]  = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_ARGB8565)] = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_AVYU)]     = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_VYU)]      = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_A1_LSB)]   = NULL,
-     [DFB_PIXELFORMAT_INDEX(DSPF_YV16)]     = NULL,
-};
-
-/**********************************************************************************************************************/
-
-__attribute__((noinline))
-static bool
-stretch_hvx( CardState *state, DFBRectangle *srect, DFBRectangle *drect )
-{
-     GenefxState                *gfxs;
-     const StretchFunctionTable *table;
-     StretchHVx                  stretch;
-     bool                        down = false;
-     void                       *dst;
-     void                       *src;
-     StretchCtx                  ctx;
-     int                         idx = STRETCH_NONE;
-     u32                         colors[256];
-
-     D_ASSERT( state != NULL );
-     DFB_RECTANGLE_ASSERT( srect );
-     DFB_RECTANGLE_ASSERT( drect );
-
-     gfxs = state->gfxs;
-
-     if (state->blittingflags & ~(DSBLIT_COLORKEY_PROTECT | DSBLIT_SRC_COLORKEY | DSBLIT_SRC_PREMULTIPLY))
+     if (!gAcquireCheck( state, accel ))
           return false;
 
-     if (state->blittingflags & DSBLIT_SRC_PREMULTIPLY && !DFB_PIXELFORMAT_IS_INDEXED( gfxs->src_format ))
+     if (!gAcquireSetup( state, accel ))
           return false;
-
-     if (DFB_PIXELFORMAT_INDEX(gfxs->dst_format) >= D_ARRAY_SIZE(stretch_tables))
-          return false;
-
-     if (DFB_PIXELFORMAT_INDEX(gfxs->src_format) >= D_ARRAY_SIZE((stretch_tables[0])->f))
-          return false;
-
-     table = stretch_tables[DFB_PIXELFORMAT_INDEX(gfxs->dst_format)];
-     if (!table)
-          return false;
-
-     if (srect->w > drect->w && srect->h > drect->h)
-          down = true;
-
-     if (state->blittingflags & DSBLIT_SRC_COLORKEY)
-          idx |= STRETCH_SRCKEY;
-
-     if (state->blittingflags & DSBLIT_COLORKEY_PROTECT)
-          idx |= STRETCH_PROTECT;
-
-     if (down) {
-          if (!(state->render_options & DSRO_SMOOTH_DOWNSCALE))
-               return false;
-
-          stretch = table->f[DFB_PIXELFORMAT_INDEX(gfxs->src_format)].down[idx];
-     }
-     else {
-          if (!(state->render_options & DSRO_SMOOTH_UPSCALE))
-               return false;
-
-          stretch = table->f[DFB_PIXELFORMAT_INDEX(gfxs->src_format)].up[idx];
-     }
-
-     if (!stretch)
-          return false;
-
-     ctx.clip = state->clip;
-
-     if (!dfb_region_rectangle_intersect( &ctx.clip, drect ))
-          return false;
-
-     dfb_region_translate( &ctx.clip, - drect->x, - drect->y );
-
-     if (DFB_PIXELFORMAT_IS_INDEXED( gfxs->src_format )) {
-          int             i;
-          const DFBColor *entries;
-          u16            *colors16 = (void*) colors;
-
-          D_ASSERT( gfxs->Blut != NULL );
-
-          entries = gfxs->Blut->entries;
-
-          switch (gfxs->dst_format) {
-               case DSPF_ARGB:
-                    if (state->blittingflags & DSBLIT_SRC_PREMULTIPLY) {
-                         for (i=0; i<gfxs->Blut->num_entries; i++) {
-                              int alpha = entries[i].a + 1;
-
-                              switch (alpha) {
-                                   case 0:
-                                        colors[i] = 0;
-                                        break;
-
-                                   case 255:
-                                        colors[i] = PIXEL_ARGB( entries[i].a,
-                                                                entries[i].r,
-                                                                entries[i].g,
-                                                                entries[i].b );
-                                        break;
-
-                                   default:
-                                        colors[i] = PIXEL_ARGB( entries[i].a,
-                                                                (alpha * entries[i].r) >> 8,
-                                                                (alpha * entries[i].g) >> 8,
-                                                                (alpha * entries[i].b) >> 8 );
-                              }
-                         }
-                    }
-                    else {
-                         for (i=0; i<gfxs->Blut->num_entries; i++)
-                              colors[i] = PIXEL_ARGB( entries[i].a, entries[i].r, entries[i].g, entries[i].b );
-                    }
-                    break;
-
-               case DSPF_RGB32:
-                    for (i=0; i<gfxs->Blut->num_entries; i++)
-                         colors[i] = PIXEL_RGB32( entries[i].r, entries[i].g, entries[i].b );
-                    break;
-
-               case DSPF_RGB16:
-                    for (i=0; i<gfxs->Blut->num_entries; i++)
-                         colors16[i] = PIXEL_RGB16( entries[i].r, entries[i].g, entries[i].b );
-                    break;
-
-               case DSPF_ARGB4444:
-                    if (state->blittingflags & DSBLIT_SRC_PREMULTIPLY) {
-                         for (i=0; i<gfxs->Blut->num_entries; i++) {
-                              int alpha = entries[i].a + 1;
-
-                              switch (alpha) {
-                                   case 0:
-                                        colors16[i] = 0;
-                                        break;
-
-                                   case 255:
-                                        colors16[i] = PIXEL_ARGB4444( entries[i].a,
-                                                                      entries[i].r,
-                                                                      entries[i].g,
-                                                                      entries[i].b );
-                                        break;
-
-                                   default:
-                                        colors16[i] = PIXEL_ARGB4444( entries[i].a,
-                                                                      (alpha * entries[i].r) >> 8,
-                                                                      (alpha * entries[i].g) >> 8,
-                                                                      (alpha * entries[i].b) >> 8 );
-                              }
-                         }
-                    }
-                    else {
-                         for (i=0; i<gfxs->Blut->num_entries; i++)
-                              colors16[i] = PIXEL_ARGB4444( entries[i].a, entries[i].r, entries[i].g, entries[i].b );
-                    }
-                    break;
-
-               case DSPF_RGBA4444:
-                    if (state->blittingflags & DSBLIT_SRC_PREMULTIPLY) {
-                         for (i=0; i<gfxs->Blut->num_entries; i++) {
-                              int alpha = entries[i].a + 1;
-
-                              switch (alpha) {
-                                   case 0:
-                                        colors16[i] = 0;
-                                        break;
-
-                                   case 255:
-                                        colors16[i] = PIXEL_RGBA4444( entries[i].a,
-                                                                      entries[i].r,
-                                                                      entries[i].g,
-                                                                      entries[i].b );
-                                        break;
-
-                                   default:
-                                        colors16[i] = PIXEL_RGBA4444( entries[i].a,
-                                                                      (alpha * entries[i].r) >> 8,
-                                                                      (alpha * entries[i].g) >> 8,
-                                                                      (alpha * entries[i].b) >> 8 );
-                              }
-                         }
-                    }
-                    else {
-                         for (i=0; i<gfxs->Blut->num_entries; i++)
-                              colors16[i] = PIXEL_RGBA4444( entries[i].a, entries[i].r, entries[i].g, entries[i].b );
-                    }
-                    break;
-
-               case DSPF_RGB444:
-                    for (i=0; i<gfxs->Blut->num_entries; i++)
-                         colors16[i] = PIXEL_RGB444( entries[i].r, entries[i].g, entries[i].b );
-                    break;
-
-               default:
-                    D_UNIMPLEMENTED();
-          }
-
-          ctx.colors = colors;
-
-          if (state->blittingflags & DSBLIT_SRC_COLORKEY) {
-               if (DFB_PIXELFORMAT_IS_INDEXED( gfxs->dst_format ))
-                    ctx.key = state->src_colorkey;
-               else {
-                    const DFBColor *color = &entries[state->src_colorkey % gfxs->Blut->num_entries];
-
-                    ctx.key = dfb_color_to_pixel( gfxs->dst_format, color->r, color->g, color->b );
-               }
-          }
-     }
-     else {
-          ctx.colors = NULL;
-
-          if (state->blittingflags & DSBLIT_SRC_COLORKEY) {
-               DFBColor color;
-
-               dfb_pixel_to_color( gfxs->src_format, state->src_colorkey, &color );
-
-               ctx.key = dfb_color_to_pixel( gfxs->dst_format, color.r, color.g, color.b );
-          }
-     }
-
-     if (state->blittingflags & DSBLIT_COLORKEY_PROTECT) {
-          if (DFB_PIXELFORMAT_IS_INDEXED( gfxs->dst_format ))
-               ctx.protect = state->colorkey.index;
-          else
-               ctx.protect = dfb_color_to_pixel( gfxs->dst_format,
-                                                 state->colorkey.r,
-                                                 state->colorkey.g,
-                                                 state->colorkey.b );
-     }
-
-     dst = gfxs->dst_org[0] + drect->y * gfxs->dst_pitch + DFB_BYTES_PER_LINE( gfxs->dst_format, drect->x );
-     src = gfxs->src_org[0] + srect->y * gfxs->src_pitch + DFB_BYTES_PER_LINE( gfxs->src_format, srect->x );
-
-     stretch( dst, gfxs->dst_pitch, src, gfxs->src_pitch,
-              srect->w, srect->h, drect->w, drect->h, &ctx );
-
-#if 0     /* FIXME: repair */
-     switch (gfxs->dst_format) {
-          case DSPF_NV16:
-               ctx.clip.x1 /= 2;
-               ctx.clip.x2 /= 2;
-               if (srect->w < drect->w || srect->h < drect->h) {
-                    stretch_hvx_nv16_uv_up( dst, gfxs->dst_pitch, src, gfxs->src_pitch,
-                                            srect->w/2, srect->h, drect->w/2, drect->h, &ctx );
-               }
-               else {
-                    stretch_hvx_nv16_uv_down( dst, gfxs->dst_pitch, src, gfxs->src_pitch,
-                                              srect->w/2, srect->h, drect->w/2, drect->h, &ctx );
-               }
-               break;
-
-          default:
-               break;
-     }
-#endif
 
      return true;
 }
-#endif /* DFB_SMOOTH_SCALING */
 
-void gStretchBlit( CardState *state, DFBRectangle *srect, DFBRectangle *drect )
-{
-     GenefxState    *gfxs  = state->gfxs;
-     DFBRectangle    orect = *drect;
-     XopAdvanceFunc  Aop_advance;
-     XopAdvanceFunc  Bop_advance;
-     int             Aop_X;
-     int             Aop_Y;
-     int             Bop_X;
-     int             Bop_Y;
-
-     int fx, fy;
-     int ix, iy;
-     int h;
-
-     D_ASSERT( gfxs != NULL );
-
-     if (dfb_config->software_warn) {
-          D_WARN( "StretchBlit   (%4d,%4d-%4dx%4d) %6s, flags 0x%08x, color 0x%02x%02x%02x%02x, source (%4d,%4d-%4dx%4d) %6s",
-                  drect->x, drect->y, drect->w, drect->h, dfb_pixelformat_name(gfxs->dst_format), state->blittingflags,
-                  state->color.a, state->color.r, state->color.g, state->color.b, srect->x, srect->y, srect->w, srect->h,
-                  dfb_pixelformat_name(gfxs->src_format) );
-     }
-
-     CHECK_PIPELINE();
-
-#if DFB_SMOOTH_SCALING
-     if (state->render_options & (DSRO_SMOOTH_UPSCALE | DSRO_SMOOTH_DOWNSCALE) &&
-         stretch_hvx( state, srect, drect ))
-          return;
-#endif
-
-     /* Clip destination rectangle. */
-     if (!dfb_rectangle_intersect_by_region( drect, &state->clip ))
-          return;
-
-     /* Calculate fractions. */
-     fx = (srect->w << 16) / orect.w;
-     fy = (srect->h << 16) / orect.h;
-
-     /* Calculate horizontal phase and offset. */
-     ix = fx * (drect->x - orect.x);
-     srect->x += ix >> 16;
-     ix &= 0xFFFF;
-
-     /* Calculate vertical phase and offset. */
-     iy = fy * (drect->y - orect.y);
-     srect->y += iy >> 16;
-     iy &= 0xFFFF;
-
-     /* Adjust source size. */
-     srect->w = ((drect->w * fx + ix) + 0xFFFF) >> 16;
-     srect->h = ((drect->h * fy + iy) + 0xFFFF) >> 16;
-
-     D_ASSERT( srect->x + srect->w <= state->source->config.size.w );
-     D_ASSERT( srect->y + srect->h <= state->source->config.size.h );
-     D_ASSERT( drect->x + drect->w <= state->clip.x2 + 1 );
-     D_ASSERT( drect->y + drect->h <= state->clip.y2 + 1 );
-
-
-     if (!ABacc_prepare( gfxs, MAX( srect->w, drect->w ) ))
-          return;
-
-
-     switch (gfxs->src_format) {
-          case DSPF_A4:
-          case DSPF_YUY2:
-          case DSPF_UYVY:
-               srect->x &= ~1;
-               break;
-          default:
-               break;
-     }
-
-     switch (gfxs->dst_format) {
-          case DSPF_A4:
-          case DSPF_YUY2:
-          case DSPF_UYVY:
-               drect->x &= ~1;
-               break;
-          default:
-               break;
-     }
-
-     gfxs->Slen   = srect->w;
-     gfxs->Dlen   = drect->w;
-     gfxs->length = gfxs->Dlen;
-     gfxs->SperD  = fx;
-     gfxs->Xphase = ix;
-
-     h = drect->h;
-
-     if (state->blittingflags & DSBLIT_FLIP_HORIZONTAL) {
-          gfxs->Astep *= -1;
-
-          Aop_X = drect->x + drect->w - 1;
-          Aop_Y = drect->y;
-
-          Bop_X = srect->x;
-          Bop_Y = srect->y;
-
-          Aop_advance = Aop_next;
-          Bop_advance = Bop_next;
-     }
-     else if (state->blittingflags & DSBLIT_FLIP_VERTICAL) {
-          Aop_X = drect->x;
-          Aop_Y = drect->y + drect->h - 1;
-
-          Bop_X = srect->x;
-          Bop_Y = srect->y;
-
-          Aop_advance = Aop_prev;
-          Bop_advance = Bop_next;
-     }
-     else {
-          Aop_X = drect->x;
-          Aop_Y = drect->y;
-
-          Bop_X = srect->x;
-          Bop_Y = srect->y;
-
-          Aop_advance = Aop_next;
-          Bop_advance = Bop_next;
-     }
-
-     Aop_xy( gfxs, Aop_X, Aop_Y );
-     Bop_xy( gfxs, Bop_X, Bop_Y );
-
-     while (h--) {
-          RUN_PIPELINE();
-
-          Aop_advance( gfxs );
-
-          iy += fy;
-
-          while (iy > 0xFFFF) {
-               iy -= 0x10000;
-               Bop_advance( gfxs );
-          }
-     }
-
-     ABacc_flush( gfxs );
-}
-
+/**********************************************************************************************************************/
+/**********************************************************************************************************************/
 
 #ifdef USE_MMX
 
@@ -12049,8 +10040,8 @@ static void gInit_MMX( void )
 /********************************* misc accumulator operations ****************/
      SCacc_add_to_Dacc = SCacc_add_to_Dacc_MMX;
      Sacc_add_to_Dacc  = Sacc_add_to_Dacc_MMX;
-     Dacc_YCbCr_to_RGB = Dacc_YCbCr_to_RGB_MMX;
-     Dacc_RGB_to_YCbCr = Dacc_RGB_to_YCbCr_MMX;
+     //Dacc_YCbCr_to_RGB = Dacc_YCbCr_to_RGB_MMX;
+     //Dacc_RGB_to_YCbCr = Dacc_RGB_to_YCbCr_MMX;
 }
 
 #endif

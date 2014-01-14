@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <dfb_types.h>
 
@@ -443,7 +447,10 @@ savageSecondaryFlipRegion( CoreLayer             *layer,
                            void                  *region_data,
                            CoreSurface           *surface,
                            DFBSurfaceFlipFlags    flags,
-                           CoreSurfaceBufferLock *lock )
+                           const DFBRegion       *left_update,
+                           CoreSurfaceBufferLock *left_lock,
+                           const DFBRegion       *right_update,
+                           CoreSurfaceBufferLock *right_lock )
 {
      SavageDriverData *sdrv = (SavageDriverData*) driver_data;
      SavageSecondaryLayerData *slay = (SavageSecondaryLayerData*) layer_data;
@@ -452,7 +459,7 @@ savageSecondaryFlipRegion( CoreLayer             *layer,
 
      dfb_surface_flip( surface, false );
 
-     secondary_calc_regs(sdrv, slay, layer, &slay->config, surface, lock);
+     secondary_calc_regs(sdrv, slay, layer, &slay->config, surface, left_lock);
      secondary_set_regs(sdrv, slay);
 
      if (flags & DSFLIP_WAIT)

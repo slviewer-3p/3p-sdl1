@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -53,6 +55,8 @@
 #include <fusion/shm/shm.h>
 #include <fusion/shm/shm_internal.h>
 
+#include <core/CoreLayer.h>
+
 #include <core/core.h>
 #include <core/layer_control.h>
 #include <core/layer_context.h>
@@ -82,6 +86,7 @@ static IDirectFB *dfb;
 
 static MemoryUsage mem;
 
+static bool loop_mode;
 static bool show_shm;
 static bool show_pools;
 static bool show_allocs;
@@ -102,8 +107,7 @@ buffer_size( CoreSurface *surface, CoreSurfaceBuffer *buffer, bool video )
 
      fusion_vector_foreach (allocation, i, buffer->allocs) {
           int size = allocation->size;
-          if (allocation->flags & CSALF_ONEFORALL)
-               size /= surface->num_buffers;
+
           if (video) {
                if (allocation->access[CSAID_GPU])
                     mem += size;
@@ -132,12 +136,16 @@ buffer_sizes( CoreSurface *surface, bool video )
 static int
 buffer_locks( CoreSurface *surface, bool video )
 {
-     int i, locks = 0;
+     int i, j, locks = 0;
 
      for (i=0; i<surface->num_buffers; i++) {
           CoreSurfaceBuffer *buffer = surface->buffers[i];
 
-          locks += buffer->locked;
+          for (j=0; j<buffer->allocs.count; j++) {
+               CoreSurfaceAllocation *allocation = fusion_vector_at( &buffer->allocs, j );
+
+               locks += dfb_surface_allocation_locks( allocation );
+          }
      }
 
      return locks;
@@ -165,7 +173,7 @@ surface_callback( FusionObjectPool *pool,
           return false;
      }
 
-     if (dump_surface && ((dump_surface < 0 && surface->type & CSTF_SHARED) ||
+     if (dump_surface && ((dump_surface < 0 /*&& surface->type & CSTF_SHARED*/) ||
                           (dump_surface == object->ref.multi.id)) && surface->num_buffers)
      {
           char buf[32];
@@ -176,7 +184,7 @@ surface_callback( FusionObjectPool *pool,
      }
 
 #if FUSION_BUILD_MULTI
-     printf( "0x%08x [%3lx] : ", object->ref.multi.id, object->ref.multi.creator );
+     printf( "0x%08x [%3lx] : ", object->ref.multi.id, object->identity );
 #else
      printf( "N/A              : " );
 #endif
@@ -189,6 +197,8 @@ surface_callback( FusionObjectPool *pool,
           if (surface->config.format == format_names[i].format)
                printf( "%8s ", format_names[i].name );
      }
+
+     printf( "%5d  ", surface->object.id );
 
      vmem = buffer_sizes( surface, true );
      smem = buffer_sizes( surface, false );
@@ -241,14 +251,14 @@ static void
 dump_surfaces( void )
 {
      printf( "\n"
-             "-----------------------------[ Surfaces ]-------------------------------------\n" );
-     printf( "Reference   FID  . Refs  Width Height  Format     Video   System  Capabilities\n" );
-     printf( "------------------------------------------------------------------------------\n" );
+             "-----------------------------[ Surfaces ]--------------------------------------------\n" );
+     printf( "Reference   FID  . Refs  Width Height  Format     ID     Video   System  Capabilities\n" );
+     printf( "-------------------------------------------------------------------------------------\n" );
 
      dfb_core_enum_surfaces( NULL, surface_callback, &mem );
 
-     printf( "                                                ------   ------\n" );
-     printf( "                                               %6dk  %6dk   -> %dk total\n",
+     printf( "                                                       ------   ------\n" );
+     printf( "                                                      %6dk  %6dk   -> %dk total\n",
              mem.video >> 10, (mem.system + mem.presys) >> 10,
              (mem.video + mem.system + mem.presys) >> 10);
 }
@@ -259,84 +269,97 @@ static DFBEnumerationResult
 alloc_callback( CoreSurfaceAllocation *alloc,
                 void                  *ctx )
 {
-     int                i, index;
-     CoreSurface       *surface;
+     int                i;
      CoreSurfaceBuffer *buffer;
+     const char        *role     = "???";
+     const char        *uptodate = " ? ";
+     int                allocs   = 0;
 
      D_MAGIC_ASSERT( alloc, CoreSurfaceAllocation );
 
-     buffer  = alloc->buffer;
-     D_MAGIC_ASSERT( buffer, CoreSurfaceBuffer );
+     buffer = alloc->buffer;
+     if (buffer) {
+          CoreSurface *surface;
 
-     surface = buffer->surface;
-     D_MAGIC_ASSERT( surface, CoreSurface );
+          D_MAGIC_ASSERT( buffer, CoreSurfaceBuffer );
+
+          surface = buffer->surface;
+          if (surface) {
+               int base;
+
+               D_MAGIC_ASSERT( surface, CoreSurface );
+
+               base = surface->flips % surface->num_buffers;
+
+               role = (buffer->index == (base + CSBR_FRONT) % surface->num_buffers) ? "front" :
+                      (buffer->index == (base + CSBR_BACK)  % surface->num_buffers) ? "back"  :
+                      (buffer->index == (base + CSBR_IDLE)  % surface->num_buffers) ? "idle"  : "";
+
+               uptodate = direct_serial_check(&alloc->serial, &buffer->serial) ? " * " : "   ";
+
+               allocs = fusion_vector_size( &buffer->allocs );
+          }
+     }
 
      printf( "%9lu %8d  ", alloc->offset, alloc->size );
 
-     printf( "%4d x %4d   ", surface->config.size.w, surface->config.size.h );
+     printf( "%4d x %4d   ", alloc->config.size.w, alloc->config.size.h );
 
      for (i=0; format_names[i].format; i++) {
-          if (surface->config.format == format_names[i].format)
+          if (alloc->config.format == format_names[i].format)
                printf( "%8s ", format_names[i].name );
      }
 
-     index = dfb_surface_buffer_index( alloc->buffer );
+     printf( " %-5s %s", role, uptodate );
 
-     printf( " %-5s ",
-             (dfb_surface_get_buffer( surface, CSBR_FRONT ) == buffer) ? "front" :
-             (dfb_surface_get_buffer( surface, CSBR_BACK  ) == buffer) ? "back"  :
-             (dfb_surface_get_buffer( surface, CSBR_IDLE  ) == buffer) ? "idle"  : "" );
+     printf( "%d  %2lu  ", allocs, alloc->resource_id );
 
-     printf( direct_serial_check(&alloc->serial, &buffer->serial) ? " * " : "   " );
-
-     printf( "%d  %2lu  ", fusion_vector_size( &buffer->allocs ), surface->resource_id );
-
-     if (surface->type & CSTF_SHARED)
+     if (alloc->type & CSTF_SHARED)
           printf( "SHARED  " );
      else
           printf( "PRIVATE " );
 
-     if (surface->type & CSTF_LAYER)
+     if (alloc->type & CSTF_LAYER)
           printf( "LAYER " );
 
-     if (surface->type & CSTF_WINDOW)
+     if (alloc->type & CSTF_WINDOW)
           printf( "WINDOW " );
 
-     if (surface->type & CSTF_CURSOR)
+     if (alloc->type & CSTF_CURSOR)
           printf( "CURSOR " );
 
-     if (surface->type & CSTF_FONT)
+     if (alloc->type & CSTF_FONT)
           printf( "FONT " );
 
      printf( " " );
 
-     if (surface->type & CSTF_INTERNAL)
+     if (alloc->type & CSTF_INTERNAL)
           printf( "INTERNAL " );
 
-     if (surface->type & CSTF_EXTERNAL)
+     if (alloc->type & CSTF_EXTERNAL)
           printf( "EXTERNAL " );
 
      printf( " " );
 
-     if (surface->config.caps & DSCAPS_SYSTEMONLY)
+     if (alloc->config.caps & DSCAPS_SYSTEMONLY)
           printf( "system only  " );
 
-     if (surface->config.caps & DSCAPS_VIDEOONLY)
+     if (alloc->config.caps & DSCAPS_VIDEOONLY)
           printf( "video only   " );
 
-     if (surface->config.caps & DSCAPS_INTERLACED)
+     if (alloc->config.caps & DSCAPS_INTERLACED)
           printf( "interlaced   " );
 
-     if (surface->config.caps & DSCAPS_DOUBLE)
+     if (alloc->config.caps & DSCAPS_DOUBLE)
           printf( "double       " );
 
-     if (surface->config.caps & DSCAPS_TRIPLE)
+     if (alloc->config.caps & DSCAPS_TRIPLE)
           printf( "triple       " );
 
-     if (surface->config.caps & DSCAPS_PREMULTIPLIED)
+     if (alloc->config.caps & DSCAPS_PREMULTIPLIED)
           printf( "premultiplied" );
 
-     printf( "\n" );
+     printf( "   %d\n", alloc->object.ref.multi.id );
 
      return DFENUM_OK;
 }
@@ -632,6 +655,9 @@ window_callback( CoreWindow *window,
      if (config->options & DWOP_GHOST)
           printf( "GHOST          " );
 
+     if (config->options & DWOP_KEEP_SIZE)
+          printf( "KEEP_SIZE      " );
+
      if (DFB_WINDOW_FOCUSED( window ))
           printf( "FOCUSED        " );
 
@@ -650,27 +676,19 @@ static void
 dump_windows( CoreLayer *layer )
 {
      DFBResult         ret;
-     CoreLayerShared  *shared;
      CoreLayerContext *context;
      CoreWindowStack  *stack;
 
-     shared = layer->shared;
-
-     ret = fusion_skirmish_prevail( &shared->lock );
-     if (ret) {
-          D_DERROR( ret, "DirectFB/Dump: Could not lock the shared layer data!\n" );
+     if (!layer->shared->contexts.primary)
           return;
-     }
 
-     context = layer->shared->contexts.primary;
-     if (!context) {
-          fusion_skirmish_dismiss( &shared->lock );
+     ret = CoreLayer_GetPrimaryContext( layer, false, &context );
+     if (ret)
           return;
-     }
 
      stack = dfb_layer_context_windowstack( context );
      if (!stack) {
-          fusion_skirmish_dismiss( &shared->lock );
+          dfb_layer_context_unref( context );
           return;
      }
 
@@ -687,7 +705,7 @@ dump_windows( CoreLayer *layer )
 
      dfb_windowstack_unlock( stack );
 
-     fusion_skirmish_dismiss( &shared->lock );
+     dfb_layer_context_unref( context );
 }
 
 static DFBEnumerationResult
@@ -791,64 +809,76 @@ main( int argc, char *argv[] )
           return -3;
      }
 
-     millis = direct_clock_get_millis();
+     while (true) {
+          millis = direct_clock_get_millis();
 
-     seconds  = millis / 1000;
-     millis  %= 1000;
+          seconds  = millis / 1000;
+          millis  %= 1000;
 
-     minutes  = seconds / 60;
-     seconds %= 60;
+          minutes  = seconds / 60;
+          seconds %= 60;
 
-     hours    = minutes / 60;
-     minutes %= 60;
+          hours    = minutes / 60;
+          minutes %= 60;
 
-     days     = hours / 24;
-     hours   %= 24;
+          days     = hours / 24;
+          hours   %= 24;
 
-     switch (days) {
-          case 0:
-               printf( "\nDirectFB uptime: %02ld:%02ld:%02ld\n",
-                       hours, minutes, seconds );
-               break;
+          switch (days) {
+               case 0:
+                    printf( "\nDirectFB uptime: %02ld:%02ld:%02ld\n",
+                            hours, minutes, seconds );
+                    break;
 
-          case 1:
-               printf( "\nDirectFB uptime: %ld day, %02ld:%02ld:%02ld\n",
-                       days, hours, minutes, seconds );
-               break;
+               case 1:
+                    printf( "\nDirectFB uptime: %ld day, %02ld:%02ld:%02ld\n",
+                            days, hours, minutes, seconds );
+                    break;
 
-          default:
-               printf( "\nDirectFB uptime: %ld days, %02ld:%02ld:%02ld\n",
-                       days, hours, minutes, seconds );
-               break;
-     }
+               default:
+                    printf( "\nDirectFB uptime: %ld days, %02ld:%02ld:%02ld\n",
+                            days, hours, minutes, seconds );
+                    break;
+          }
 
-     dump_surfaces();
-     fflush( stdout );
-
-     dump_layers();
-     fflush( stdout );
-
-#if FUSION_BUILD_MULTI
-     if (show_shm) {
-          printf( "\n" );
-          dump_shmpools();
+          dump_surfaces();
           fflush( stdout );
-     }
-#endif
 
-     if (show_pools) {
-          printf( "\n" );
-          dump_surface_pool_info();
+          dump_layers();
           fflush( stdout );
-     }
 
-     if (show_allocs) {
+     #if FUSION_BUILD_MULTI
+          if (show_shm) {
+               printf( "\n" );
+               dump_shmpools();
+               fflush( stdout );
+          }
+     #endif
+
+          if (show_pools) {
+               printf( "\n" );
+               dump_surface_pool_info();
+               fflush( stdout );
+          }
+
+          if (show_allocs) {
+               printf( "\n" );
+               dump_surface_pools();
+               fflush( stdout );
+          }
+
           printf( "\n" );
-          dump_surface_pools();
-          fflush( stdout );
-     }
 
-     printf( "\n" );
+
+          if (loop_mode) {
+               direct_thread_sleep( 2000000 );
+
+               /* Clear surface memory totals */
+               memset( &mem, 0, sizeof(mem) );
+          }
+          else
+               break;
+     }
 
      /* DirectFB deinitialization. */
      if (dfb)
@@ -865,6 +895,7 @@ print_usage (const char *prg_name)
      fprintf (stderr, "\nDirectFB Dump (version %s)\n\n", DIRECTFB_VERSION);
      fprintf (stderr, "Usage: %s [options]\n\n", prg_name);
      fprintf (stderr, "Options:\n");
+     fprintf (stderr, "   -l,  --loop         Run in loop mode, periodically dumping status (useful as secure master for debug)\n");
      fprintf (stderr, "   -s,  --shm          Show shared memory pool content (if debug enabled)\n");
      fprintf (stderr, "   -p,  --pools        Show information about surface pools\n");
      fprintf (stderr, "   -a,  --allocs       Show surface buffer allocations in surface pools\n");
@@ -891,6 +922,11 @@ parse_command_line( int argc, char *argv[] )
           if (strcmp (arg, "-v") == 0 || strcmp (arg, "--version") == 0) {
                fprintf (stderr, "dfbdump version %s\n", DIRECTFB_VERSION);
                return DFB_FALSE;
+          }
+
+          if (strcmp (arg, "-l") == 0 || strcmp (arg, "--loop") == 0) {
+               loop_mode = true;
+               continue;
           }
 
           if (strcmp (arg, "-s") == 0 || strcmp (arg, "--shm") == 0) {

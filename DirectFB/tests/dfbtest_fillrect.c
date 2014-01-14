@@ -1,7 +1,16 @@
 /*
-   (c) Copyright 2008  Denis Oliver Kropp
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
+
+   Written by Denis Oliver Kropp <dok@directfb.org>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
+              Sven Neumann <neo@directfb.org>,
+              Ville Syrjälä <syrjala@sci.fi> and
+              Claudio Ciccani <klan@users.sf.net>.
 
    This file is subject to the terms and conditions of the MIT License:
 
@@ -29,7 +38,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 
 #include <direct/messages.h>
 
@@ -47,7 +55,7 @@ parse_format( const char *arg, DFBSurfacePixelFormat *_f )
      int i = 0;
 
      while (format_names[i].format != DSPF_UNKNOWN) {
-          if (!strcasecmp( arg, format_names[i].name )) {
+          if (!direct_strcasecmp( arg, format_names[i].name )) {
                *_f = format_names[i].format;
                return DFB_TRUE;
           }
@@ -115,6 +123,7 @@ main( int argc, char *argv[] )
 {
      DFBResult               ret;
      int                     i;
+     long long               ms;
      DFBSurfaceDescription   desc;
      IDirectFB              *dfb;
      IDirectFBSurface       *dest          = NULL;
@@ -181,13 +190,25 @@ main( int argc, char *argv[] )
      D_INFO( "DFBTest/FillRectangle: Destination is %dx%d using %s\n",
              desc.width, desc.height, dfb_pixelformat_name(desc.pixelformat) );
 
+     ms = direct_clock_get_abs_millis();
+
      while (true) {
+          long long now;
+
+          dest->Clear( dest, 0, 0, 0, 0 );
+
           for (i=0; i<100000; i++) {
                dest->SetColor( dest, rand()%256, rand()%256, rand()%256, rand()%256 );
                dest->FillRectangle( dest, rand()%100, rand()%100, rand()%100, rand()%100 );
           }
 
           dest->Flip( dest, NULL, DSFLIP_NONE );
+
+          now = direct_clock_get_abs_millis();
+
+          D_INFO( "Took %lld ms\n", now - ms );
+
+          ms = now;
      }
 
 out:

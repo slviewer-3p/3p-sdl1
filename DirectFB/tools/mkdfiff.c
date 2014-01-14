@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -34,6 +36,10 @@
 
 #include <config.h>
 
+
+#undef  DFB_DITHER565
+#define DFB_DITHER565 DFB_DITHER_ADVANCED
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,14 +53,16 @@
 #include <direct/debug.h>
 
 #include <gfx/convert.h>
+#include <misc/dither565.h>
 
 #include <dfiff.h>
 
 static DirectFBPixelFormatNames( format_names );
 
 static const char            *filename;
-static DFBSurfacePixelFormat  format    = DSPF_UNKNOWN;
-static DFBSurfacePixelFormat  rgbformat = DSPF_UNKNOWN;
+static DFBSurfacePixelFormat  format        = DSPF_UNKNOWN;
+static DFBSurfacePixelFormat  rgbformat     = DSPF_UNKNOWN;
+static bool                   premultiplied = false;
 
 /**********************************************************************************************************************/
 
@@ -97,7 +105,7 @@ load_image (const char            *filename,
      if (!png_ptr)
           goto cleanup;
 
-     if (setjmp (png_ptr->jmpbuf)) {
+     if (setjmp (png_jmpbuf(png_ptr))) {
           if (desc->preallocated[0].data) {
                free (desc->preallocated[0].data);
                desc->preallocated[0].data = NULL;
@@ -182,7 +190,7 @@ load_image (const char            *filename,
 
      data  = malloc (height * pitch);
      if (!data) {
-          fprintf (stderr, "Failed to allocate %ld bytes.\n", height * pitch);
+          fprintf (stderr, "Failed to allocate %lu bytes.\n", (unsigned long)(height * pitch));
           goto cleanup;
      }
 
@@ -199,6 +207,24 @@ load_image (const char            *filename,
      if (!dest_format)
           dest_format = src_format;
 
+     if (premultiplied) {
+          int y;
+
+          for (y=0; y<height; y++) {
+               int  x;
+               u32 *p = (u32*)(data + y * pitch);
+
+               for (x=0; x<width; x++) {
+                    const u32 s = p[x];
+                    const u32 a = (s >> 24) + 1;
+
+                    p[x] = ((((s & 0x00ff00ff) * a) >> 8) & 0x00ff00ff) |
+                           ((((s & 0x0000ff00) * a) >> 8) & 0x0000ff00) |
+                           ((((s & 0xff000000)    )     )             );
+               }
+          }
+     }
+
      if (DFB_BYTES_PER_PIXEL(src_format) != DFB_BYTES_PER_PIXEL(dest_format)) {
           unsigned char *s, *d, *dest;
           int            d_pitch, h;
@@ -209,16 +235,35 @@ load_image (const char            *filename,
 
           dest = malloc (height * d_pitch);
           if (!dest) {
-               fprintf (stderr, "Failed to allocate %ld bytes.\n",
-                        height * d_pitch);
+               fprintf (stderr, "Failed to allocate %lu bytes.\n",
+                        (unsigned long)(height * d_pitch));
                goto cleanup;
           }
 
           h = height;
           switch (dest_format) {
                case DSPF_RGB16:
-                    for (s = data, d = dest; h; h--, s += pitch, d += d_pitch)
-                         dfb_argb_to_rgb16 ((u32 *) s, (u16 *) d, width);
+                    for (s = data, d = dest; h; h--, s += pitch, d += d_pitch) {
+                         /* use a pre-generated dither matrix to improve the appearance of the result */
+                         const u32    *dm  = DM_565 + ((h & (DM_565_HEIGHT - 1)) << DM_565_WIDTH_SHIFT);
+                         const u32    *src = (const u32*) s;
+                         unsigned int  i;
+
+                         for (i = 0; i < width; i++) {
+                              u32 rgb = ((src[i] & 0xFF)          |
+                                         (src[i] & 0xFF00)   << 2 |
+                                         (src[i] & 0xFF0000) << 4);
+
+                              rgb += dm[i & (DM_565_WIDTH - 1)];
+                              rgb += (0x10040100
+                                      - ((rgb & 0x1e0001e0) >> 5)
+                                      - ((rgb & 0x00070000) >> 6));
+
+                              ((u16*)d)[i] = (((rgb & 0x0f800000) >> 12) |
+                                              ((rgb & 0x0003f000) >> 7)  |
+                                              ((rgb & 0x000000f8) >> 3));
+                         }
+                    }
                     break;
                case DSPF_ARGB8565:
                     for (s = data, d = dest; h; h--, s += pitch, d += d_pitch)
@@ -294,6 +339,7 @@ print_usage (const char *prg_name)
      fprintf (stderr, "Options:\n");
      fprintf (stderr, "   -f, --format    <pixelformat>   Choose the pixel format (in all cases)\n");
      fprintf (stderr, "   -r, --rgbformat <pixelformat>   Choose the pixel format (in case of RGB)\n");
+     fprintf (stderr, "   -p, --premultiplied             Generate premultiplied pixels\n");
      fprintf (stderr, "   -h, --help                      Show this help message\n");
      fprintf (stderr, "   -v, --version                   Print version information\n");
      fprintf (stderr, "\n");
@@ -388,6 +434,11 @@ parse_command_line( int argc, char *argv[] )
                continue;
           }
 
+          if (strcmp (arg, "-p") == 0 || strcmp (arg, "--premultiplied") == 0) {
+               premultiplied = true;
+               continue;
+          }
+
           if (filename || access( arg, R_OK )) {
                print_usage (argv[0]);
                return DFB_FALSE;
@@ -443,6 +494,9 @@ main( int argc, char *argv[] )
      header.height = desc.height;
      header.format = desc.pixelformat;
      header.pitch  = desc.preallocated[0].pitch;
+
+     if (premultiplied)
+          header.flags |= DFIFF_FLAG_PREMULTIPLIED;
 
      fwrite( &header, sizeof(header), 1, stdout );
 

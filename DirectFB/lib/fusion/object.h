@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,12 +28,15 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __FUSION__OBJECT_H__
 #define __FUSION__OBJECT_H__
 
 #include <fusion/types.h>
 
 #include <fusion/lock.h>
+#include <fusion/vector.h>
 #include <direct/list.h>
 #include <fusion/ref.h>
 #include <fusion/reactor.h>
@@ -39,12 +44,14 @@
 
 typedef void (*FusionObjectDestructor)( FusionObject *object, bool zombie, void *ctx );
 
+typedef const char * (*FusionObjectDescribe)( FusionObject *object, void *ctx );
+
 typedef bool (*FusionPropIterator)( char *key, void *value, void *ctx);
 
 
 
 
-typedef unsigned long FusionObjectID;
+typedef u32 FusionObjectID;
 
 
 typedef enum {
@@ -60,6 +67,7 @@ struct __Fusion_FusionObject {
      int                magic;
 
      FusionObjectID     id;
+     FusionID           identity;
 
      FusionObjectState  state;
 
@@ -68,6 +76,34 @@ struct __Fusion_FusionObject {
 
      FusionWorldShared *shared;
      FusionHash        *properties;
+
+     FusionVector       owners;
+
+     FusionVector       access;
+
+     DirectTraceBuffer *create_stack;
+};
+
+struct __Fusion_FusionObjectPool {
+     int                     magic;
+
+     FusionWorldShared      *shared;
+
+     FusionSkirmish          lock;
+     FusionHash             *objects;
+     FusionObjectID          id_pool;
+
+     char                   *name;
+     int                     object_size;
+     int                     message_size;
+     FusionObjectDestructor  destructor;
+     void                   *ctx;
+
+     FusionCall              call;
+
+     bool                    secure;
+
+     FusionObjectDescribe    describe;
 };
 
 
@@ -76,51 +112,86 @@ typedef bool (*FusionObjectCallback)( FusionObjectPool *pool,
                                       void             *ctx );
 
 
-FusionObjectPool *fusion_object_pool_create ( const char             *name,
-                                              int                     object_size,
-                                              int                     message_size,
-                                              FusionObjectDestructor  destructor,
-                                              void                   *ctx,
-                                              const FusionWorld      *world );
+FusionObjectPool FUSION_API *fusion_object_pool_create        ( const char             *name,
+                                                                int                     object_size,
+                                                                int                     message_size,
+                                                                FusionObjectDestructor  destructor,
+                                                                void                   *ctx,
+                                                                const FusionWorld      *world );
 
-DirectResult      fusion_object_pool_destroy( FusionObjectPool       *pool,
-                                              const FusionWorld      *world );
+DirectResult     FUSION_API  fusion_object_pool_destroy       ( FusionObjectPool       *pool,
+                                                                FusionWorld            *world );
 
-
-DirectResult      fusion_object_pool_enum   ( FusionObjectPool       *pool,
-                                              FusionObjectCallback    callback,
-                                              void                   *ctx );
+DirectResult     FUSION_API  fusion_object_pool_set_describe  ( FusionObjectPool       *pool,
+                                                                FusionObjectDescribe    func );
 
 
-FusionObject     *fusion_object_create  ( FusionObjectPool  *pool,
-                                          const FusionWorld *world );
+DirectResult     FUSION_API  fusion_object_pool_enum          ( FusionObjectPool       *pool,
+                                                                FusionObjectCallback    callback,
+                                                                void                   *ctx );
 
-DirectResult      fusion_object_get     ( FusionObjectPool  *pool,
-                                          FusionObjectID     object_id,
-                                          FusionObject     **ret_object );
 
-DirectResult      fusion_object_set_lock( FusionObject      *object,
-                                          FusionSkirmish    *lock );
+FusionObject     FUSION_API *fusion_object_create             ( FusionObjectPool       *pool,
+                                                                const FusionWorld      *world,
+                                                                FusionID                identity );
 
-DirectResult      fusion_object_activate( FusionObject      *object );
+/*
+ * Must unref object if function returns DR_OK. 
+ * It may also return DR_DEAD with allocated object, but no refs (don't unref).
+ */
+DirectResult     FUSION_API  fusion_object_get                ( FusionObjectPool       *pool,
+                                                                FusionObjectID          object_id,
+                                                                FusionObject          **ret_object );
 
-DirectResult      fusion_object_destroy ( FusionObject      *object );
+DirectResult     FUSION_API  fusion_object_lookup             ( FusionObjectPool       *pool,
+                                                                FusionObjectID          object_id,
+                                                                FusionObject          **ret_object );
 
-DirectResult      fusion_object_set_property( FusionObject      *object ,
-                        const char *key, void *value, void **old_value);
+DirectResult     FUSION_API  fusion_object_set_lock           ( FusionObject           *object,
+                                                                FusionSkirmish         *lock );
 
-DirectResult       fusion_object_set_int_property( FusionObject  *object ,
-                        const char *key,int value);
+DirectResult     FUSION_API  fusion_object_activate           ( FusionObject           *object );
 
-DirectResult       fusion_object_set_string_property( FusionObject  *object ,
-                        const char *key,char *value);
+DirectResult     FUSION_API  fusion_object_destroy            ( FusionObject           *object );
 
-void *fusion_object_get_property( FusionObject *object ,const char *key);
-void fusion_object_remove_property( FusionObject *object ,const char *key,void **ret_val);
+DirectResult     FUSION_API  fusion_object_set_property       ( FusionObject           *object,
+                                                                const char             *key,
+                                                                void                   *value,
+                                                                void                  **old_value );
+
+DirectResult     FUSION_API  fusion_object_set_int_property   ( FusionObject           *object,
+                                                                const char             *key,
+                                                                int                     value );
+
+DirectResult     FUSION_API  fusion_object_set_string_property( FusionObject           *object,
+                                                                const char             *key,
+                                                                char                   *value );
+
+void             FUSION_API *fusion_object_get_property       ( FusionObject           *object,
+                                                                const char             *key );
+
+void             FUSION_API  fusion_object_remove_property    ( FusionObject           *object,
+                                                                const char             *key,
+                                                                void                  **ret_val );
+
+DirectResult     FUSION_API  fusion_object_add_access         ( FusionObject           *object,
+                                                                const char             *exectuable );
+
+DirectResult     FUSION_API  fusion_object_has_access         ( FusionObject           *object,
+                                                                const char             *executable );
+
+DirectResult     FUSION_API  fusion_object_add_owner          ( FusionObject           *object,
+                                                                FusionID                owner );
+
+DirectResult     FUSION_API  fusion_object_check_owner        ( FusionObject           *object,
+                                                                FusionID                owner,
+                                                                bool                    succeed_if_not_owned );
+
+DirectResult     FUSION_API  fusion_object_catch              ( FusionObject           *object );
 
 #define FUSION_OBJECT_METHODS(type, prefix)                                    \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_attach( type         *object,                                         \
                  ReactionFunc  func,                                           \
                  void         *ctx,                                            \
@@ -131,7 +202,7 @@ prefix##_attach( type         *object,                                         \
                                    func, ctx, ret_reaction );                  \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_attach_channel( type         *object,                                 \
                          int           channel,                                \
                          ReactionFunc  func,                                   \
@@ -143,7 +214,7 @@ prefix##_attach_channel( type         *object,                                 \
                                            channel, func, ctx, ret_reaction ); \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_detach( type     *object,                                             \
                  Reaction *reaction )                                          \
 {                                                                              \
@@ -152,7 +223,7 @@ prefix##_detach( type     *object,                                             \
                                    reaction );                                 \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_attach_global( type           *object,                                \
                         int             index,                                 \
                         void           *ctx,                                   \
@@ -163,7 +234,7 @@ prefix##_attach_global( type           *object,                                \
                                           index, ctx, reaction );              \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_detach_global( type           *object,                                \
                         GlobalReaction *reaction )                             \
 {                                                                              \
@@ -172,7 +243,7 @@ prefix##_detach_global( type           *object,                                \
                                           reaction );                          \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_dispatch( type               *object,                                 \
                    void               *message,                                \
                    const ReactionFunc *globals )                               \
@@ -182,7 +253,7 @@ prefix##_dispatch( type               *object,                                 \
                                      message, true, globals );                 \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_dispatch_channel( type               *object,                         \
                            int                 channel,                        \
                            void               *message,                        \
@@ -194,28 +265,28 @@ prefix##_dispatch_channel( type               *object,                         \
                                       channel, message, size, true, globals ); \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_ref( type *object )                                                   \
 {                                                                              \
      D_MAGIC_ASSERT( (FusionObject*) object, FusionObject );                   \
      return fusion_ref_up( &((FusionObject*)object)->ref, false );             \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_unref( type *object )                                                 \
 {                                                                              \
      D_MAGIC_ASSERT( (FusionObject*) object, FusionObject );                   \
      return fusion_ref_down( &((FusionObject*)object)->ref, false );           \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_ref_stat( type *object, int *refs )                                   \
 {                                                                              \
      D_MAGIC_ASSERT( (FusionObject*) object, FusionObject );                   \
      return fusion_ref_stat ( &((FusionObject*)object)->ref, refs );           \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_link( type **link,                                                    \
                type  *object )                                                 \
 {                                                                              \
@@ -229,10 +300,10 @@ prefix##_link( type **link,                                                    \
                                                                                \
      *link = object;                                                           \
                                                                                \
-     return DR_OK;                                                            \
+     return DR_OK;                                                             \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_unlink( type **link )                                                 \
 {                                                                              \
      type *object = *link;                                                     \
@@ -244,7 +315,7 @@ prefix##_unlink( type **link )                                                 \
      return fusion_ref_down( &((FusionObject*)object)->ref, true );            \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_inherit( type *object,                                                \
                   void *from )                                                 \
 {                                                                              \
@@ -255,7 +326,7 @@ prefix##_inherit( type *object,                                                \
                                 &((FusionObject*)from)->ref );                 \
 }                                                                              \
                                                                                \
-static inline DirectResult                                                     \
+static __inline__ DirectResult                                                 \
 prefix##_globalize( type *object )                                             \
 {                                                                              \
      DirectResult ret;                                                         \

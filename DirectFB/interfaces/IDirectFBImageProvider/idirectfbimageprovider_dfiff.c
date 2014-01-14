@@ -1,16 +1,16 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
-
-   All rights reserved.
 
    This file is subject to the terms and conditions of the MIT License:
 
@@ -107,6 +107,9 @@ IDirectFBImageProvider_DFIFF_RenderTo( IDirectFBImageProvider *thiz,
      const DFIFFHeader     *header;
      DFBRectangle           rect;
      DFBRectangle           clipped;
+     DFBSurfaceCapabilities caps;
+     bool                   dfiff_premultiplied = false;
+     bool                   dest_premultiplied = false;
 
      DIRECT_INTERFACE_GET_DATA (IDirectFBImageProvider_DFIFF)
 
@@ -136,40 +139,48 @@ IDirectFBImageProvider_DFIFF_RenderTo( IDirectFBImageProvider *thiz,
      if (!dfb_rectangle_intersect( &clipped, &dst_data->area.current ))
           return DFB_INVAREA;
 
+     destination->GetCapabilities( destination, &caps );
+
      header = data->ptr;
 
+     if (header->flags & DFIFF_FLAG_PREMULTIPLIED)
+          dfiff_premultiplied = true;
+
+     if (caps & DSCAPS_PREMULTIPLIED)
+          dest_premultiplied = true;
+
+
      if (DFB_RECTANGLE_EQUAL( rect, clipped ) &&
-         rect.w == header->width && rect.h == header->height &&
-         dst_surface->config.format == header->format)
+         (unsigned)rect.w == header->width && (unsigned)rect.h == header->height &&
+         dst_surface->config.format == header->format && dfiff_premultiplied == dest_premultiplied)
      {
           ret = dfb_surface_write_buffer( dst_surface, CSBR_BACK,
-                                          data->ptr + sizeof(DFIFFHeader), header->pitch, &rect );
+                                          (u8*)data->ptr + sizeof(DFIFFHeader), header->pitch, &rect );
           if (ret)
                return ret;
      }
      else {
           IDirectFBSurface      *source;
           DFBSurfaceDescription  desc;
-          DFBSurfaceCapabilities caps;
           DFBRegion              clip = DFB_REGION_INIT_FROM_RECTANGLE( &clipped );
           DFBRegion              old_clip;
 
           thiz->GetSurfaceDescription( thiz, &desc );
 
           desc.flags |= DSDESC_PREALLOCATED;   
-          desc.preallocated[0].data  = data->ptr + sizeof(DFIFFHeader);
+          desc.preallocated[0].data  = (u8*)data->ptr + sizeof(DFIFFHeader);
           desc.preallocated[0].pitch = header->pitch;
 
-          ret = idirectfb_singleton->CreateSurface( idirectfb_singleton, &desc, &source );
+          ret = data->base.idirectfb->CreateSurface( data->base.idirectfb, &desc, &source );
           if (ret)
                return ret;
 
-          destination->GetCapabilities( destination, &caps );
-
-          if (caps & DSCAPS_PREMULTIPLIED && DFB_PIXELFORMAT_HAS_ALPHA(desc.pixelformat))
-               destination->SetBlittingFlags( destination, DSBLIT_SRC_PREMULTIPLY );
-          else
-               destination->SetBlittingFlags( destination, DSBLIT_NOFX );
+          if (DFB_PIXELFORMAT_HAS_ALPHA(desc.pixelformat)) {
+               if (dest_premultiplied && !dfiff_premultiplied)
+                    destination->SetBlittingFlags( destination, DSBLIT_SRC_PREMULTIPLY );
+               else if (!dest_premultiplied && dfiff_premultiplied)
+                    destination->SetBlittingFlags( destination, DSBLIT_DEMULTIPLY );
+          }
 
           destination->GetClip( destination, &old_clip );
           destination->SetClip( destination, &clip );

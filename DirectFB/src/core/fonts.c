@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -477,11 +481,11 @@ dfb_font_cache_init( DFBFontCache           *cache,
 DFBResult
 dfb_font_cache_deinit( DFBFontCache *cache )
 {
-     DFBFontCacheRow *row;
+     DFBFontCacheRow *row, *next;
 
      DFB_FONT_CACHE_ASSERT( cache );
 
-     direct_list_foreach (row, cache->rows)
+     direct_list_foreach_safe (row, next, cache->rows)
           dfb_font_cache_row_destroy( row );
 
      cache->rows = NULL;
@@ -623,10 +627,10 @@ dfb_font_cache_row_init( DFBFontCacheRow *row,
      ret = dfb_surface_create_simple( manager->core,
                                       cache->row_width,
                                       cache->type.height,
-                                      cache->type.pixel_format,
+                                      cache->type.pixel_format, DFB_COLORSPACE_DEFAULT(cache->type.pixel_format),
                                       cache->type.surface_caps,
                                       CSTF_FONT,
-                                      0,
+                                      dfb_config->font_resource_id,
                                       NULL, &row->surface );
      if (ret) {
           D_DERROR( ret, "Core/Font: Could not create font surface!\n" );
@@ -678,7 +682,10 @@ dfb_font_cache_row_deinit( DFBFontCacheRow *row )
 /**********************************************************************************************************************/
 
 DFBResult
-dfb_font_create( CoreDFB *core, CoreFont **ret_font )
+dfb_font_create( CoreDFB                   *core,
+                 const DFBFontDescription  *description,
+                 const char                *url,
+                 CoreFont                 **ret_font )
 {
      DFBResult  ret;
      int        i;
@@ -704,6 +711,9 @@ dfb_font_create( CoreDFB *core, CoreFont **ret_font )
           }
      }
 
+     font->description = *description;
+     font->url         = D_STRDUP( url );
+
      font->core    = core;
      font->manager = dfb_core_font_manager( core );
 
@@ -711,6 +721,7 @@ dfb_font_create( CoreDFB *core, CoreFont **ret_font )
      font->pixel_format = dfb_config->font_format ? : DSPF_A8;
 
      if ((font->pixel_format == DSPF_ARGB ||
+                    font->pixel_format == DSPF_ABGR ||
                     font->pixel_format == DSPF_ARGB8565 ||
                     font->pixel_format == DSPF_ARGB4444 ||
                     font->pixel_format == DSPF_RGBA4444 ||
@@ -758,6 +769,8 @@ dfb_font_destroy( CoreFont *font )
 
      if (font->encodings)
           D_FREE( font->encodings );
+
+     D_FREE( font->url );
 
      D_MAGIC_CLEAR( font );
 
@@ -813,6 +826,10 @@ dfb_font_get_glyph_data( CoreFont       *font,
 
      /* Quick Lookup in array */
      if (index < 128 && font->layers[layer].glyph_data[index]) {
+          data = font->layers[layer].glyph_data[index];
+          if (data->retry)
+               goto retry;
+
           *ret_data = font->layers[layer].glyph_data[index];
           return DFB_OK;
      }
@@ -830,6 +847,9 @@ dfb_font_get_glyph_data( CoreFont       *font,
 
                row->stamp = manager->row_stamp++;
           }
+
+          if (data->retry)
+               goto retry;
 
           *ret_data = data;
           return DFB_OK;
@@ -854,12 +874,25 @@ dfb_font_get_glyph_data( CoreFont       *font,
      data->index = index;
      data->layer = layer;
 
+retry:
+     data->retry = false;
+
      /* Get glyph data from font implementation */
      ret = font->GetGlyphData( font, index, data );
      if (ret) {
           D_DERROR( ret, "Core/Font: Could not get glyph info for index %d!\n", index );
           data->start = data->width = data->height = 0;
+
+          /* If the font module returned BUFFEREMPTY we will retry loading next time */
+          if (ret == DFB_BUFFEREMPTY)
+               data->retry = true;
+
           goto out;
+     }
+
+     if (!(font->flags & CFF_SUBPIXEL_ADVANCE)) {
+          data->xadvance <<= 8;
+          data->yadvance <<= 8;
      }
 
      if (data->width < 1 || data->height < 1) {
@@ -915,22 +948,32 @@ dfb_font_get_glyph_data( CoreFont       *font,
      if (ret) {
           D_DEBUG_AT( Core_Font, "  -> rendering glyph failed!\n" );
           data->start = data->width = data->height = 0;
+
+          /* If the font module returned BUFFEREMPTY we will retry loading next time */
+          if (ret == DFB_BUFFEREMPTY)
+               data->retry = true;
+
           goto out;
      }
 
-     dfb_gfxcard_flush_texture_cache();
+     if (!dfb_config->task_manager)
+          dfb_gfxcard_flush_texture_cache();
 
      CORE_GLYPH_DATA_DEBUG_AT( Core_Font, data );
 
 
 out:
-     if (row)
-          direct_list_append( &row->glyphs, &data->link );
+     if (!data->inserted) {
+          if (row)
+               direct_list_append( &row->glyphs, &data->link );
 
-     direct_hash_insert( font->layers[layer].glyph_hash, index, data );
+          direct_hash_insert( font->layers[layer].glyph_hash, index, data );
 
-     if (index < 128)
-          font->layers[layer].glyph_data[index] = data;
+          if (index < 128)
+               font->layers[layer].glyph_data[index] = data;
+
+          data->inserted = true;
+     }
 
      *ret_data = data;
 

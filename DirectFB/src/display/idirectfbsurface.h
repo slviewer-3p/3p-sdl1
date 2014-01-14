@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -26,6 +28,8 @@
    Boston, MA 02111-1307, USA.
 */
 
+
+
 #ifndef __IDIRECTFBSURFACE_H__
 #define __IDIRECTFBSURFACE_H__
 
@@ -35,8 +39,10 @@
 
 #include <fusion/reactor.h>
 
-#include <core/coretypes.h>
+#include <core/core.h>
 #include <core/state.h>
+
+#include <core/CoreGraphicsStateClient.h>
 
 
 /*
@@ -126,10 +132,34 @@ typedef struct {
      Reaction               reaction;
 
      CoreDFB               *core;
+     IDirectFB             *idirectfb;
 
      IDirectFBSurface      *parent;
      DirectLink            *children_data;
      pthread_mutex_t        children_lock;
+
+     CoreGraphicsStateClient  state_client;
+
+     CoreMemoryPermission    *memory_permissions[3];
+     unsigned int             memory_permissions_count;
+
+     DirectWaitQueue          back_buffer_wq;
+     DirectMutex              back_buffer_lock;
+
+     unsigned int             frame_ack;
+
+     CoreSurfaceClient       *surface_client;
+     unsigned int             surface_client_flip_count;
+     DirectMutex              surface_client_lock;
+
+     DFBSurfaceStereoEye      src_eye;
+
+     long long                current_frame_time;
+
+     DFBFrameTimeConfig       frametime_config;
+
+     unsigned int             local_flip_count;
+     int                      local_flip_buffers;
 } IDirectFBSurface_data;
 
 /*
@@ -142,7 +172,8 @@ DFBResult IDirectFBSurface_Construct( IDirectFBSurface *thiz,
                                       DFBInsets    *insets,
                                       CoreSurface  *surface,
                                       DFBSurfaceCapabilities  caps,
-                                      CoreDFB                *core );
+                                      CoreDFB                *core,
+                                      IDirectFB              *idirectfb );
 
 /*
  * destroys surface(s) and frees private data
@@ -153,5 +184,7 @@ void IDirectFBSurface_Destruct( IDirectFBSurface *thiz );
  * internal
  */
 void IDirectFBSurface_StopAll( IDirectFBSurface_data *data );
+
+void IDirectFBSurface_WaitForBackBuffer( IDirectFBSurface_data *data );
 
 #endif

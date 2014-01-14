@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -245,8 +249,11 @@ dfb_vt_join( void )
 DFBResult
 dfb_vt_shutdown( bool emergency )
 {
+     int res;
      const char cursoron_str[] = "\033[?0;0;0c";
      const char blankon_str[] = "\033[9;10]";
+
+     (void)res;
 
      D_DEBUG_AT( VT, "%s()\n", __FUNCTION__ );
 
@@ -275,9 +282,9 @@ dfb_vt_shutdown( bool emergency )
                D_PERROR( "DirectFB/fbdev/vt: KD_TEXT failed!\n" );
      }
      else {
-          write( dfb_vt->fd, blankon_str, sizeof(blankon_str) );
+          res = write( dfb_vt->fd, blankon_str, sizeof(blankon_str) );
      }
-     write( dfb_vt->fd, cursoron_str, sizeof(cursoron_str) );
+     res = write( dfb_vt->fd, cursoron_str, sizeof(cursoron_str) );
 
      if (tcsetattr( dfb_vt->fd, TCSAFLUSH, &dfb_vt->old_ts ) < 0)
           D_PERROR("DirectFB/fbdev/vt: tcsetattr for original values failed!\n");
@@ -462,6 +469,9 @@ vt_init_switching( void )
      const char blankoff_str[] = "\033[9;0]";
      char buf[32];
 
+     int res;
+     (void)res;
+
      D_DEBUG_AT( VT, "%s()\n", __FUNCTION__ );
 
      /* FIXME: Opening the device should be moved out of this function. */
@@ -520,7 +530,7 @@ vt_init_switching( void )
           return DFB_INIT;
      }
 
-     write( dfb_vt->fd, cursoroff_str, sizeof(cursoroff_str) );
+     res = write( dfb_vt->fd, cursoroff_str, sizeof(cursoroff_str) );
      if (dfb_config->kd_graphics) {
           if (ioctl( dfb_vt->fd, KDSETMODE, KD_GRAPHICS ) < 0) {
                D_PERROR( "DirectFB/fbdev/vt: KD_GRAPHICS failed!\n" );
@@ -531,7 +541,7 @@ vt_init_switching( void )
           }
      }
      else {
-          write( dfb_vt->fd, blankoff_str, sizeof(blankoff_str) );
+          res = write( dfb_vt->fd, blankoff_str, sizeof(blankoff_str) );
      }
 
      if (dfb_config->vt_switching) {
@@ -665,7 +675,7 @@ vt_flush_thread( DirectThread *thread, void *arg )
           if (ret < 0 && errno == EINTR)
                continue;
 
-          if (ret < 0)
+          if (ret < 0 || !dfb_vt->flush)
                break;
 
           tcflush( dfb_vt->fd, TCIFLUSH );

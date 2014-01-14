@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -47,9 +49,10 @@
 static IDirectFB             *dfb   = NULL;
 static IDirectFBDisplayLayer *layer = NULL;
 
-static const char *filename = NULL;
-static DFBBoolean  color    = DFB_FALSE;
-static DFBBoolean  tiled    = DFB_FALSE;
+static const char *filename      = NULL;
+static DFBBoolean  color         = DFB_FALSE;
+static DFBBoolean  tiled         = DFB_FALSE;
+static DFBBoolean  premultiplied = DFB_FALSE;
 
 
 /*****************************************************************************/
@@ -126,10 +129,11 @@ print_usage (const char *prg_name)
      fprintf (stderr, "\nDirectFB Desktop Background Configuration (version %s)\n\n", DIRECTFB_VERSION);
      fprintf (stderr, "Usage: %s [options] <imagefile>|<color>\n\n", prg_name);
      fprintf (stderr, "Options:\n");
-     fprintf (stderr, "   -c, --color     Set <color> in AARRGGBB format (hexadecimal).\n");
-     fprintf (stderr, "   -t, --tile      Set tiled mode.\n");
-     fprintf (stderr, "   -h, --help      Show this help message\n");
-     fprintf (stderr, "   -v, --version   Print version information\n");
+     fprintf (stderr, "   -c, --color          Set <color> in AARRGGBB format (hexadecimal).\n");
+     fprintf (stderr, "   -t, --tile           Set tiled mode.\n");
+     fprintf (stderr, "   -p, --premultiplied  Create the surface with DSCAPS_PREMULTIPLIED\n");
+     fprintf (stderr, "   -h, --help           Show this help message\n");
+     fprintf (stderr, "   -v, --version        Print version information\n");
      fprintf (stderr, "\n");
 }
 
@@ -165,6 +169,10 @@ parse_command_line( int argc, char *argv[] )
           }
           if (strcmp (a, "-t") == 0 || strcmp (a, "--tile") == 0) {
                tiled = DFB_TRUE;
+               continue;
+          }
+          if (strcmp (a, "-p") == 0 || strcmp (a, "--premultiplied") == 0) {
+               premultiplied = DFB_TRUE;
                continue;
           }
      }
@@ -233,6 +241,9 @@ set_background_image( void )
 
      desc.flags |= DSDESC_CAPS;
      desc.caps   = DSCAPS_SHARED;
+
+     if (premultiplied)
+          desc.caps |= DSCAPS_PREMULTIPLIED;
 
      if (!tiled) {
           DFBDisplayLayerConfig   config;

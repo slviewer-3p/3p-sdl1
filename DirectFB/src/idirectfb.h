@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2010  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #ifndef __IDIRECTFB_H__
 #define __IDIRECTFB_H__
@@ -53,12 +57,14 @@ typedef struct {
           int                    width;    /* IDirectFB stores window width    */
           int                    height;   /* and height and the pixel depth   */
           DFBSurfacePixelFormat  format;   /* from SetVideoMode() parameters.  */
+          DFBSurfaceColorSpace   colorspace; /* from SetVideoMode() parameters.  */
 
           CoreWindow            *window;   /* implicitly created window */
           Reaction               reaction; /* for the focus listener */
           bool                   focused;  /* primary's window has the focus */
 
           CoreLayerContext      *context;  /* context for fullscreen primary */
+          DFBWindowOptions       window_options;
      } primary;                            /* Used for DFSCL_NORMAL's primary. */
 
      bool                        app_focus;
@@ -70,15 +76,20 @@ typedef struct {
           CoreSurface           *surface;
           CorePalette           *palette;
      } layers[MAX_LAYERS];
+
+     bool                        init_done;
+     DirectMutex                 init_lock;
+     DirectWaitQueue             init_wq;
+
+     u32                         idle_cookie;
 } IDirectFB_data;
 
 /*
  * IDirectFB constructor/destructor
  */
-DFBResult IDirectFB_Construct  ( IDirectFB  *thiz,
-                                 CoreDFB    *core );
+DFBResult IDirectFB_Construct  ( IDirectFB  *thiz );
 
-void      IDirectFB_Destruct   ( IDirectFB  *thiz );
+DFBResult IDirectFB_Destruct   ( IDirectFB  *thiz );
 
 DFBResult IDirectFB_SetAppFocus( IDirectFB  *thiz,
                                  DFBBoolean  focused );
@@ -90,6 +101,10 @@ DFBResult IDirectFB_SetAppFocus( IDirectFB  *thiz,
  */
 void      containers_remove_input_eventbuffer( IDirectFBEventBuffer *thiz );
 
+DFBResult IDirectFB_InitLayers( IDirectFB *thiz );
+
+
+DFBResult IDirectFB_WaitInitialised( IDirectFB *thiz );
 
 extern IDirectFB *idirectfb_singleton;
 

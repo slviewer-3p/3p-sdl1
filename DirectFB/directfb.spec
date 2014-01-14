@@ -1,5 +1,5 @@
 %define name directfb
-%define version 1.4.9
+%define version 1.7.1
 %define oname DirectFB
 %define libname lib%name
 

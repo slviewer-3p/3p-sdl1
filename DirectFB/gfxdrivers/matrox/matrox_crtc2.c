@@ -1,11 +1,13 @@
 /*
-   (c) Copyright 2001-2009  The world wide DirectFB Open Source Community (directfb.org)
+   (c) Copyright 2012-2013  DirectFB integrated media GmbH
+   (c) Copyright 2001-2013  The world wide DirectFB Open Source Community (directfb.org)
    (c) Copyright 2000-2004  Convergence (integrated media) GmbH
 
    All rights reserved.
 
    Written by Denis Oliver Kropp <dok@directfb.org>,
-              Andreas Hundt <andi@fischlustig.de>,
+              Andreas Shimokawa <andi@directfb.org>,
+              Marek Pikarski <mass@directfb.org>,
               Sven Neumann <neo@directfb.org>,
               Ville Syrjälä <syrjala@sci.fi> and
               Claudio Ciccani <klan@users.sf.net>.
@@ -25,6 +27,8 @@
    Free Software Foundation, Inc., 59 Temple Place - Suite 330,
    Boston, MA 02111-1307, USA.
 */
+
+
 
 #include <config.h>
 
@@ -260,7 +264,8 @@ crtc2SetRegion( CoreLayer                  *layer,
                 CoreLayerRegionConfigFlags  updated,
                 CoreSurface                *surface,
                 CorePalette                *palette,
-                CoreSurfaceBufferLock      *lock )
+                CoreSurfaceBufferLock      *left_lock,
+                CoreSurfaceBufferLock      *right_lock )
 {
      DFBResult             ret;
      MatroxDriverData     *mdrv   = (MatroxDriverData*) driver_data;
@@ -275,8 +280,8 @@ crtc2SetRegion( CoreLayer                  *layer,
 
      if (updated & (CLRCF_WIDTH | CLRCF_HEIGHT | CLRCF_FORMAT |
                     CLRCF_SURFACE_CAPS | CLRCF_ALPHA_RAMP | CLRCF_SURFACE)) {
-          crtc2_calc_regs( mdrv, mcrtc2, config, surface, lock );
-          crtc2_calc_buffer( mdrv, mcrtc2, surface, lock );
+          crtc2_calc_regs( mdrv, mcrtc2, config, surface, left_lock );
+          crtc2_calc_buffer( mdrv, mcrtc2, surface, left_lock );
 
           ret = crtc2_enable_output( mdrv, mcrtc2 );
           if (ret)
@@ -309,13 +314,16 @@ crtc2FlipRegion( CoreLayer             *layer,
                  void                  *region_data,
                  CoreSurface           *surface,
                  DFBSurfaceFlipFlags    flags,
-                 CoreSurfaceBufferLock *lock )
+                 const DFBRegion       *left_update,
+                 CoreSurfaceBufferLock *left_lock,
+                 const DFBRegion       *right_update,
+                 CoreSurfaceBufferLock *right_lock )
 {
      MatroxDriverData     *mdrv    = (MatroxDriverData*) driver_data;
      MatroxCrtc2LayerData *mcrtc2  = (MatroxCrtc2LayerData*) layer_data;
      volatile u8          *mmio    = mdrv->mmio_base;
 
-     crtc2_calc_buffer( mdrv, mcrtc2, surface, lock );
+     crtc2_calc_buffer( mdrv, mcrtc2, surface, left_lock );
 
      if (mcrtc2->config.options & DLOP_FIELD_PARITY) {
           int field = (mga_in32( mmio, C2VCOUNT ) & C2FIELD) ? 1 : 0;

@@ -26,6 +26,7 @@ install-exec-local:
 includedir = @INCLUDEDIR@/fusion
 
 include_HEADERS = \
+	Debug.h			\
 	arena.h			\
 	build.h			\
 	call.h			\
@@ -33,6 +34,7 @@ include_HEADERS = \
 	fusion.h		\
 	fusion_internal.h	\
 	hash.h			\
+	init.h			\
 	lock.h			\
 	object.h		\
 	property.h		\
@@ -51,6 +53,7 @@ if DIRECTFB_BUILD_PURE_VOODOO
 NON_PURE_VOODOO_SOURCESs =
 else
 NON_PURE_VOODOO_SOURCESs = \
+	Debug.cpp		\
 	arena.c			\
 	call.c			\
 	fusion.c		\
@@ -65,6 +68,7 @@ libfusion_la_SOURCES = \
 	$(NON_PURE_VOODOO_SOURCESs)	\
 	conf.c			\
 	hash.c			\
+	init.c			\
 	shmalloc.c		\
 	vector.c
 
