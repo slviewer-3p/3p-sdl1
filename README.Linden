@@ -78,13 +78,13 @@
     [ ]  Verified that build products use the correct version of
          libpng:
 
-         $ cd /stage/lib/release/directfb-1.7-1/interfaces/IDirectFBImageProvider
+         $ cd stage/lib/release/directfb-1.7-1/interfaces/IDirectFBImageProvider
          $ strings * | grep 1\\.6\\.
-         1.6.7
-         1.6.7
-         1.6.7
-         libpng version 1.6.7 - November 14, 2013
-          libpng version 1.6.7 - November 14, 2013
+         1.6.8
+         1.6.8
+         1.6.8
+         libpng version 1.6.8 - December 19, 2013
+          libpng version 1.6.8 - December 19, 2013
 
 
 1.  Introduction
