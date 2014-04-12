@@ -33,16 +33,34 @@ PNG_INCLUDE="${stage}"/packages/include/libpng16
 [ -f "$ZLIB_INCLUDE"/zlib.h ] || fail "You haven't installed the zlib package yet."
 [ -f "$PNG_INCLUDE"/png.h ] || fail "You haven't installed the libpng package yet."
 
+# Restore all .sos
+restore_sos ()
+{
+    for solib in "${stage}"/packages/lib/{debug,release}/lib*.so*.disable; do 
+        if [ -f "$solib" ]; then
+            mv -f "$solib" "${solib%.disable}"
+        fi
+    done
+}
+
 case "$AUTOBUILD_PLATFORM" in
 
     "linux")
-        # Force static linkage to libz by moving .sos out of the way
-        for solib in "${stage}"/packages/lib/debug/libz.so* "${stage}"/packages/lib/release/libz.so*; do
-            if [ -f "$solib" ]; then
-                mv -f "$solib" "$solib".disable
-            fi
-        done
-            
+        # Linux build environment at Linden comes pre-polluted with stuff that can
+        # seriously damage 3rd-party builds.  Environmental garbage you can expect
+        # includes:
+        #
+        #    DISTCC_POTENTIAL_HOSTS     arch           root        CXXFLAGS
+        #    DISTCC_LOCATION            top            branch      CC
+        #    DISTCC_HOSTS               build_name     suffix      CXX
+        #    LSDISTCC_ARGS              repo           prefix      CFLAGS
+        #    cxx_version                AUTOBUILD      SIGN        CPPFLAGS
+        #
+        # So, clear out bits that shouldn't affect our configure-directed build
+        # but which do nonetheless.
+        #
+        # unset DISTCC_HOSTS CC CXX CFLAGS CPPFLAGS CXXFLAGS
+
         # Prefer gcc-4.6 if available.
         if [[ -x /usr/bin/gcc-4.6 && -x /usr/bin/g++-4.6 ]]; then
             export CC=/usr/bin/gcc-4.6
@@ -61,6 +79,15 @@ case "$AUTOBUILD_PLATFORM" in
             export CPPFLAGS="$TARGET_CPPFLAGS"
         fi
             
+        # Force static linkage to libz by moving .sos out of the way
+        # (Libz is only packaging statics right now but keep this working.)
+        trap restore_sos EXIT
+        for solib in "${stage}"/packages/lib/{debug,release}/libz.so*; do
+            if [ -f "$solib" ]; then
+                mv -f "$solib" "$solib".disable
+            fi
+        done
+
         pushd "$TOP/$DIRECTFB_SOURCE_DIR"
             # do debug build of directfb    
             LDFLAGS="-L"$stage/packages/lib/debug" $opts" \
@@ -73,9 +100,9 @@ case "$AUTOBUILD_PLATFORM" in
             make install
 
             # clean the build tree
-			# Would like to do this but this deletes files that are generated
-			# by 'fluxcomp' and we don't have that installed anywhere so don't
-			# scrub between builds.
+            # Would like to do this but this deletes files that are generated
+            # by 'fluxcomp' and we don't have that installed anywhere so don't
+            # scrub between builds.
             # make distclean
 
             # do release build of directfb  
@@ -116,13 +143,6 @@ case "$AUTOBUILD_PLATFORM" in
             # clean the build tree
             make distclean
         popd
-
-        # Restore libz .sos
-        for solib in "${stage}"/packages/lib/debug/libz.so*.disable "${stage}"/packages/lib/release/libz.so*.disable; do
-            if [ -f "$solib" ]; then
-                mv -f "$solib" "${solib%.disable}"
-            fi
-        done
     ;;
 
     *)
