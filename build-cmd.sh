@@ -153,6 +153,8 @@ esac
 
 mkdir -p "$stage/LICENSES"
 cp "$TOP/$SDL_SOURCE_DIR/COPYING" "$stage/LICENSES/SDL.txt"
+mkdir -p "$stage"/docs/SDL/
+cp -a "$TOP"/README.Linden "$stage"/docs/SDL/
 
 pass
 
