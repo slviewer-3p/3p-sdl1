@@ -21,11 +21,85 @@
          such as 'DirectFB/include/directfb_build.h' and
          'DirectFB/lib/fusion/build.h'?
 
-    [ ]  Verified that build products use the correct version of zlib
-         and do not reference shared libraries:
+    [ ]  Did DirectFB configuration find the packages and build
+         correctly with them?  
 
-         $ cd stage/bin
-         $ ldd *
+         checking for jpeg_destroy_decompress in -ljpeg... yes
+         checking jpeglib.h usability... yes
+         checking jpeglib.h presence... yes
+         checking for jpeglib.h... yes
+         checking for gzsetparams in -lz... yes
+         checking zlib.h usability... yes
+         checking zlib.h presence... yes
+         checking for zlib.h... yes
+         checking for LIBPNG... yes
+         checking for LIBTIFF... no
+
+         Building Image Provider Modules:
+           GIF                       yes
+           JPEG                      yes                 -ljpeg <<<  (*could* be from packages)
+           PNG                       yes                  -I/ngi-persist/monty/3P/FINAL/3p-sdl-update/stage/packages/include/libpng16 -lpng16 -lz -lm
+
+    [ ]  Did SDL configuration correctly find DirectFB?
+
+         checking for getpagesize... yes
+         checking for directfb-config... /ngi-persist/monty/3P/FINAL/3p-sdl-update/stage/bin//directfb-config
+         checking directfb.h usability... yes
+         checking directfb.h presence... yes
+         checking for directfb.h... yes
+         checking for DirectFB 0.9.15 support... yes
+         checking for PlayStation 2 GS support... no
+
+    [ ]  Verified that the DirectFB and SDL libraries do not
+         re-export zlib and libpng symbols:
+
+         $ nm stage/lib/release/*.so | grep flate
+         001038a0 t deflate
+         00103740 t deflateBound
+         00104eb0 t deflateCopy
+         00104a20 t deflateEnd
+         00104b20 t deflateInit2_
+         etc.
+         $ nm stage/lib/release/*.so | grep png
+         $ 
+
+    [ ]  Verified library strings for zlib and libpng are as expected?
+
+         $ strings stage/lib/release/*.{so,a} | grep 1\\.[0-9]\\.
+         libdirectfb-1.7.so.1
+         libfusion-1.7.so.1
+         libdirect-1.7.so.1
+         lib++dfb-1.7.so.1
+         libdirectfb-1.7.so.1
+         libfusion-1.7.so.1
+         libdirect-1.7.so.1
+         libSDL-1.2.so.0
+         libdirect-1.7.so.1
+         1.7.1
+         libdirect-1.7.so.1
+         libfusion-1.7.so.1
+         libdirectfb-1.7.so.1
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~| DirectFB 1.7.1 |~~~~~~~~~~~~~~~~~~~~~~~~~~
+         /ngi-persist/monty/3P/FINAL/3p-sdl-update/stage/lib/release/libdirectfb-1.7.so.1
+         /ngi-persist/monty/3P/FINAL/3p-sdl-update/stage/share/directfb-1.7.1/cursor.dat
+         Core/WindowStack: `/ngi-persist/monty/3P/FINAL/3p-sdl-update/stage/share/directfb-1.7.1/cursor.dat` could not be opened!
+         DirectFB version 1.7.1
+         1.2.8
+          deflate 1.2.8 Copyright 1995-2013 Jean-loup Gailly and Mark Adler
+          inflate 1.2.8 Copyright 1995-2013 Mark Adler
+         libdirect-1.7.so.1
+         libfusion-1.7.so.1
+         1.7.1
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~| DirectFB 1.7.1 |~~~~~~~~~~~~~~~~~~~~~~~~~~
+         /ngi-persist/monty/3P/FINAL/3p-sdl-update/stage/lib/release/libdirectfb-1.7.so.1
+         /ngi-persist/monty/3P/FINAL/3p-sdl-update/stage/share/directfb-1.7.1/cursor.dat
+         Core/WindowStack: `/ngi-persist/monty/3P/FINAL/3p-sdl-update/stage/share/directfb-1.7.1/cursor.dat` could not be opened!
+         DirectFB version 1.7.1
+
+    [ ]  Verified that build products use the correct version of zlib
+         and libpng and do not reference shared libraries:
+
+         $ ldd stage/bin/*
          dfbdump:
                  linux-gate.so.1 =>  (0xf77d7000)
                  libdirectfb-1.7.so.1 => /ngi-persist/monty/3P/3p-sdl-update/stage/lib/release/libdirectfb-1.7.so.1 (0xf7685000)
@@ -42,8 +116,7 @@
          dfbdumpinput:
                  etc...
 
-         $ cd ../lib/release
-         $ ldd *.so*
+         $ ldd stage/lib/release/*.so*
          lib++dfb-1.7.so.1:
                  linux-gate.so.1 =>  (0xf7779000)
                  libdirectfb-1.7.so.1 => /ngi-persist/monty/3P/3p-sdl-update/stage/lib/release/libdirectfb-1.7.so.1 (0xf7607000)
@@ -60,31 +133,30 @@
          lib++dfb-1.7.so.1.0.0:
                  etc...
 
-         $ strings lib*.so* | grep 1\\.2\\.
-         libSDL-1.2.so.0
-         libSDL-1.2.so.0
-         libSDL-1.2.so.0
-         1.2.8
-          deflate 1.2.8 Copyright 1995-2013 Jean-loup Gailly and Mark Adler 
-          inflate 1.2.8 Copyright 1995-2013 Mark Adler 
-         1.2.8
-          deflate 1.2.8 Copyright 1995-2013 Jean-loup Gailly and Mark Adler 
-          inflate 1.2.8 Copyright 1995-2013 Mark Adler 
-         1.2.8
-          deflate 1.2.8 Copyright 1995-2013 Jean-loup Gailly and Mark Adler 
-          inflate 1.2.8 Copyright 1995-2013 Mark Adler 
-
-
     [ ]  Verified that build products use the correct version of
-         libpng:
+         libpng and zlib:
 
-         $ cd stage/lib/release/directfb-1.7-1/interfaces/IDirectFBImageProvider
-         $ strings * | grep 1\\.6\\.
-         1.6.8
-         1.6.8
+         $ strings stage/lib/release/directfb-1.7-1/interfaces/IDirectFBImageProvider/li*.so | grep 1\\.[0-9]\\.
+         libdirect-1.7.so.1
+         libdirectfb-1.7.so.1
+         libdirect-1.7.so.1
+         libdirectfb-1.7.so.1
+         libdirect-1.7.so.1
+         libdirectfb-1.7.so.1
+         libdirect-1.7.so.1
+         libdirectfb-1.7.so.1
+         libdirect-1.7.so.1
+         libdirectfb-1.7.so.1
+         libdirect-1.7.so.1
+         libdirectfb-1.7.so.1
          1.6.8
          libpng version 1.6.8 - December 19, 2013
           libpng version 1.6.8 - December 19, 2013
+         1.2.8
+          deflate 1.2.8 Copyright 1995-2013 Jean-loup Gailly and Mark Adler
+          inflate 1.2.8 Copyright 1995-2013 Mark Adler
+         libdirect-1.7.so.1
+         libdirectfb-1.7.so.1
 
 
 1.  Introduction
@@ -103,9 +175,25 @@
     How much of these libraries is actually used is unknown.  The
     DirectFB library is plugin/module-oriented but we are not
     packaging any of the modules.  It may be doing little more than
-    empty link-resolution.
+    empty link-resolution.  A build of SDL without directfb support
+    was incorporated into a viewer build and it did appear to function
+    with window resizing, etc. working.  It may be that some problem
+    lurks or the disabling of features like real fullscreen mode have
+    made DirectFB unnecessary (for the moment).
 
 
+    1.1  Futures
+
+    The 1.2 SDL package is well into legacy status.  The 2.0 re-design
+    appears to offer some improvements in keyboard/IM handling and
+    fullscreen mode that we could use.  The keyboard side will
+    probably require some work.
+
+    DirectFB also consumes libpng but from the system, not from our
+    packages.  That's something we might want to change *if* it
+    actually matters.  It may be used only by DirectFB plugins.
+
+    
 2.  Modifications
 
     Essential modifications to DirectFB/SDL distributions.
@@ -341,7 +429,7 @@ tagged the version 1.0 vendor drop), and then merge the differences
 between the version 1.0 and version 1.1 into our default branch.
 
  $ hg tag -f -r tip current
- $ Optional:  hg tag -r current 1.1
+ $ hg tag -r current 1.1
  $ hg update default
  $ hg merge vendor
  # resolve all the conflicts between their changes and our changes
@@ -364,7 +452,7 @@ like to establish are:
    the 'vendor' branch.  Will almost always be at or close to branch
    head.
 
- * '<version>' Ttag on the 'vendor' branch pointing to a verbatim
+ * '<version>' Tag on the 'vendor' branch pointing to a verbatim
    checkin of a 3rd-party's <version> release.  Example:  '7.21.1' for
    a particular version of libcurl we have used.
 
