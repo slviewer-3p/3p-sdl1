@@ -18,9 +18,9 @@
             <key>archive</key>
             <map>
               <key>hash</key>
-              <string>2f1a0a922479f616d0485a1440a4be60</string>
+              <string>f0c8dcaafd5281983443d89916820a5b</string>
               <key>url</key>
-              <string>http://automated-builds-secondlife-com.s3.amazonaws.com/hg/repo/3pl_3p-libpng-update/rev/290396/arch/Linux/installer/libpng-1.6.8-linux-20140529.tar.bz2</string>
+              <string>http://automated-builds-secondlife-com.s3.amazonaws.com/hg/repo/3pl_3p-libpng-update/rev/290540/arch/Linux/installer/libpng-1.6.8-linux-20140530.tar.bz2</string>
             </map>
             <key>name</key>
             <string>linux</string>
