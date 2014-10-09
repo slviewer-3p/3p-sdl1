@@ -7,11 +7,10 @@ set -e
 
 TOP="$(dirname "$0")"
 
-SDL_VERSION="1.2.15"
 SDL_SOURCE_DIR="SDL"
 DIRECTFB_VERSION="1.7.1"
 DIRECTFB_SOURCE_DIR="DirectFB"
-
+SDL_VERSION=$(sed -n -e 's/^Version: //p' "$TOP/$SDL_SOURCE_DIR/SDL.spec")
 
 if [ -z "$AUTOBUILD" ] ; then 
     fail
@@ -179,6 +178,7 @@ mkdir -p "$stage/LICENSES"
 cp "$TOP/$SDL_SOURCE_DIR/COPYING" "$stage/LICENSES/SDL.txt"
 mkdir -p "$stage"/docs/SDL/
 cp -a "$TOP"/README.Linden "$stage"/docs/SDL/
+echo "$SDL_VERSION" > "$stage/VERSION.txt"
 
 pass
 
