@@ -28,7 +28,7 @@
 #ifndef __FUSION__BUILD_H__
 #define __FUSION__BUILD_H__
 
-#define FUSION_BUILD_MULTI   (1)
+#define FUSION_BUILD_MULTI   (0)
 #define FUSION_BUILD_KERNEL  (1)
 #define FUSION_MESSAGE_SIZE  (16384)
 
