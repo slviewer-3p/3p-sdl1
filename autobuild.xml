@@ -22,18 +22,18 @@
             <key>archive</key>
             <map>
               <key>hash</key>
-              <string>2a82392f9f153d0511465a1d16889cc3</string>
+              <string>6dec32fc2527f8cafd616f9271ff3478</string>
               <key>hash_algorithm</key>
               <string>md5</string>
               <key>url</key>
-              <string>http://automated-builds-secondlife-com.s3.amazonaws.com/hg/repo/libpng_3p-update-libpng/rev/295325/arch/Linux/installer/libpng-1.6.8.295325-linux-295325.tar.bz2</string>
+              <string>http://automated-builds-secondlife-com.s3.amazonaws.com/hg/repo/libpng_3p-update-libpng/rev/297051/arch/Linux/installer/libpng-1.6.8.297051-linux-297051.tar.bz2</string>
             </map>
             <key>name</key>
             <string>linux</string>
           </map>
         </map>
         <key>version</key>
-        <string>1.6.8.295325</string>
+        <string>1.6.8.297051</string>
       </map>
       <key>zlib</key>
       <map>
@@ -54,18 +54,18 @@
             <key>archive</key>
             <map>
               <key>hash</key>
-              <string>ba68e85c1c32c9e1c8bf57c9e21b3d45</string>
+              <string>2eb8e59b6464222dcf4435016ad5f618</string>
               <key>hash_algorithm</key>
               <string>md5</string>
               <key>url</key>
-              <string>http://automated-builds-secondlife-com.s3.amazonaws.com/hg/repo/zlib_3p-update-zlib/rev/293925/arch/Linux/installer/zlib-1.2.8.293925-linux-293925.tar.bz2</string>
+              <string>http://automated-builds-secondlife-com.s3.amazonaws.com/hg/repo/zlib_3p-update-zlib/rev/296881/arch/Linux/installer/zlib-1.2.8.296881-linux-296881.tar.bz2</string>
             </map>
             <key>name</key>
             <string>linux</string>
           </map>
         </map>
         <key>version</key>
-        <string>1.2.8.293925</string>
+        <string>1.2.8.296881</string>
       </map>
     </map>
     <key>package_description</key>
