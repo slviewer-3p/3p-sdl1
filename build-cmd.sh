@@ -46,7 +46,7 @@ restore_sos ()
 
 case "$AUTOBUILD_PLATFORM" in
 
-    "linux")
+    linux*)
         # Linux build environment at Linden comes pre-polluted with stuff that can
         # seriously damage 3rd-party builds.  Environmental garbage you can expect
         # includes:
