@@ -94,7 +94,7 @@ case "$AUTOBUILD_PLATFORM" in
             # do release build of directfb  
             CFLAGS="-I$ZLIB_INCLUDE $opts" \
                 CXXFLAGS="-I$ZLIB_INCLUDE $opts" \
-                CPPFLAGS="$CPPFLAGS -I$ZLIB_INCLUDE -I$PNG_INCLUDE" \
+                CPPFLAGS="${CPPFLAGS:-} -I$ZLIB_INCLUDE -I$PNG_INCLUDE" \
                 LDFLAGS="-Wl,--exclude-libs,libz:libpng16 -L$stage/packages/lib/release $opts" \
                 LIBPNG_CFLAGS="-I$PNG_INCLUDE" \
                 LIBPNG_LIBS="-lpng16 -lz -lm" \
