@@ -9,9 +9,9 @@ set -u
 
 TOP="$(dirname "$0")"
 
-SDL_SOURCE_DIR="SDL"
-DIRECTFB_VERSION="1.7.1"
 DIRECTFB_SOURCE_DIR="DirectFB"
+DIRECTFB_VERSION="$(sed -n -E '/%define version ([0-9.]+)/s//\1/p' "$TOP/$DIRECTFB_SOURCE_DIR/directfb.spec")"
+SDL_SOURCE_DIR="SDL"
 SDL_VERSION=$(sed -n -e 's/^Version: //p' "$TOP/$SDL_SOURCE_DIR/SDL.spec")
 
 if [ -z "$AUTOBUILD" ] ; then 
@@ -37,7 +37,7 @@ source_environment_tempfile="$stage/source_environment.sh"
 # Restore all .sos
 restore_sos ()
 {
-    for solib in "${stage}"/packages/lib/{debug,release}/lib*.so*.disable; do 
+    for solib in "${stage}"/packages/lib/release/lib*.so*.disable; do 
         if [ -f "$solib" ]; then
             mv -f "$solib" "${solib%.disable}"
         fi
@@ -62,17 +62,11 @@ case "$AUTOBUILD_PLATFORM" in
         #
         # unset DISTCC_HOSTS CC CXX CFLAGS CPPFLAGS CXXFLAGS
 
-        # Prefer gcc-4.6 if available.
-        if [[ -x /usr/bin/gcc-4.6 && -x /usr/bin/g++-4.6 ]]; then
-            export CC=/usr/bin/gcc-4.6
-            export CXX=/usr/bin/g++-4.6
-        fi
-
-        # Default target to 32-bit
-        opts="${TARGET_OPTS:--m32}"
+        # Default target per autobuild --address-size
+        opts="${TARGET_OPTS:--m$AUTOBUILD_ADDRSIZE $LL_BUILD_RELEASE}"
 
         # Handle any deliberate platform targeting
-        if [ -z "$TARGET_CPPFLAGS" ]; then
+        if [ -z "${TARGET_CPPFLAGS:-}" ]; then
             # Remove sysroot contamination from build environment
             unset CPPFLAGS
         else
@@ -83,7 +77,7 @@ case "$AUTOBUILD_PLATFORM" in
         # Force static linkage to libz by moving .sos out of the way
         # (Libz is only packaging statics right now but keep this working.)
         trap restore_sos EXIT
-        for solib in "${stage}"/packages/lib/{debug,release}/libz.so*; do
+        for solib in "${stage}"/packages/lib/release/libz.so*; do
             if [ -f "$solib" ]; then
                 mv -f "$solib" "$solib".disable
             fi
@@ -97,14 +91,14 @@ case "$AUTOBUILD_PLATFORM" in
         # Similarly, pick up packages libraries.
 
         pushd "$TOP/$DIRECTFB_SOURCE_DIR"
-            # Debug build of directfb    
-            CFLAGS="-I"$ZLIB_INCLUDE" $opts -g" \
-                CXXFLAGS="-I"$ZLIB_INCLUDE" $opts -g" \
-                CPPFLAGS="$CPPFLAGS -I"$PNG_INCLUDE" -I"$ZLIB_INCLUDE"" \
-                LDFLAGS="-Wl,--exclude-libs,libz:libpng16 -L"$stage/packages/lib/debug" $opts" \
-                LIBPNG_CFLAGS="-I"$PNG_INCLUDE"" \
+            # do release build of directfb  
+            CFLAGS="-I$ZLIB_INCLUDE $opts" \
+                CXXFLAGS="-I$ZLIB_INCLUDE $opts" \
+                CPPFLAGS="$CPPFLAGS -I$ZLIB_INCLUDE -I$PNG_INCLUDE" \
+                LDFLAGS="-Wl,--exclude-libs,libz:libpng16 -L$stage/packages/lib/release $opts" \
+                LIBPNG_CFLAGS="-I$PNG_INCLUDE" \
                 LIBPNG_LIBS="-lpng16 -lz -lm" \
-                ./configure --prefix="$stage" --libdir="$stage/lib/debug" --includedir="$stage/include" \
+                ./configure --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include" \
                 --with-pic --enable-static --enable-shared --enable-zlib --disable-freetype
             make V=1
             make install
@@ -113,21 +107,6 @@ case "$AUTOBUILD_PLATFORM" in
             # Would like to do this but this deletes files that are generated
             # by 'fluxcomp' and we don't have that installed anywhere so don't
             # scrub between builds.
-            # make distclean
-
-            # do release build of directfb  
-            CFLAGS="-I"$ZLIB_INCLUDE" $opts -O3" \
-                CXXFLAGS="-I"$ZLIB_INCLUDE" $opts -O3" \
-                CPPFLAGS="$CPPFLAGS -I"$ZLIB_INCLUDE" -I"$PNG_INCLUDE"" \
-                LDFLAGS="-Wl,--exclude-libs,libz:libpng16 -L"$stage/packages/lib/release" $opts" \
-                LIBPNG_CFLAGS="-I"$PNG_INCLUDE"" \
-                LIBPNG_LIBS="-lpng16 -lz -lm" \
-                ./configure --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include" \
-                --with-pic --enable-static --enable-shared --enable-zlib --disable-freetype
-            make V=1
-            make install
-
-            # clean the build tree
             # make distclean
         popd
 
@@ -140,26 +119,12 @@ case "$AUTOBUILD_PLATFORM" in
         # into the release DirectFB staging area.
 
         pushd "$TOP/$SDL_SOURCE_DIR"
-            # do debug build of sdl
-            PATH="$stage"/bin/:"$PATH" \
-                CFLAGS="-I"$ZLIB_INCLUDE" -I"$PNG_INCLUDE" -I"$stage"/include/directfb/ $opts -O1 -g" \
-                CXXFLAGS="-I"$ZLIB_INCLUDE" -I"$PNG_INCLUDE" -I"$stage"/include/directfb/ $opts -O1 -g" \
-                CPPFLAGS="-I"$ZLIB_INCLUDE" -I"$PNG_INCLUDE" -I"$stage"/include/directfb/ $opts" \
-                LDFLAGS="-L"$stage/packages/lib/debug" -L"$stage/lib/debug" $opts" \
-                ./configure --target=i686-linux-gnu --with-pic --with-video-directfb \
-                --prefix="$stage" --libdir="$stage/lib/debug" --includedir="$stage/include"
-            make
-            make install
-
-            # clean the build tree
-            make distclean
-
             # do release build of sdl
-            PATH="$stage"/bin/:"$PATH" \
-                CFLAGS="-I"$ZLIB_INCLUDE" -I"$PNG_INCLUDE" -I"$stage"/include/directfb/ $opts -O3" \
-                CXXFLAGS="-I"$ZLIB_INCLUDE" -I"$PNG_INCLUDE" -I"$stage"/include/directfb/ $opts -O2" \
-                CPPFLAGS="-I"$ZLIB_INCLUDE" -I"$PNG_INCLUDE" -I"$stage"/include/directfb/ $opts" \
-                LDFLAGS="-L"$stage/packages/lib/release" -L"$stage/lib/release" $opts" \
+            PATH="$stage/bin/:$PATH" \
+                CFLAGS="-I$ZLIB_INCLUDE -I$PNG_INCLUDE -I$stage/include/directfb/ $opts" \
+                CXXFLAGS="-I$ZLIB_INCLUDE -I$PNG_INCLUDE -I$stage/include/directfb/ $opts" \
+                CPPFLAGS="-I$ZLIB_INCLUDE -I$PNG_INCLUDE -I$stage/include/directfb/ $opts" \
+                LDFLAGS="-L$stage/packages/lib/release -L$stage/lib/release $opts" \
                 ./configure --target=i686-linux-gnu --with-pic --with-video-directfb \
                 --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include"
             make
@@ -171,6 +136,7 @@ case "$AUTOBUILD_PLATFORM" in
     ;;
 
     *)
+        echo "Unrecognized platform $AUTOBUILD_PLATFORM" 1>&2
         exit -1
     ;;
 esac
