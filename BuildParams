@@ -3,3 +3,8 @@ public_build = true
 
 build_CYGWIN = false
 build_Darwin = false
+
+# Need viewer-build-variables as well as other shared repositories
+buildscripts_shared_more_NAMEs="build_variables"
+
+build_variables_repostory_url = "https://bitbucket.org/lindenlab/viewer-build-variables"
