@@ -1,9 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # turn on verbose debugging output for parabuild logs.
-set -x
+exec 4>&1; export BASH_XTRACEFD=4; set -x
 # make errors fatal
 set -e
+# bleat on references to undefined shell variables
+set -u
 
 TOP="$(dirname "$0")"
 
@@ -13,17 +15,12 @@ DIRECTFB_SOURCE_DIR="DirectFB"
 SDL_VERSION=$(sed -n -e 's/^Version: //p' "$TOP/$SDL_SOURCE_DIR/SDL.spec")
 
 if [ -z "$AUTOBUILD" ] ; then 
-    fail
+    exit 1
 fi
 
 if [ "$OSTYPE" = "cygwin" ] ; then
     export AUTOBUILD="$(cygpath -u $AUTOBUILD)"
 fi
-
-# load autbuild provided shell functions and variables
-set +x
-eval "$("$AUTOBUILD" source_environment)"
-set -x
 
 stage="$(pwd)"
 ZLIB_INCLUDE="${stage}"/packages/include/zlib
@@ -31,6 +28,11 @@ PNG_INCLUDE="${stage}"/packages/include/libpng16
 
 [ -f "$ZLIB_INCLUDE"/zlib.h ] || fail "You haven't installed the zlib package yet."
 [ -f "$PNG_INCLUDE"/png.h ] || fail "You haven't installed the libpng package yet."
+
+# load autobuild provided shell functions and variables
+source_environment_tempfile="$stage/source_environment.sh"
+"$AUTOBUILD" source_environment > "$source_environment_tempfile"
+. "$source_environment_tempfile"
 
 # Restore all .sos
 restore_sos ()
@@ -179,6 +181,3 @@ cp "$TOP/$SDL_SOURCE_DIR/COPYING" "$stage/LICENSES/SDL.txt"
 mkdir -p "$stage"/docs/SDL/
 cp -a "$TOP"/README.Linden "$stage"/docs/SDL/
 echo "$SDL_VERSION" > "$stage/VERSION.txt"
-
-pass
-
