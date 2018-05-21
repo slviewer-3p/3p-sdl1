@@ -95,12 +95,12 @@ case "$AUTOBUILD_PLATFORM" in
             CFLAGS="-I$ZLIB_INCLUDE $opts" \
                 CXXFLAGS="-I$ZLIB_INCLUDE $opts" \
                 CPPFLAGS="${CPPFLAGS:-} -I$ZLIB_INCLUDE -I$PNG_INCLUDE" \
-                LDFLAGS="-Wl,--exclude-libs,libz:libpng16 -L$stage/packages/lib/release $opts" \
+                LDFLAGS="-Wl,--exclude-libs,libz:libpng16 -L$stage/packages/lib/release -Wl,--build-id -Wl,-rpath,'\$\$ORIGIN:\$\$ORIGIN/../lib' $opts" \
                 LIBPNG_CFLAGS="-I$PNG_INCLUDE" \
                 LIBPNG_LIBS="-lpng16 -lz -lm" \
                 ./configure --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include" \
                 --with-pic --enable-static --enable-shared --enable-zlib --disable-freetype
-            make V=1
+            make -j4 V=1
             make install
 
             # clean the build tree
@@ -124,10 +124,10 @@ case "$AUTOBUILD_PLATFORM" in
                 CFLAGS="-I$ZLIB_INCLUDE -I$PNG_INCLUDE -I$stage/include/directfb/ $opts" \
                 CXXFLAGS="-I$ZLIB_INCLUDE -I$PNG_INCLUDE -I$stage/include/directfb/ $opts" \
                 CPPFLAGS="-I$ZLIB_INCLUDE -I$PNG_INCLUDE -I$stage/include/directfb/ $opts" \
-                LDFLAGS="-L$stage/packages/lib/release -L$stage/lib/release $opts" \
+                LDFLAGS="-L$stage/packages/lib/release -L$stage/lib/release -Wl,--build-id -Wl,-rpath,'\$\$ORIGIN:\$\$ORIGIN/../lib' $opts" \
                 ./configure --target=i686-linux-gnu --with-pic --with-video-directfb \
                 --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include"
-            make
+            make -j4
             make install
 
             # clean the build tree
