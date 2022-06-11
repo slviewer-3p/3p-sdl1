@@ -36,16 +36,16 @@
             <key>archive</key>
             <map>
               <key>hash</key>
-              <string>83ae55031f81dace9dcf688cc5510010</string>
+              <string>3b6dd9b3731e89fadd620067d5756168</string>
               <key>url</key>
-              <string>http://downloads.phoenixviewer.com/libpng-1.6.8.180841558-linux64-180841558.tar.bz2</string>
+              <string>jf://packages/linux64/libpng-1.6.8.221612135-linux64_bionic-221612135.tar.bz2</string>
             </map>
             <key>name</key>
             <string>linux64</string>
           </map>
         </map>
         <key>version</key>
-        <string>1.6.8.297051</string>
+        <string>1.6.8.221612135</string>
       </map>
       <key>zlib</key>
       <map>
@@ -80,20 +80,22 @@
             <key>archive</key>
             <map>
               <key>hash</key>
-              <string>15a645809cb2f14074f22e7848bb42cf</string>
+              <string>ecaa51df1bc359dfba7676373a1b86c6</string>
               <key>url</key>
-              <string>http://downloads.phoenixviewer.com/zlib-1.2.8.180841547-linux64-180841547.tar.bz2</string>
+              <string>jf://packages/linux64/zlib-1.2.11.221612031-linux64_bionic-221612031.tar.bz2</string>
             </map>
             <key>name</key>
             <string>linux64</string>
           </map>
         </map>
         <key>version</key>
-        <string>1.2.8.296881</string>
+        <string>1.2.11.221612031</string>
       </map>
     </map>
     <key>package_description</key>
     <map>
+      <key>canonical_repo</key>
+      <string>https://bitbucket.org/nickyd/3p-sdl</string>
       <key>copyright</key>
       <string>Copyright (C) 1997-2012 Sam Lantinga</string>
       <key>description</key>
