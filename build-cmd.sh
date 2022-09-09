@@ -100,7 +100,7 @@ case "$AUTOBUILD_PLATFORM" in
                 LIBPNG_LIBS="-lpng16 -lz -lm" \
                 ./configure --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include" \
                 --with-pic --enable-static --enable-shared --enable-zlib --disable-freetype
-            make -j4 V=1
+            make -j `nproc` V=1
             make install
 
             # clean the build tree
@@ -127,7 +127,7 @@ case "$AUTOBUILD_PLATFORM" in
                 LDFLAGS="-L$stage/packages/lib/release -L$stage/lib/release -Wl,--build-id -Wl,-rpath,'\$\$ORIGIN:\$\$ORIGIN/../lib' $opts" \
                 ./configure --target=i686-linux-gnu --with-pic --with-video-directfb \
                 --prefix="$stage" --libdir="$stage/lib/release" --includedir="$stage/include"
-            make -j4
+            make -j `nproc`
             make install
 
             # clean the build tree
