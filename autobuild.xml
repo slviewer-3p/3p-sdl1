@@ -95,7 +95,7 @@
     <key>package_description</key>
     <map>
       <key>canonical_repo</key>
-      <string>https://bitbucket.org/nickyd/3p-sdl</string>
+      <string>https://github.com/slviewer-3p/3p-sdl1</string>
       <key>copyright</key>
       <string>Copyright (C) 1997-2012 Sam Lantinga</string>
       <key>description</key>
